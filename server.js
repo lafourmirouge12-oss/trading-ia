@@ -17,7 +17,10 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const resend = new Resend(process.env.RESEND_API_KEY);
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
-const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
+const db = new Datastore({
+  filename: path.join(__dirname, 'users.db'),
+  autoload: true
+});
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -43,30 +46,32 @@ function checkAuth(req, res, next) {
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
-
-// Fichiers statiques
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Créer admins
-async function createAdmins() {
-  const admins = [
-    { email: 'admin@trading-ia.com', password: 'Admin2024!' },
-    { email: 'admin2@trading-ia.com', password: 'Admin2024bis!' }
-  ];
-  for (const a of admins) {
-    const existing = await db.findOneAsync({ email: a.email });
-    if (!existing) {
-      const hash = await bcrypt.hash(a.password, 10);
-      await db.insertAsync({
-        email: a.email, password: hash,
-        role: 'admin', isVerified: true,
-        analysisCount: 0, subscribed: true,
-        createdAt: new Date()
-      });
-      console.log('✅ Admin créé:', a.email, '/', a.password);
-    }
+// ===== SETUP ADMIN (à appeler une fois sur Render) =====
+app.get('/setup-admin', async (req, res) => {
+  try {
+    await db.removeAsync({ role: 'admin' }, { multi: true });
+    const hash = await bcrypt.hash('Admin2024!', 10);
+    await db.insertAsync({
+      email: 'admin@trading-ia.com',
+      password: hash,
+      role: 'admin',
+      isVerified: true,
+      analysisCount: 0,
+      subscribed: true,
+      createdAt: new Date()
+    });
+    res.send(`
+      <h2 style="font-family:monospace;color:green;">✅ Admin créé avec succès !</h2>
+      <p style="font-family:monospace;">Email: admin@trading-ia.com</p>
+      <p style="font-family:monospace;">Mot de passe: Admin2024!</p>
+      <a href="/login.html" style="font-family:monospace;">→ Aller au login</a>
+    `);
+  } catch(e) {
+    res.send('Erreur: ' + e.message);
   }
-}
+});
 
 // ===== INSCRIPTION =====
 app.post('/register', async (req, res) => {
@@ -74,65 +79,77 @@ app.post('/register', async (req, res) => {
   if (!email || !password) return res.json({ error: 'Champs manquants' });
   if (password.length < 6) return res.json({ error: 'Mot de passe trop court (6 min)' });
 
-  const existing = await db.findOneAsync({ email: email.toLowerCase() });
-  if (existing) return res.json({ error: 'Email déjà utilisé' });
-
-  const hash = await bcrypt.hash(password, 10);
-  const token = uuidv4();
-
-  await db.insertAsync({
-    email: email.toLowerCase(), password: hash,
-    role: 'user', isVerified: false,
-    verifyToken: token, analysisCount: 0,
-    subscribed: false, createdAt: new Date()
-  });
-
   try {
-    await resend.emails.send({
-      from: 'IA Trading <onboarding@resend.dev>',
-      to: email,
-      subject: '✅ Confirmez votre compte IA Trading',
-      html: `
-        <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;">
-          <h1 style="color:#00f5ff;letter-spacing:4px;">🤖 IA DE TRADING</h1>
-          <p>Confirmez votre email pour activer vos 2 analyses gratuites.</p>
-          <a href="${BASE_URL}/verify/${token}"
-             style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 28px;text-decoration:none;font-weight:bold;margin:20px 0;border-radius:2px;">
-            CONFIRMER MON COMPTE
-          </a>
-          <p style="color:rgba(255,255,255,0.3);font-size:11px;">Lien valide 24h.</p>
-        </div>
-      `
-    });
-  } catch(e) {
-    console.log('Email non envoyé:', e.message);
-  }
+    const existing = await db.findOneAsync({ email: email.toLowerCase() });
+    if (existing) return res.json({ error: 'Email déjà utilisé' });
 
-  res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
+    const hash = await bcrypt.hash(password, 10);
+    const token = uuidv4();
+
+    await db.insertAsync({
+      email: email.toLowerCase(),
+      password: hash,
+      role: 'user',
+      isVerified: false,
+      verifyToken: token,
+      analysisCount: 0,
+      subscribed: false,
+      createdAt: new Date()
+    });
+
+    try {
+      await resend.emails.send({
+        from: 'IA Trading <onboarding@resend.dev>',
+        to: email,
+        subject: '✅ Confirmez votre compte IA Trading',
+        html: `
+          <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;">
+            <h1 style="color:#00f5ff;letter-spacing:4px;">🤖 IA DE TRADING</h1>
+            <p>Confirmez votre email pour activer vos 2 analyses gratuites.</p>
+            <a href="${BASE_URL}/verify/${token}"
+               style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 28px;text-decoration:none;font-weight:bold;margin:20px 0;border-radius:2px;">
+              CONFIRMER MON COMPTE
+            </a>
+            <p style="color:rgba(255,255,255,0.3);font-size:11px;">Lien valide 24h.</p>
+          </div>
+        `
+      });
+    } catch(e) {
+      console.log('Email non envoyé:', e.message);
+    }
+
+    res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
+  } catch(e) {
+    res.json({ error: 'Erreur: ' + e.message });
+  }
 });
 
 // ===== VÉRIFICATION EMAIL =====
 app.get('/verify/:token', async (req, res) => {
-  const n = await db.updateAsync(
-    { verifyToken: req.params.token },
-    { $set: { isVerified: true, verifyToken: null } },
-    {}
-  );
-  if (n === 0) return res.redirect('/login.html?error=1');
-  res.redirect('/login.html?verified=1');
+  try {
+    const n = await db.updateAsync(
+      { verifyToken: req.params.token },
+      { $set: { isVerified: true, verifyToken: null } },
+      {}
+    );
+    if (n === 0) return res.redirect('/login.html?error=1');
+    res.redirect('/login.html?verified=1');
+  } catch(e) {
+    res.redirect('/login.html?error=1');
+  }
 });
 
 // ===== RENVOI EMAIL =====
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
-  const user = await db.findOneAsync({ email: email.toLowerCase() });
-  if (!user) return res.json({ error: 'Email introuvable' });
-  if (user.isVerified) return res.json({ error: 'Compte déjà vérifié' });
-
-  const token = uuidv4();
-  await db.updateAsync({ email: email.toLowerCase() }, { $set: { verifyToken: token } }, {});
-
   try {
+    const user = await db.findOneAsync({ email: email.toLowerCase() });
+    if (!user) return res.json({ error: 'Email introuvable' });
+    if (user.isVerified) return res.json({ error: 'Compte déjà vérifié' });
+
+    const token = uuidv4();
+    await db.updateAsync({ email: email.toLowerCase() }, { $set: { verifyToken: token } }, {});
+
     await resend.emails.send({
       from: 'IA Trading <onboarding@resend.dev>',
       to: email,
@@ -158,16 +175,20 @@ app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
 
-  const user = await db.findOneAsync({ email: email.toLowerCase() });
-  if (!user) return res.json({ error: 'Email ou mot de passe incorrect' });
-  if (!user.isVerified) return res.json({ error: 'Vérifiez votre email avant de vous connecter' });
+  try {
+    const user = await db.findOneAsync({ email: email.toLowerCase() });
+    if (!user) return res.json({ error: 'Email ou mot de passe incorrect' });
+    if (!user.isVerified) return res.json({ error: 'Vérifiez votre email avant de vous connecter' });
 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.json({ error: 'Email ou mot de passe incorrect' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.json({ error: 'Email ou mot de passe incorrect' });
 
-  req.session.userId = user._id;
-  req.session.userRole = user.role;
-  res.json({ success: true, redirect: '/' });
+    req.session.userId = user._id;
+    req.session.userRole = user.role;
+    res.json({ success: true, redirect: '/' });
+  } catch(e) {
+    res.json({ error: 'Erreur serveur: ' + e.message });
+  }
 });
 
 // ===== DÉCONNEXION =====
@@ -176,31 +197,30 @@ app.get('/logout', (req, res) => {
 });
 
 // ===== INFOS USER =====
-app.get('/me', checkAuth, (req, res) => {
-  db.findOne({ _id: req.session.userId }, (err, user) => {
-    if (!user) return res.json({ error: 'Non trouvé' });
-    res.json({
-      email: user.email,
-      role: user.role,
-      analysisCount: user.analysisCount,
-      subscribed: user.subscribed
-    });
+app.get('/me', checkAuth, async (req, res) => {
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user) return res.json({ error: 'Non trouvé' });
+  res.json({
+    email: user.email,
+    role: user.role,
+    analysisCount: user.analysisCount,
+    subscribed: user.subscribed
   });
 });
 
 // ===== ANALYSE =====
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
-  const user = await db.findOneAsync({ _id: req.session.userId });
-  if (!user) return res.status(401).json({ error: 'Non connecté' });
-
-  if (user.role !== 'admin' && !user.subscribed && user.analysisCount >= 2) {
-    if (req.file) fs.unlinkSync(req.file.path);
-    return res.json({ limitReached: true, redirect: '/abonnement.html' });
-  }
-
-  if (!req.file) return res.status(400).json({ error: 'Aucune image reçue' });
-
   try {
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!user) return res.status(401).json({ error: 'Non connecté' });
+
+    if (user.role !== 'admin' && !user.subscribed && user.analysisCount >= 2) {
+      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.json({ limitReached: true, redirect: '/abonnement.html' });
+    }
+
+    if (!req.file) return res.status(400).json({ error: 'Aucune image reçue' });
+
     const imageData = fs.readFileSync(req.file.path);
     const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
@@ -212,7 +232,9 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader professionnel avec 15 ans d'expérience. Analyse ce graphique et réponds en français avec exactement ce format :
+          {
+            type: 'text',
+            text: `Tu es un trader professionnel avec 15 ans d'expérience. Analyse ce graphique et réponds en français avec exactement ce format :
 
 DÉCISION: BUY ou SELL — Confiance XX%
 
@@ -226,7 +248,8 @@ TAKE PROFIT: [prix précis ex: 4650]
 
 SETUP: [2-3 phrases sur les indicateurs, bref et concret]
 
-IMPORTANT: Sois direct comme un vrai trader. Pas de blabla. Phrases courtes. Donne des chiffres précis.` }
+IMPORTANT: Sois direct comme un vrai trader. Pas de blabla. Phrases courtes. Donne des chiffres précis.`
+          }
         ]
       }]
     });
@@ -253,7 +276,6 @@ if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
   fs.mkdirSync(path.join(__dirname, 'uploads'));
 }
 
-app.listen(port, async () => {
+app.listen(port, () => {
   console.log('✅ Serveur lancé sur http://localhost:' + port);
-  await createAdmins();
 });
