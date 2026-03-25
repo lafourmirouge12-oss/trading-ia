@@ -1,6 +1,6 @@
 const express = require('express');
 const session = require('express-session');
-const Datastore = require('nedb');
+const Datastore = require('@seald-io/nedb'); // <--- Utilise bien le nom complet avec @seald-io
 const path = require('path');
 const nodemailer = require('nodemailer');
 
