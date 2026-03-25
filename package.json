@@ -7,9 +7,11 @@
     "@seald-io/nedb": "^4.1.2",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.6.1",
+    "ejs": "^5.0.1",
     "express": "^4.18.0",
     "express-session": "^1.19.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^8.0.4",
     "resend": "^3.2.0",
     "uuid": "^9.0.0"
   }
