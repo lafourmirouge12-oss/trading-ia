@@ -2,23 +2,54 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Inscription - Trading IA</title>
+    <title>Inscription | Trading IA</title>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; padding-top: 50px; background: #f0f2f5; }
-        .form-card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px; }
-        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        body { background: #050505; color: white; font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: rgba(0, 20, 30, 0.8); border: 1px solid #00f3ff; padding: 40px; width: 350px; text-align: center; box-shadow: 0 0 20px rgba(0, 243, 255, 0.2); }
+        h1 { text-transform: uppercase; letter-spacing: 4px; color: #00f3ff; font-size: 1.5rem; }
+        input { width: 100%; padding: 12px; margin: 10px 0; background: rgba(0,0,0,0.5); border: 1px solid #00f3ff; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 15px; background: #00f3ff; border: none; color: black; font-weight: bold; cursor: pointer; text-transform: uppercase; margin-top: 20px; transition: 0.3s; }
+        button:hover { background: #fff; box-shadow: 0 0 15px #00f3ff; }
+        #msg { display: none; padding: 10px; margin-bottom: 20px; font-size: 0.9rem; border: 1px solid; }
+        .error { border-color: #ff4444; color: #ff4444; background: rgba(255,68,68,0.1); }
+        .success { border-color: #00ff88; color: #00ff88; background: rgba(0,255,136,0.1); }
     </style>
 </head>
 <body>
-    <div class="form-card">
-        <h2>Créer un compte</h2>
-        <form action="/register" method="POST">
-            <input type="email" name="email" placeholder="Votre Email" required>
-            <input type="password" name="password" placeholder="Votre Mot de passe" required>
-            <button type="submit">S'inscrire</button>
-        </form>
-        <p><a href="/login">Déjà inscrit ? Se connecter</a></p>
-    </div>
+
+<div class="card">
+    <h1>CRÉER UN COMPTE</h1>
+    
+    <div id="msg"></div>
+
+    <form id="regForm">
+        <input type="email" name="email" placeholder="VOTRE EMAIL" required>
+        <input type="password" name="password" placeholder="MOT DE PASSE" required>
+        <button type="submit">S'inscrire</button>
+    </form>
+    
+    <p style="font-size: 0.8rem; margin-top: 20px;">Déjà un compte ? <a href="/login" style="color:#00f3ff;">Se connecter</a></p>
+</div>
+
+<script>
+    document.getElementById('regForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const msgDiv = document.getElementById('msg');
+        const formData = new URLSearchParams(new FormData(e.target));
+        
+        const res = await fetch('/register', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        msgDiv.style.display = 'block';
+        if (data.error) {
+            msgDiv.className = 'error';
+            msgDiv.innerText = data.error;
+        } else {
+            msgDiv.className = 'success';
+            msgDiv.innerText = data.success;
+            e.target.style.display = 'none'; // Cache le formulaire après succès
+        }
+    };
+</script>
 </body>
 </html>

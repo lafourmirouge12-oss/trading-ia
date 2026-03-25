@@ -1,67 +1,17 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel Admin - Gestion Appareils</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-        .card { max-width: 1100px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        h1 { color: #1a1a1a; border-bottom: 2px solid #eee; padding-bottom: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { background: #2c3e50; color: white; text-align: left; padding: 12px; }
-        td { padding: 12px; border-bottom: 1px solid #eee; }
-        .badge { padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-        .role-admin { background: #f1c40f; color: #000; }
-        .role-user { background: #3498db; color: #fff; }
-        .btn-unlock { background: #e74c3c; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; transition: 0.3s; }
-        .btn-unlock:hover { background: #c0392b; transform: scale(1.05); }
-        .status-locked { color: #27ae60; font-weight: bold; }
-        .status-free { color: #95a5a6; font-style: italic; }
-    </style>
-</head>
-<body>
-
-<div class="card">
-    <h1>Tableau de bord - Utilisateurs</h1>
-    
-    <table>
-        <thead>
-            <tr>
-                <th>Email</th>
-                <th>Rôle</th>
-                <th>Appareil</th>
-                <th>Dernier Changement</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            <% users.forEach(user => { %>
-            <tr>
-                <td><strong><%= user.email %></strong></td>
-                <td><span class="badge <%= user.role === 'admin' ? 'role-admin' : 'role-user' %>"><%= user.role %></span></td>
-                <td>
-                    <% if(user.currentDevice) { %>
-                        <span class="status-locked">Verrouillé</span>
-                    <% } else { %>
-                        <span class="status-free">Libre (Nouveau)</span>
-                    <% } %>
-                </td>
-                <td><%= user.lastDeviceChange ? new Date(user.lastDeviceChange).toLocaleDateString('fr-FR') : 'Jamais' %></td>
-                <td>
-                    <% if(user.role !== 'admin' && user.currentDevice) { %>
-                        <form action="/admin/reset-device/<%= user._id %>" method="POST">
-                            <button type="submit" class="btn-unlock">🔓 Débloquer Appareil</button>
-                        </form>
-                    <% } else { %>
-                        -
-                    <% } %>
-                </td>
-            </tr>
-            <% }) %>
-        </tbody>
-    </table>
+<!-- BOUTON DÉCONNEXION CYBERPUNK -->
+<div style="position: fixed; top: 20px; right: 20px; z-index: 9999;">
+    <a href="/logout" style="
+        color: #ff4444; 
+        border: 1px solid #ff4444; 
+        padding: 10px 20px; 
+        text-decoration: none; 
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        background: rgba(255, 0, 0, 0.1);
+        box-shadow: 0 0 10px rgba(255, 68, 68, 0.2);
+        transition: 0.3s;
+    " onmouseover="this.style.background='#ff4444'; this.style.color='black';" 
+       onmouseout="this.style.background='rgba(255, 0, 0, 0.1)'; this.style.color='#ff4444';">
+        DÉCONNEXION [X]
+    </a>
 </div>
-
-</body>
-</html>
