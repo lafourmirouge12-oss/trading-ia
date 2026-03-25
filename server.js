@@ -17,10 +17,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const resend = new Resend(process.env.RESEND_API_KEY);
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
-const db = new Datastore({
-  filename: path.join(__dirname, 'users.db'),
-  autoload: true
-});
+const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -48,7 +45,7 @@ app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ===== SETUP ADMIN (à appeler une fois sur Render) =====
+// ===== SETUP ADMIN =====
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -63,10 +60,13 @@ app.get('/setup-admin', async (req, res) => {
       createdAt: new Date()
     });
     res.send(`
-      <h2 style="font-family:monospace;color:green;">✅ Admin créé avec succès !</h2>
-      <p style="font-family:monospace;">Email: admin@trading-ia.com</p>
-      <p style="font-family:monospace;">Mot de passe: Admin2024!</p>
-      <a href="/login.html" style="font-family:monospace;">→ Aller au login</a>
+      <div style="background:#020510;color:#00f5ff;font-family:monospace;padding:40px;min-height:100vh;">
+        <h2>✅ Admin créé !</h2>
+        <p>Email: admin@trading-ia.com</p>
+        <p>Mot de passe: Admin2024!</p>
+        <br>
+        <a href="/login.html" style="color:#00f5ff;">→ Aller au login</a>
+      </div>
     `);
   } catch(e) {
     res.send('Erreur: ' + e.message);
@@ -103,22 +103,24 @@ app.post('/register', async (req, res) => {
         to: email,
         subject: '✅ Confirmez votre compte IA Trading',
         html: `
-          <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;">
-            <h1 style="color:#00f5ff;letter-spacing:4px;">🤖 IA DE TRADING</h1>
-            <p>Confirmez votre email pour activer vos 2 analyses gratuites.</p>
+          <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+            <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">🤖 IA DE TRADING</h1>
+            <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+            <p style="color:rgba(255,255,255,0.8);margin-bottom:8px;">Bienvenue !</p>
+            <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour activer vos <strong style="color:#00f5ff;">2 analyses gratuites</strong>.</p>
             <a href="${BASE_URL}/verify/${token}"
-               style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 28px;text-decoration:none;font-weight:bold;margin:20px 0;border-radius:2px;">
+               style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">
               CONFIRMER MON COMPTE
             </a>
-            <p style="color:rgba(255,255,255,0.3);font-size:11px;">Lien valide 24h.</p>
+            <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h. Si vous n'avez pas créé ce compte, ignorez cet email.</p>
           </div>
         `
       });
+      res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
     } catch(e) {
       console.log('Email non envoyé:', e.message);
+      res.json({ success: 'Compte créé ! (Email de confirmation non envoyé, contactez le support)' });
     }
-
-    res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
   } catch(e) {
     res.json({ error: 'Erreur: ' + e.message });
   }
@@ -145,7 +147,7 @@ app.post('/resend-email', async (req, res) => {
   try {
     const user = await db.findOneAsync({ email: email.toLowerCase() });
     if (!user) return res.json({ error: 'Email introuvable' });
-    if (user.isVerified) return res.json({ error: 'Compte déjà vérifié' });
+    if (user.isVerified) return res.json({ error: 'Compte déjà vérifié, connectez-vous !' });
 
     const token = uuidv4();
     await db.updateAsync({ email: email.toLowerCase() }, { $set: { verifyToken: token } }, {});
@@ -153,20 +155,23 @@ app.post('/resend-email', async (req, res) => {
     await resend.emails.send({
       from: 'IA Trading <onboarding@resend.dev>',
       to: email,
-      subject: '✅ Nouveau lien de confirmation',
+      subject: '✅ Nouveau lien de confirmation — IA Trading',
       html: `
-        <div style="background:#020510;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;">
-          <h1 style="color:#00f5ff;">🤖 IA DE TRADING</h1>
+        <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">🤖 IA DE TRADING</h1>
+          <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+          <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Voici votre nouveau lien de confirmation :</p>
           <a href="${BASE_URL}/verify/${token}"
-             style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 28px;text-decoration:none;font-weight:bold;margin:20px 0;">
+             style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">
             CONFIRMER MON COMPTE
           </a>
+          <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
         </div>
       `
     });
-    res.json({ success: 'Email renvoyé !' });
+    res.json({ success: 'Email renvoyé ! Vérifiez votre boîte mail.' });
   } catch(e) {
-    res.json({ error: 'Erreur envoi email' });
+    res.json({ error: 'Erreur envoi email: ' + e.message });
   }
 });
 
@@ -178,7 +183,7 @@ app.post('/login', async (req, res) => {
   try {
     const user = await db.findOneAsync({ email: email.toLowerCase() });
     if (!user) return res.json({ error: 'Email ou mot de passe incorrect' });
-    if (!user.isVerified) return res.json({ error: 'Vérifiez votre email avant de vous connecter' });
+    if (!user.isVerified) return res.json({ error: 'email_not_verified' });
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.json({ error: 'Email ou mot de passe incorrect' });
@@ -271,7 +276,6 @@ IMPORTANT: Sois direct comme un vrai trader. Pas de blabla. Phrases courtes. Don
   }
 });
 
-// Démarrage
 if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
   fs.mkdirSync(path.join(__dirname, 'uploads'));
 }
