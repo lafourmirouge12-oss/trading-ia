@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Connexion — IA Trading</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --cyan: #00f5ff; --blue: #0080ff; --dark: #020510; --red: #ff3060; --green: #00ff88; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--dark); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .particles { position: fixed; inset: 0; z-index: 0; }
+    .particle { position: absolute; width: 2px; height: 2px; border-radius: 50%; animation: float linear infinite; opacity: 0; }
+    @keyframes float { 0% { transform: translateY(100vh); opacity: 0; } 100% { transform: translateY(-10vh); opacity: 0; } }
+    .card { position: relative; z-index: 1; background: rgba(0,15,40,0.85); border: 1px solid rgba(0,245,255,0.2); border-radius: 4px; padding: 40px; width: 100%; max-width: 400px; backdrop-filter: blur(20px); }
+    h1 { font-family: 'Orbitron'; font-size: 24px; text-align: center; color: #fff; letter-spacing: 4px; margin-bottom: 30px; text-transform: uppercase; }
+    .field { margin-bottom: 20px; }
+    label { display: block; font-family: 'Orbitron'; font-size: 9px; color: var(--cyan); margin-bottom: 8px; letter-spacing: 2px; }
+    input { width: 100%; background: rgba(0,245,255,0.05); border: 1px solid rgba(0,245,255,0.2); padding: 12px; color: #fff; outline: none; transition: 0.3s; }
+    input:focus { border-color: var(--cyan); box-shadow: 0 0 10px rgba(0,245,255,0.2); }
+    .btn { width: 100%; font-family: 'Orbitron'; padding: 15px; background: var(--cyan); border: none; cursor: pointer; font-weight: bold; letter-spacing: 2px; transition: 0.3s; clip-path: polygon(5% 0%, 100% 0%, 95% 100%, 0% 100%); }
+    .btn:hover { box-shadow: 0 0 20px var(--cyan); }
+    .msg { padding: 10px; margin-bottom: 20px; font-size: 13px; display: none; text-align: center; }
+    .msg.error { background: rgba(255,48,96,0.1); border: 1px solid var(--red); color: var(--red); }
+    .msg.success { background: rgba(0,255,136,0.1); border: 1px solid var(--green); color: var(--green); }
+    .link { text-align: center; margin-top: 20px; font-size: 13px; color: rgba(255,255,255,0.5); }
+    .link a { color: var(--cyan); text-decoration: none; }
+    .resend-btn { background: none; border: none; color: var(--cyan); cursor: pointer; font-family: 'Orbitron'; font-size: 9px; margin-top: 10px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+<div class="particles" id="particles"></div>
+<div class="card">
+  <h1>Connexion</h1>
+  <div class="msg" id="msg"></div>
+  
+  <div class="field">
+    <label>Email</label>
+    <input type="email" id="email" placeholder="votre@email.com" />
+  </div>
+  <div class="field">
+    <label>Mot de passe</label>
+    <input type="password" id="password" placeholder="••••••••" />
+  </div>
+  
+  <button class="btn" onclick="handleLogin()">Se connecter</button>
+
+  <div class="link">
+    Pas de compte ? <a href="/register">S'inscrire</a><br>
+    <button class="resend-btn" onclick="handleResend()">Renvoyer l'email de confirmation</button>
+  </div>
+</div>
+
+<script>
+  // Particules
+  const pContainer = document.getElementById('particles');
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.cssText = `left:${Math.random()*100}%;animation-duration:${5+Math.random()*5}s;background:var(--cyan);top:${Math.random()*100}%`;
+    pContainer.appendChild(p);
+  }
+
+  async function handleLogin() {
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const msg = document.getElementById('msg');
+
+    const res = await fetch('/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      msg.textContent = data.error;
+      msg.className = "msg error";
+      msg.style.display = "block";
+    } else if (data.redirect) {
+      window.location.href = data.redirect;
+    }
+  }
+
+  async function handleResend() {
+    const email = document.getElementById('email').value;
+    const msg = document.getElementById('msg');
+    if (!email) return alert("Entrez votre email d'abord");
+
+    const res = await fetch('/resend-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    msg.textContent = data.success || data.error;
+    msg.className = data.success ? "msg success" : "msg error";
+    msg.style.display = "block";
+  }
+</script>
+</body>
+</html>
