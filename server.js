@@ -1,130 +1,145 @@
+require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const Datastore = require('@seald-io/nedb'); // <--- Utilise bien le nom complet avec @seald-io
-const path = require('path');
+const Datastore = require('@seald-io/nedb');
+const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-// Sur Render, le chemin doit être absolu pour éviter les erreurs d'écriture
-const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
+const port = process.env.PORT || 3000;
 
+// --- CONFIGURATION BASE DE DONNÉES ---
+const db = new Datastore({ filename: 'users.db', autoload: true });
+
+// --- CONFIGURATION MOTEUR DE RENDU ---
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static('public'));
-app.use(express.json()); 
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
+// --- CONFIGURATION SESSION ---
 app.use(session({
-    secret: 'trading_secret_key_123',
+    secret: process.env.SESSION_SECRET || 'cyber-trading-secret',
     resave: false,
-    saveUninitialized: true,
-    cookie: { maxAge: 24 * 60 * 60 * 1000 }
+    saveUninitialized: false
 }));
 
-// --- CONFIGURATION EMAIL ---
+// --- CONFIGURATION NODEMAILER (GMAIL) ---
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
         user: 'lafourmirouge12@gmail.com',
-        pass: 'jvltzfyyvgmfycpg' // <--- METS TES 16 LETTRES ICI
+        pass: process.env.GMAIL_PASS 
     }
 });
 
-// --- DÉFINITION DE L'URL RENDER ---
-// Remplace 'ton-app-trading' par le nom exact de ton projet sur Render
-const BASE_URL = "https://trading-clean.onrender.com"; 
-
-// --- ROUTES ---
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/login', (req, res) => res.render('login'));
-app.get('/register', (req, res) => res.render('register'));
-
-// --- INSCRIPTION ---
-app.post('/register', (req, res) => {
+// --- ROUTE : INSCRIPTION (REGISTER) ---
+app.post('/register', async (req, res) => {
     const { email, password } = req.body;
-    db.findOne({ email }, (err, user) => {
-        if (user) return res.json({ error: "Email déjà utilisé" });
+    
+    db.findOne({ email }, async (err, user) => {
+        if (user) return res.json({ error: "Cet email est déjà utilisé" });
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const verificationToken = uuidv4();
 
         const newUser = {
             email,
-            password, 
+            password: hashedPassword,
+            isVerified: false,
+            verificationToken,
             role: 'user',
-            currentDevice: req.headers['user-agent'],
-            lastDeviceChange: new Date()
+            createdAt: new Date()
         };
 
-        db.insert(newUser, (err) => {
-            if (err) return res.json({ error: "Erreur base de données" });
+        db.insert(newUser, (err, savedUser) => {
+            const verificationLink = `${process.env.BASE_URL}/verify/${verificationToken}`;
             
-            transporter.sendMail({
-                from: '"Trading IA" <lafourmirouge12@gmail.com>',
+            const mailOptions = {
+                from: 'lafourmirouge12@gmail.com',
                 to: email,
-                subject: 'Bienvenue chez Trading IA',
-                html: `<h2>Compte créé !</h2>
-                       <p>Votre appareil est enregistré.</p>
-                       <p><a href="${BASE_URL}/login">Cliquez ici pour vous connecter</a></p>`
+                subject: 'Activez votre compte Trading IA',
+                html: `
+                    <div style="background:#050505; color:white; padding:20px; border:1px solid #00f3ff; font-family:sans-serif;">
+                        <h1 style="color:#00f3ff;">BIENVENUE AGENT</h1>
+                        <p>Cliquez sur le lien ci-dessous pour confirmer votre accès au terminal :</p>
+                        <a href="${verificationLink}" style="display:inline-block; padding:10px 20px; background:#00f3ff; color:black; text-decoration:none; font-weight:bold;">VÉRIFIER MON COMPTE</a>
+                    </div>`
+            };
+
+            transporter.sendMail(mailOptions, (error) => {
+                if (error) return res.json({ error: "Erreur lors de l'envoi de l'email" });
+                res.json({ success: "Compte créé ! Vérifiez vos emails (et spams)." });
             });
-            res.json({ success: "Compte créé ! Vérifiez votre email." });
         });
     });
 });
 
-// --- RENVOI EMAIL ---
-app.post('/resend-email', (req, res) => {
-    const { email } = req.body;
-    db.findOne({ email }, (err, user) => {
-        if (!user) return res.json({ error: "Aucun compte trouvé." });
-
-        transporter.sendMail({
-            from: '"Trading IA" <lafourmirouge12@gmail.com>',
-            to: email,
-            subject: 'Renvoi : Confirmation de compte',
-            html: `<h2>Lien de connexion</h2>
-                   <p>Accédez à votre compte ici :</p>
-                   <a href="${BASE_URL}/login">Se connecter</a>`
-        }, (err) => {
-            if (err) return res.json({ error: "Erreur d'envoi." });
-            res.json({ success: "Email renvoyé avec succès !" });
-        });
-    });
-});
-
-// --- CONNEXION (30 JOURS) ---
+// --- ROUTE : CONNEXION (LOGIN) ---
 app.post('/login', (req, res) => {
     const { email, password } = req.body;
-    const device = req.headers['user-agent'];
 
-    db.findOne({ email }, (err, user) => {
-        if (!user || user.password !== password) return res.json({ error: "Identifiants incorrects" });
+    db.findOne({ email }, async (err, user) => {
+        if (!user) return res.json({ error: "Utilisateur non trouvé" });
 
-        if (user.role === 'admin') {
-            req.session.isAdmin = true;
-            return res.json({ success: true, redirect: '/admin' });
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) return res.json({ error: "Mot de passe incorrect" });
+
+        if (!user.isVerified) {
+            return res.json({ error: "Veuillez vérifier votre email avant de vous connecter" });
         }
 
-        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-        const now = new Date();
-
-        if (user.currentDevice && user.currentDevice !== device) {
-            const diff = now - new Date(user.lastDeviceChange);
-            if (diff < thirtyDays) {
-                const rest = Math.ceil((thirtyDays - diff) / (1000 * 60 * 60 * 24));
-                return res.json({ error: `Nouvel appareil. Attendez ${rest} jours.` });
-            }
-        }
-
-        db.update({ _id: user._id }, { $set: { currentDevice: device, lastDeviceChange: now } });
         req.session.userId = user._id;
-        res.json({ success: true, redirect: '/' });
+        req.session.role = user.role;
+        res.json({ redirect: '/dashboard' });
     });
 });
 
-// --- ADMIN ---
-app.get('/admin', (req, res) => {
-    if (!req.session.isAdmin) return res.status(403).send("Refusé");
-    db.find({}, (err, users) => res.render('admin', { users }));
+// --- ROUTE : RENVOYER L'EMAIL ---
+app.post('/resend-email', (req, res) => {
+    const { email } = req.body;
+
+    db.findOne({ email }, (err, user) => {
+        if (!user) return res.json({ error: "Email inconnu" });
+        if (user.isVerified) return res.json({ error: "Compte déjà vérifié" });
+
+        const verificationLink = `${process.env.BASE_URL}/verify/${user.verificationToken}`;
+        
+        const mailOptions = {
+            from: 'lafourmirouge12@gmail.com',
+            to: email,
+            subject: 'Renvoyer : Activation de votre compte',
+            html: `<p>Nouveau lien de vérification : <a href="${verificationLink}">Cliquez ici</a></p>`
+        };
+
+        transporter.sendMail(mailOptions, (error) => {
+            if (error) return res.json({ error: "Erreur d'envoi" });
+            res.json({ success: "Un nouvel email a été envoyé !" });
+        });
+    });
 });
 
-// Port dynamique pour Render
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Serveur en ligne sur le port ${PORT}`));
+// --- ROUTE : VÉRIFICATION DU LIEN ---
+app.get('/verify/:token', (req, res) => {
+    const { token } = req.params;
+    db.update({ verificationToken: token }, { $set: { isVerified: true } }, {}, (err, numUpdated) => {
+        if (numUpdated === 0) return res.send("Lien invalide ou expiré.");
+        res.render('success', { message: "Votre compte a été activé avec succès !" });
+    });
+});
+
+// --- ROUTES PAGES ---
+app.get('/', (req, res) => res.render('index'));
+app.get('/login', (req, res) => res.render('login'));
+app.get('/register', (req, res) => res.render('register'));
+app.get('/dashboard', (req, res) => {
+    if (!req.session.userId) return res.redirect('/login');
+    res.render('admin'); // Ou ta page dashboard
+});
+
+app.listen(port, () => {
+    console.log(`Serveur lancé sur http://localhost:${port}`);
+});
