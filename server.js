@@ -10,24 +10,25 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- CONFIGURATION BASE DE DONNÉES ---
+// --- 1. CONFIGURATION BASE DE DONNÉES ---
 const db = new Datastore({ filename: 'users.db', autoload: true });
 
-// --- CONFIGURATION MOTEUR DE RENDU ---
+// --- 2. CONFIGURATION MOTEUR DE RENDU & DOSSIERS ---
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static('public'));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- CONFIGURATION SESSION ---
+// --- 3. CONFIGURATION SESSION ---
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'cyber-trading-secret',
+    secret: process.env.SESSION_SECRET || 'cyber-trading-secret-ultra-secure',
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 } // Session de 24 heures
 }));
 
-// --- CONFIGURATION NODEMAILER (GMAIL) ---
+// --- 4. CONFIGURATION NODEMAILER (GMAIL) ---
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -36,7 +37,41 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// --- ROUTE : INSCRIPTION (REGISTER) ---
+// --- 5. LE GARDE DU CORPS (MIDDLEWARE DE SÉCURITÉ) ---
+function checkAuth(req, res, next) {
+    if (req.session.userId) {
+        next(); // L'utilisateur est connecté, on le laisse passer
+    } else {
+        res.redirect('/login'); // Pas connecté, retour à la case départ
+    }
+}
+
+// --- 6. ROUTES DE NAVIGATION ---
+
+// L'accueil décide si on va au dashboard ou au login
+app.get('/', (req, res) => {
+    if (req.session.userId) {
+        res.redirect('/dashboard');
+    } else {
+        res.redirect('/login');
+    }
+});
+
+app.get('/login', (req, res) => {
+    res.render('login');
+});
+
+app.get('/register', (req, res) => {
+    res.render('register');
+});
+
+// ROUTE PROTÉGÉE : Personne ne peut entrer sans checkAuth
+app.get('/dashboard', checkAuth, (req, res) => {
+    res.render('admin'); 
+});
+
+// --- 7. SYSTÈME D'INSCRIPTION & EMAIL ---
+
 app.post('/register', async (req, res) => {
     const { email, password } = req.body;
     
@@ -62,23 +97,19 @@ app.post('/register', async (req, res) => {
                 from: 'lafourmirouge12@gmail.com',
                 to: email,
                 subject: 'Activez votre compte Trading IA',
-                html: `
-                    <div style="background:#050505; color:white; padding:20px; border:1px solid #00f3ff; font-family:sans-serif;">
-                        <h1 style="color:#00f3ff;">BIENVENUE AGENT</h1>
-                        <p>Cliquez sur le lien ci-dessous pour confirmer votre accès au terminal :</p>
-                        <a href="${verificationLink}" style="display:inline-block; padding:10px 20px; background:#00f3ff; color:black; text-decoration:none; font-weight:bold;">VÉRIFIER MON COMPTE</a>
-                    </div>`
+                html: `<h1>BIENVENUE AGENT</h1><p>Cliquez ici : <a href="${verificationLink}">VÉRIFIER MON COMPTE</a></p>`
             };
 
             transporter.sendMail(mailOptions, (error) => {
-                if (error) return res.json({ error: "Erreur lors de l'envoi de l'email" });
-                res.json({ success: "Compte créé ! Vérifiez vos emails (et spams)." });
+                if (error) return res.json({ error: "Erreur email" });
+                res.json({ success: "Compte créé ! Vérifiez vos emails." });
             });
         });
     });
 });
 
-// --- ROUTE : CONNEXION (LOGIN) ---
+// --- 8. SYSTÈME DE CONNEXION ---
+
 app.post('/login', (req, res) => {
     const { email, password } = req.body;
 
@@ -89,57 +120,46 @@ app.post('/login', (req, res) => {
         if (!match) return res.json({ error: "Mot de passe incorrect" });
 
         if (!user.isVerified) {
-            return res.json({ error: "Veuillez vérifier votre email avant de vous connecter" });
+            return res.json({ error: "Veuillez vérifier votre email" });
         }
 
+        // Création de la session
         req.session.userId = user._id;
         req.session.role = user.role;
         res.json({ redirect: '/dashboard' });
     });
 });
 
-// --- ROUTE : RENVOYER L'EMAIL ---
-app.post('/resend-email', (req, res) => {
-    const { email } = req.body;
+// --- 9. VÉRIFICATION ET RENVOI ---
 
-    db.findOne({ email }, (err, user) => {
-        if (!user) return res.json({ error: "Email inconnu" });
-        if (user.isVerified) return res.json({ error: "Compte déjà vérifié" });
-
-        const verificationLink = `${process.env.BASE_URL}/verify/${user.verificationToken}`;
-        
-        const mailOptions = {
-            from: 'lafourmirouge12@gmail.com',
-            to: email,
-            subject: 'Renvoyer : Activation de votre compte',
-            html: `<p>Nouveau lien de vérification : <a href="${verificationLink}">Cliquez ici</a></p>`
-        };
-
-        transporter.sendMail(mailOptions, (error) => {
-            if (error) return res.json({ error: "Erreur d'envoi" });
-            res.json({ success: "Un nouvel email a été envoyé !" });
-        });
-    });
-});
-
-// --- ROUTE : VÉRIFICATION DU LIEN ---
 app.get('/verify/:token', (req, res) => {
     const { token } = req.params;
     db.update({ verificationToken: token }, { $set: { isVerified: true } }, {}, (err, numUpdated) => {
-        if (numUpdated === 0) return res.send("Lien invalide ou expiré.");
-        res.render('success', { message: "Votre compte a été activé avec succès !" });
+        if (numUpdated === 0) return res.send("Lien invalide.");
+        res.render('success');
     });
 });
 
-// --- ROUTES PAGES ---
-app.get('/', (req, res) => res.render('index'));
-app.get('/login', (req, res) => res.render('login'));
-app.get('/register', (req, res) => res.render('register'));
-app.get('/dashboard', (req, res) => {
-    if (!req.session.userId) return res.redirect('/login');
-    res.render('admin'); // Ou ta page dashboard
+app.post('/resend-email', (req, res) => {
+    const { email } = req.body;
+    db.findOne({ email }, (err, user) => {
+        if (!user || user.isVerified) return res.json({ error: "Impossible de renvoyer" });
+        const verificationLink = `${process.env.BASE_URL}/verify/${user.verificationToken}`;
+        transporter.sendMail({
+            from: 'lafourmirouge12@gmail.com',
+            to: email,
+            subject: 'Renvoyer : Activation',
+            html: `<p><a href="${verificationLink}">Cliquez ici</a></p>`
+        }, () => res.json({ success: "Email renvoyé !" }));
+    });
+});
+
+// --- LOGOUT ---
+app.get('/logout', (req, res) => {
+    req.session.destroy();
+    res.redirect('/login');
 });
 
 app.listen(port, () => {
-    console.log(`Serveur lancé sur http://localhost:${port}`);
+    console.log(`Serveur sécurisé sur le port ${port}`);
 });
