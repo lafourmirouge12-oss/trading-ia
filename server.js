@@ -10,17 +10,18 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- CONFIGURATION DB & MOTEUR ---
+// --- CONFIGURATION ---
 const db = new Datastore({ filename: 'users.db', autoload: true });
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.use(express.static('public'));
+
+// ATTENTION : Ne mets JAMAIS 'views' dans express.static, sinon n'importe qui accède aux fichiers !
+app.use(express.static('public')); 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// --- SESSION SÉCURISÉE ---
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'cyber-trading-ultra-secret-99',
+    secret: process.env.SESSION_SECRET || 'cyber-trading-secret-999',
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 24 * 60 * 60 * 1000 }
@@ -33,31 +34,48 @@ const transporter = nodemailer.createTransport({
 
 // --- LE GARDE DU CORPS (MIDDLEWARE) ---
 function checkAuth(req, res, next) {
-    if (req.session.userId) return next();
-    // Redirige vers login avec un signal d'alerte
+    if (req.session && req.session.userId) {
+        return next();
+    }
+    // Si pas de session, on redirige vers le login avec le signal d'alerte
     res.redirect('/login?auth=failed');
 }
 
-// --- ROUTES NAVIGATION ---
+// --- ROUTES DE NAVIGATION (LES SEULES ET UNIQUES) ---
+
+// 1. La racine '/' : Elle redirige FORCÉMENT soit vers le dashboard, soit vers le login
 app.get('/', (req, res) => {
-    req.session.userId ? res.redirect('/dashboard') : res.redirect('/login');
+    if (req.session.userId) {
+        res.redirect('/dashboard');
+    } else {
+        res.redirect('/login');
+    }
 });
 
-app.get('/login', (req, res) => res.render('login'));
-app.get('/register', (req, res) => res.render('register'));
+// 2. La page Login
+app.get('/login', (req, res) => {
+    res.render('login');
+});
 
-// DASHBOARD PROTÉGÉ
+// 3. La page Register
+app.get('/register', (req, res) => {
+    res.render('register');
+});
+
+// 4. Le Dashboard (PROTÉGÉ PAR checkAuth)
 app.get('/dashboard', checkAuth, (req, res) => {
-    res.render('admin'); 
+    res.render('admin'); // Affiche ton fichier admin.ejs
 });
 
-// DÉCONNEXION
+// 5. La Déconnexion
 app.get('/logout', (req, res) => {
-    req.session.destroy();
-    res.redirect('/login');
+    req.session.destroy(() => {
+        res.redirect('/login');
+    });
 });
 
-// --- SYSTÈME AUTHENTIFICATION ---
+// --- SYSTÈME AUTHENTIFICATION (API) ---
+
 app.post('/register', async (req, res) => {
     const { email, password } = req.body;
     db.findOne({ email }, async (err, user) => {
@@ -83,6 +101,8 @@ app.post('/login', (req, res) => {
             return res.json({ error: "Identifiants incorrects" });
         }
         if (!user.isVerified) return res.json({ error: "Veuillez vérifier votre email" });
+        
+        // On enregistre l'ID dans la session
         req.session.userId = user._id;
         res.json({ redirect: '/dashboard' });
     });
