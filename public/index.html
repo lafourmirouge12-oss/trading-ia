@@ -6,29 +6,34 @@
   <title>IA de Trading</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
-    :root { --holo-cyan:#00f5ff; --holo-blue:#0080ff; --holo-purple:#8000ff; --holo-green:#00ff88; --holo-red:#ff3060; --dark:#020510; --panel:rgba(0,20,50,0.6); }
+    :root{--holo-cyan:#00f5ff;--holo-blue:#0080ff;--holo-purple:#8000ff;--holo-green:#00ff88;--holo-red:#ff3060;--dark:#020510;--panel:rgba(0,20,50,0.6);}
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{background:var(--dark);font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden;cursor:crosshair;}
+    body{background:var(--dark);font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden;}
     body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,245,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,255,0.03) 1px,transparent 1px);background-size:40px 40px;animation:gridPulse 8s ease-in-out infinite;pointer-events:none;z-index:0;}
     body::after{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 50% at 20% 50%,rgba(0,128,255,0.08) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 80% 30%,rgba(128,0,255,0.08) 0%,transparent 60%);pointer-events:none;z-index:0;}
     @keyframes gridPulse{0%,100%{opacity:0.6;}50%{opacity:1;}}
     .particles{position:fixed;inset:0;pointer-events:none;z-index:0;}
     .particle{position:absolute;width:2px;height:2px;border-radius:50%;animation:float linear infinite;opacity:0;}
     @keyframes float{0%{transform:translateY(100vh);opacity:0;}10%{opacity:1;}90%{opacity:1;}100%{transform:translateY(-10vh) translateX(var(--drift));opacity:0;}}
-    .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;z-index:100;background:rgba(2,5,16,0.85);backdrop-filter:blur(10px);border-bottom:1px solid rgba(0,245,255,0.08);}
-    .nav-logout{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,48,96,0.7);text-decoration:none;text-transform:uppercase;border:1px solid rgba(255,48,96,0.2);padding:7px 12px;transition:all 0.3s;clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%);}
-    .nav-logout:hover{color:var(--holo-red);border-color:var(--holo-red);}
+
+    .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;z-index:9999;background:rgba(2,5,16,0.95);backdrop-filter:blur(10px);border-bottom:1px solid rgba(0,245,255,0.08);pointer-events:all;}
+    .nav a{pointer-events:all;cursor:pointer;}
+    .nav-logout{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,48,96,0.8);text-decoration:none;text-transform:uppercase;border:1px solid rgba(255,48,96,0.3);padding:8px 14px;transition:all 0.3s;clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%);display:inline-block;}
+    .nav-logout:hover{color:var(--holo-red);border-color:var(--holo-red);box-shadow:0 0 15px rgba(255,48,96,0.3);}
     .nav-logo{font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:4px;text-transform:uppercase;background:linear-gradient(135deg,#fff,var(--holo-cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-    .nav-abonnement{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(0,245,255,0.7);text-decoration:none;text-transform:uppercase;border:1px solid rgba(0,245,255,0.2);padding:7px 12px;transition:all 0.3s;clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%);}
-    .nav-abonnement:hover{color:var(--holo-cyan);border-color:var(--holo-cyan);}
+    .nav-abonnement{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(0,245,255,0.8);text-decoration:none;text-transform:uppercase;border:1px solid rgba(0,245,255,0.3);padding:8px 14px;transition:all 0.3s;clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%);display:inline-block;}
+    .nav-abonnement:hover{color:var(--holo-cyan);border-color:var(--holo-cyan);box-shadow:0 0 15px rgba(0,245,255,0.3);}
+
     .container{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:90px 16px 40px;}
     .header{text-align:center;margin-bottom:28px;animation:fadeDown 1s ease forwards;width:100%;}
     .header-badge{display:inline-block;font-size:10px;letter-spacing:3px;color:var(--holo-cyan);text-transform:uppercase;margin-bottom:10px;opacity:0.7;}
     h1{font-family:'Orbitron',monospace;font-size:clamp(20px,5vw,48px);font-weight:900;letter-spacing:4px;text-transform:uppercase;background:linear-gradient(135deg,#fff 0%,var(--holo-cyan) 40%,var(--holo-blue) 70%,var(--holo-purple) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;filter:drop-shadow(0 0 20px rgba(0,245,255,0.4));}
     .header-line{width:160px;height:1px;margin:12px auto 0;background:linear-gradient(90deg,transparent,var(--holo-cyan),transparent);animation:lineGlow 2s ease-in-out infinite;}
     @keyframes lineGlow{0%,100%{opacity:0.4;width:120px;}50%{opacity:1;width:200px;}}
+
     .analyses-counter{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:16px;display:none;text-align:center;}
     .analyses-counter span{color:var(--holo-cyan);}
+
     .upload-panel{width:100%;max-width:700px;position:relative;margin-bottom:20px;animation:fadeUp 1s ease 0.3s forwards;opacity:0;}
     .corner{position:absolute;width:16px;height:16px;z-index:2;}
     .corner::before,.corner::after{content:'';position:absolute;background:var(--holo-cyan);}
@@ -58,6 +63,7 @@
     .hud-item span{color:var(--holo-green);margin-left:4px;}
     .hud-dot{width:5px;height:5px;background:var(--holo-green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--holo-green);animation:blink 2s ease-in-out infinite;}
     @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.3;}}
+
     .btn-wrapper{position:relative;margin-bottom:20px;animation:fadeUp 1s ease 0.6s forwards;opacity:0;width:100%;max-width:320px;}
     #analyzeBtn{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#fff;background:transparent;border:1px solid rgba(0,245,255,0.4);padding:15px 30px;cursor:pointer;position:relative;overflow:hidden;transition:all 0.3s ease;width:100%;clip-path:polygon(12px 0%,100% 0%,calc(100% - 12px) 100%,0% 100%);}
     #analyzeBtn:hover{border-color:var(--holo-cyan);box-shadow:0 0 30px rgba(0,245,255,0.3);color:var(--holo-cyan);}
@@ -72,6 +78,7 @@
     .loading-text{display:none;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--holo-cyan);text-transform:uppercase;margin-top:8px;animation:textBlink 1s ease-in-out infinite;text-align:center;}
     .loading-text.active{display:block;}
     @keyframes textBlink{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
     .result-panel{width:100%;max-width:700px;display:none;}
     .result-panel.visible{display:block;animation:fadeUp 0.6s ease forwards;}
     .decision-block{width:100%;padding:16px 12px;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:clamp(20px,6vw,32px);font-weight:900;letter-spacing:6px;text-transform:uppercase;border-radius:4px;margin-bottom:12px;position:relative;overflow:hidden;}
@@ -96,11 +103,14 @@
     .analysis-body{max-height:0;overflow:hidden;transition:max-height 0.4s ease;padding:0 16px;}
     .analysis-toggle.open .analysis-body{max-height:600px;padding:0 16px 16px;}
     .analysis-text{font-size:12px;line-height:1.7;color:rgba(255,255,255,0.4);letter-spacing:0.3px;}
+
     @keyframes fadeDown{from{opacity:0;transform:translateY(-20px);}to{opacity:1;transform:translateY(0);}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+
     @media(max-width:480px){
+      .nav{padding:10px 12px;}
       .nav-logo{font-size:11px;letter-spacing:3px;}
-      .nav-logout,.nav-abonnement{font-size:8px;padding:6px 9px;letter-spacing:1px;}
+      .nav-logout,.nav-abonnement{font-size:8px;padding:6px 10px;letter-spacing:1px;}
       h1{font-size:18px;letter-spacing:3px;}
       .hud-item:nth-child(2){display:none;}
       .metric-sub{display:none;}
@@ -110,9 +120,9 @@
 </head>
 <body>
 <nav class="nav">
-  <a href="/logout" class="nav-logout">✕ Déco</a>
+  <a href="/logout" class="nav-logout">✕ Déconnexion</a>
   <div class="nav-logo">AI-Mazza</div>
-  <a href="/abonnement.html" class="nav-abonnement">◈ Abos</a>
+  <a href="/abonnement.html" class="nav-abonnement">◈ Abonnements</a>
 </nav>
 <div class="particles" id="particles"></div>
 <div class="container">
@@ -180,20 +190,35 @@
 <script>
   const pContainer=document.getElementById('particles');
   for(let i=0;i<40;i++){const p=document.createElement('div');p.className='particle';p.style.cssText=`left:${Math.random()*100}%;animation-duration:${6+Math.random()*12}s;animation-delay:${Math.random()*10}s;--drift:${(Math.random()-0.5)*100}px;background:${Math.random()>0.5?'#00f5ff':Math.random()>0.5?'#0080ff':'#8000ff'};box-shadow:0 0 4px currentColor;`;pContainer.appendChild(p);}
+
   fetch('/me').then(r=>r.json()).then(user=>{
-    if(user.role!=='admin'&&!user.subscribed){const left=Math.max(0,2-user.analysisCount);document.getElementById('analysesCounter').style.display='block';document.getElementById('analysesLeft').textContent=left+' / 2';}
+    if(user.role!=='admin'&&!user.subscribed){
+      const left=Math.max(0,2-user.analysisCount);
+      document.getElementById('analysesCounter').style.display='block';
+      document.getElementById('analysesLeft').textContent=left+' / 2';
+    }
   });
+
   const uploadBox=document.getElementById('uploadBox');
   const fileInput=document.getElementById('fileInput');
   const preview=document.getElementById('preview');
   const uploadContent=document.getElementById('uploadContent');
+
   uploadBox.addEventListener('click',()=>fileInput.click());
   uploadBox.addEventListener('dragover',e=>{e.preventDefault();uploadBox.classList.add('drag');});
   uploadBox.addEventListener('dragleave',()=>uploadBox.classList.remove('drag'));
   uploadBox.addEventListener('drop',e=>{e.preventDefault();uploadBox.classList.remove('drag');if(e.dataTransfer.files[0])showPreview(e.dataTransfer.files[0]);});
   fileInput.addEventListener('change',()=>{if(fileInput.files[0])showPreview(fileInput.files[0]);});
-  function showPreview(file){const reader=new FileReader();reader.onload=e=>{preview.src=e.target.result;preview.style.display='block';uploadContent.style.display='none';};reader.readAsDataURL(file);document.getElementById('statusText').textContent='IMAGE CHARGÉE';}
+
+  function showPreview(file){
+    const reader=new FileReader();
+    reader.onload=e=>{preview.src=e.target.result;preview.style.display='block';uploadContent.style.display='none';};
+    reader.readAsDataURL(file);
+    document.getElementById('statusText').textContent='IMAGE CHARGÉE';
+  }
+
   function toggleAnalysis(){document.getElementById('analysisToggle').classList.toggle('open');}
+
   function parseResult(text){
     const decision={type:'neutral',text:'NEUTRE',confidence:''};
     const metrics={entry:'—',sl:'—',tp:'—'};
@@ -209,6 +234,7 @@
     if(tpMatch)metrics.tp=tpMatch[1].trim().substring(0,14);
     return{decision,metrics};
   }
+
   async function analyzeChart(){
     const file=fileInput.files[0];
     if(!file){alert('Veuillez sélectionner une image !');return;}
@@ -236,7 +262,10 @@
         document.getElementById('analysisText').innerHTML=data.result.replace(/\n/g,'<br>');
         resultPanel.classList.add('visible');
         statusText.textContent='ANALYSE COMPLÈTE';
-        if(data.analysesLeft!==null&&data.analysesLeft!==undefined){document.getElementById('analysesCounter').style.display='block';document.getElementById('analysesLeft').textContent=data.analysesLeft+' / 2';}
+        if(data.analysesLeft!==null&&data.analysesLeft!==undefined){
+          document.getElementById('analysesCounter').style.display='block';
+          document.getElementById('analysesLeft').textContent=data.analysesLeft+' / 2';
+        }
         resultPanel.scrollIntoView({behavior:'smooth',block:'start'});
       }else{statusText.textContent='ERREUR';}
     }catch(e){statusText.textContent='ERREUR SERVEUR';}
