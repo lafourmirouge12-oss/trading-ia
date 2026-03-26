@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel Admin — AI-Mazza</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{--cyan:#00f5ff;--blue:#0080ff;--purple:#8000ff;--green:#00ff88;--red:#ff3060;--gold:#ffd700;--dark:#020510;--panel:rgba(0,15,40,0.8);}
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:var(--dark);font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden;}
+    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,245,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+
+    /* NAV */
+    .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 20px;z-index:9999;background:rgba(2,5,16,0.97);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,215,0,0.15);}
+    .nav-logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,var(--gold),#fff,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+    .nav-badge{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:4px 10px;text-transform:uppercase;}
+    .nav-actions{display:flex;gap:10px;align-items:center;}
+    .nav-btn{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;text-decoration:none;text-transform:uppercase;padding:7px 12px;border:1px solid;transition:all 0.3s;cursor:pointer;background:transparent;}
+    .nav-btn.site{color:rgba(0,245,255,0.7);border-color:rgba(0,245,255,0.2);}
+    .nav-btn.site:hover{color:var(--cyan);border-color:var(--cyan);}
+    .nav-btn.logout{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.2);}
+    .nav-btn.logout:hover{color:var(--red);border-color:var(--red);}
+
+    /* CONTAINER */
+    .container{position:relative;z-index:1;padding:80px 20px 40px;max-width:1400px;margin:0 auto;}
+
+    /* STATS */
+    .stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:28px;}
+    .stat-card{background:var(--panel);border:1px solid rgba(0,245,255,0.1);border-radius:4px;padding:16px;text-align:center;backdrop-filter:blur(10px);}
+    .stat-value{font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:var(--cyan);}
+    .stat-value.green{color:var(--green);}
+    .stat-value.red{color:var(--red);}
+    .stat-value.gold{color:var(--gold);}
+    .stat-value.blue{color:var(--blue);}
+    .stat-label{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-top:6px;}
+
+    /* SECTION */
+    .section-title{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid rgba(0,245,255,0.1);}
+
+    /* SEARCH */
+    .search-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+    .search-input{flex:1;min-width:200px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.15);border-radius:2px;padding:10px 14px;color:#fff;font-family:'Rajdhani',sans-serif;font-size:14px;outline:none;}
+    .search-input:focus{border-color:var(--cyan);}
+    .search-input::placeholder{color:rgba(255,255,255,0.2);}
+    .filter-btn{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;padding:10px 14px;border:1px solid rgba(0,245,255,0.2);color:rgba(0,245,255,0.5);background:transparent;cursor:pointer;transition:all 0.3s;}
+    .filter-btn.active,.filter-btn:hover{border-color:var(--cyan);color:var(--cyan);}
+
+    /* TABLE */
+    .table-wrap{background:var(--panel);border:1px solid rgba(0,245,255,0.1);border-radius:4px;overflow:hidden;backdrop-filter:blur(10px);}
+    table{width:100%;border-collapse:collapse;}
+    th{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(0,245,255,0.4);text-transform:uppercase;padding:12px 14px;text-align:left;border-bottom:1px solid rgba(0,245,255,0.1);white-space:nowrap;}
+    td{padding:12px 14px;font-size:14px;color:rgba(255,255,255,0.7);border-bottom:1px solid rgba(0,245,255,0.05);vertical-align:middle;}
+    tr:last-child td{border-bottom:none;}
+    tr:hover td{background:rgba(0,245,255,0.03);}
+
+    /* BADGES */
+    .badge{display:inline-block;font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;padding:3px 8px;border-radius:2px;text-transform:uppercase;white-space:nowrap;}
+    .badge.online{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);color:var(--green);}
+    .badge.offline{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.3);}
+    .badge.verified{background:rgba(0,245,255,0.08);border:1px solid rgba(0,245,255,0.2);color:var(--cyan);}
+    .badge.unverified{background:rgba(255,48,96,0.08);border:1px solid rgba(255,48,96,0.2);color:var(--red);}
+    .badge.subscribed{background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.2);color:var(--gold);}
+    .badge.banned{background:rgba(255,48,96,0.15);border:1px solid rgba(255,48,96,0.4);color:var(--red);}
+    .badge.free{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);}
+
+    /* ACTION BUTTONS */
+    .actions{display:flex;gap:6px;flex-wrap:wrap;}
+    .action-btn{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;padding:5px 9px;border:1px solid;background:transparent;cursor:pointer;transition:all 0.3s;white-space:nowrap;}
+    .action-btn.ban{color:rgba(255,48,96,0.6);border-color:rgba(255,48,96,0.2);}
+    .action-btn.ban:hover{color:var(--red);border-color:var(--red);box-shadow:0 0 10px rgba(255,48,96,0.2);}
+    .action-btn.unban{color:rgba(0,255,136,0.6);border-color:rgba(0,255,136,0.2);}
+    .action-btn.unban:hover{color:var(--green);border-color:var(--green);}
+    .action-btn.restrict{color:rgba(255,165,0,0.6);border-color:rgba(255,165,0,0.2);}
+    .action-btn.restrict:hover{color:orange;border-color:orange;}
+    .action-btn.add{color:rgba(0,245,255,0.6);border-color:rgba(0,245,255,0.2);}
+    .action-btn.add:hover{color:var(--cyan);border-color:var(--cyan);}
+    .action-btn.sub{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.2);}
+    .action-btn.sub:hover{color:var(--gold);border-color:var(--gold);}
+    .action-btn.kick{color:rgba(128,0,255,0.6);border-color:rgba(128,0,255,0.2);}
+    .action-btn.kick:hover{color:var(--purple);border-color:var(--purple);}
+
+    /* MODAL */
+    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;align-items:center;justify-content:center;}
+    .modal.open{display:flex;}
+    .modal-box{background:#020d20;border:1px solid rgba(0,245,255,0.3);border-radius:4px;padding:32px;width:100%;max-width:360px;}
+    .modal-title{font-family:'Orbitron',monospace;font-size:12px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-bottom:20px;}
+    .modal-input{width:100%;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:12px 14px;color:#fff;font-family:'Rajdhani',sans-serif;font-size:16px;outline:none;margin-bottom:16px;}
+    .modal-btns{display:flex;gap:10px;}
+    .modal-confirm{flex:1;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#020510;background:var(--cyan);border:none;padding:12px;cursor:pointer;}
+    .modal-cancel{flex:1;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.4);background:transparent;border:1px solid rgba(255,255,255,0.1);padding:12px;cursor:pointer;}
+
+    /* TOAST */
+    .toast{position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:2px;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;z-index:99999;animation:toastIn 0.3s ease;display:none;}
+    .toast.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.4);color:var(--green);}
+    .toast.error{background:rgba(255,48,96,0.1);border:1px solid rgba(255,48,96,0.4);color:var(--red);}
+    @keyframes toastIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+
+    /* EMPTY */
+    .empty{text-align:center;padding:40px;color:rgba(255,255,255,0.2);font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;}
+
+    @media(max-width:900px){
+      .stats-grid{grid-template-columns:repeat(2,1fr);}
+      th:nth-child(4),td:nth-child(4){display:none;}
+    }
+    @media(max-width:600px){
+      .stats-grid{grid-template-columns:1fr 1fr;}
+      th:nth-child(3),td:nth-child(3),th:nth-child(5),td:nth-child(5){display:none;}
+      .nav-badge{display:none;}
+    }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div class="nav-logo">AI-Mazza</div>
+    <div class="nav-badge">◈ Admin Panel</div>
+  </div>
+  <div class="nav-actions">
+    <a href="/" class="nav-btn site">◈ Site</a>
+    <a href="/logout" class="nav-btn logout">✕ Déco</a>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- STATS -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card"><div class="stat-value" id="statTotal">—</div><div class="stat-label">Utilisateurs</div></div>
+    <div class="stat-card"><div class="stat-value green" id="statOnline">—</div><div class="stat-label">En ligne</div></div>
+    <div class="stat-card"><div class="stat-value blue" id="statVerified">—</div><div class="stat-label">Vérifiés</div></div>
+    <div class="stat-card"><div class="stat-value gold" id="statSubscribed">—</div><div class="stat-label">Abonnés</div></div>
+    <div class="stat-card"><div class="stat-value red" id="statBanned">—</div><div class="stat-label">Bannis</div></div>
+  </div>
+
+  <!-- USERS TABLE -->
+  <div class="section-title">◈ Gestion des utilisateurs</div>
+
+  <div class="search-bar">
+    <input type="text" class="search-input" id="searchInput" placeholder="Rechercher par email..." oninput="filterUsers()"/>
+    <button class="filter-btn active" onclick="setFilter('all',this)">Tous</button>
+    <button class="filter-btn" onclick="setFilter('online',this)">En ligne</button>
+    <button class="filter-btn" onclick="setFilter('subscribed',this)">Abonnés</button>
+    <button class="filter-btn" onclick="setFilter('banned',this)">Bannis</button>
+    <button class="filter-btn" onclick="loadAll()">↻ Actualiser</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Statut</th>
+          <th>Analyses</th>
+          <th>Inscription</th>
+          <th>Plan</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="usersTable">
+        <tr><td colspan="6" class="empty">Chargement...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- MODAL AJOUTER ANALYSES -->
+<div class="modal" id="modalAnalyses">
+  <div class="modal-box">
+    <div class="modal-title">◈ Ajouter des analyses</div>
+    <input type="number" class="modal-input" id="analysesAmount" value="2" min="1" max="100" placeholder="Nombre d'analyses"/>
+    <div class="modal-btns">
+      <button class="modal-confirm" onclick="confirmAddAnalyses()">Confirmer</button>
+      <button class="modal-cancel" onclick="closeModal()">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+  let allUsers = [];
+  let currentFilter = 'all';
+  let pendingUserId = null;
+
+  async function loadStats() {
+    try {
+      const res = await fetch('/admin/stats');
+      const s = await res.json();
+      document.getElementById('statTotal').textContent = s.total;
+      document.getElementById('statOnline').textContent = s.online;
+      document.getElementById('statVerified').textContent = s.verified;
+      document.getElementById('statSubscribed').textContent = s.subscribed;
+      document.getElementById('statBanned').textContent = s.banned;
+    } catch(e) {}
+  }
+
+  async function loadUsers() {
+    try {
+      const res = await fetch('/admin/users');
+      allUsers = await res.json();
+      renderUsers();
+    } catch(e) {
+      document.getElementById('usersTable').innerHTML = '<tr><td colspan="6" class="empty">Erreur de chargement</td></tr>';
+    }
+  }
+
+  function loadAll() { loadStats(); loadUsers(); }
+
+  function setFilter(f, btn) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderUsers();
+  }
+
+  function filterUsers() { renderUsers(); }
+
+  function renderUsers() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    let users = allUsers.filter(u => {
+      if (search && !u.email.toLowerCase().includes(search)) return false;
+      if (currentFilter === 'online') return u.online;
+      if (currentFilter === 'subscribed') return u.subscribed;
+      if (currentFilter === 'banned') return u.banned;
+      return true;
+    });
+
+    if (users.length === 0) {
+      document.getElementById('usersTable').innerHTML = '<tr><td colspan="6" class="empty">Aucun utilisateur trouvé</td></tr>';
+      return;
+    }
+
+    document.getElementById('usersTable').innerHTML = users.map(u => `
+      <tr>
+        <td>
+          <span class="badge ${u.online ? 'online' : 'offline'}">${u.online ? '● EN LIGNE' : '○ HORS LIGNE'}</span>
+          <br><span style="color:#fff;margin-top:4px;display:inline-block;">${u.email}</span>
+        </td>
+        <td>
+          ${u.banned ? '<span class="badge banned">BANNI</span>' : u.isVerified ? '<span class="badge verified">VÉRIFIÉ</span>' : '<span class="badge unverified">NON VÉRIFIÉ</span>'}
+        </td>
+        <td>
+          <span style="font-family:'Orbitron',monospace;font-size:14px;color:${u.analysisCount >= 2 && !u.subscribed ? 'var(--red)' : 'var(--cyan)'};">${u.analysisCount}</span>
+          <span style="color:rgba(255,255,255,0.3);font-size:12px;"> / ${u.subscribed ? '∞' : '2'}</span>
+        </td>
+        <td style="color:rgba(255,255,255,0.4);font-size:12px;">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('fr-FR') : '—'}</td>
+        <td>${u.subscribed ? '<span class="badge subscribed">ABONNÉ</span>' : '<span class="badge free">GRATUIT</span>'}</td>
+        <td>
+          <div class="actions">
+            ${u.banned
+              ? `<button class="action-btn unban" onclick="banUser('${u._id}')">✓ Débannir</button>`
+              : `<button class="action-btn ban" onclick="banUser('${u._id}')">✕ Bannir</button>`
+            }
+            <button class="action-btn restrict" onclick="restrictUser('${u._id}')">⊘ Restreindre</button>
+            <button class="action-btn add" onclick="openAddAnalyses('${u._id}')">+ Analyses</button>
+            <button class="action-btn sub" onclick="toggleSubscribe('${u._id}')">${u.subscribed ? '▼ Désabo' : '▲ Abonner'}</button>
+            ${u.online ? `<button class="action-btn kick" onclick="kickUser('${u._id}')">⚡ Kick</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function banUser(id) {
+    const res = await fetch('/admin/ban/' + id, { method: 'POST' });
+    const d = await res.json();
+    if (d.success) {
+      showToast(d.banned ? 'Utilisateur banni' : 'Utilisateur débanni', d.banned ? 'error' : 'success');
+      loadAll();
+    }
+  }
+
+  async function restrictUser(id) {
+    if (!confirm('Restreindre cet utilisateur ? (bloque ses analyses)')) return;
+    const res = await fetch('/admin/restrict/' + id, { method: 'POST' });
+    const d = await res.json();
+    if (d.success) { showToast('Utilisateur restreint', 'success'); loadAll(); }
+  }
+
+  function openAddAnalyses(id) {
+    pendingUserId = id;
+    document.getElementById('analysesAmount').value = '2';
+    document.getElementById('modalAnalyses').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modalAnalyses').classList.remove('open');
+    pendingUserId = null;
+  }
+
+  async function confirmAddAnalyses() {
+    const amount = parseInt(document.getElementById('analysesAmount').value) || 2;
+    const res = await fetch('/admin/add-analyses/' + pendingUserId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount })
+    });
+    const d = await res.json();
+    if (d.success) { showToast(amount + ' analyses ajoutées', 'success'); loadAll(); }
+    closeModal();
+  }
+
+  async function toggleSubscribe(id) {
+    const res = await fetch('/admin/subscribe/' + id, { method: 'POST' });
+    const d = await res.json();
+    if (d.success) {
+      showToast(d.subscribed ? 'Abonnement activé' : 'Abonnement désactivé', 'success');
+      loadAll();
+    }
+  }
+
+  async function kickUser(id) {
+    const res = await fetch('/admin/kick/' + id, { method: 'POST' });
+    const d = await res.json();
+    if (d.success) { showToast('Utilisateur déconnecté', 'success'); loadAll(); }
+  }
+
+  function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast ' + type;
+    t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 3000);
+  }
+
+  // Fermer modal au clic extérieur
+  document.getElementById('modalAnalyses').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  // Auto-refresh toutes les 30s
+  loadAll();
+  setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
