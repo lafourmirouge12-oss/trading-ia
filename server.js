@@ -347,9 +347,3 @@ if (!fs.existsSync(path.join(__dirname, 'uploads'))) fs.mkdirSync(path.join(__di
 app.listen(port, () => {
   console.log('✅ Serveur lancé sur http://localhost:' + port);
 });
-```
-
----
-
-**Ajoutez sur Render cette variable manquante :**
-```
