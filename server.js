@@ -353,4 +353,3 @@ app.listen(port, () => {
 
 **Ajoutez sur Render cette variable manquante :**
 ```
-GMAIL_USER=lafourmirouge12@gmail.com
