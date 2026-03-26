@@ -49,28 +49,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
-    const hash = await bcrypt.hash('Admin2024!', 10);
-    await db.insertAsync({
-      email: 'admin@trading-ia.com',
-      password: hash,
-      role: 'admin',
-      isVerified: true,
-      analysisCount: 0,
-      subscribed: true,
-      createdAt: new Date()
-    });
+    const admins = [
+      { email: 'admin@ai-mazza.com', password: 'Mx#9kL$2vP!qR7nT' },
+      { email: 'admin2@ai-mazza.com', password: 'Zw@4jF$8mK!xQ3bY' }
+    ];
+    for (const a of admins) {
+      const hash = await bcrypt.hash(a.password, 10);
+      await db.insertAsync({
+        email: a.email, password: hash,
+        role: 'admin', isVerified: true,
+        analysisCount: 0, subscribed: true,
+        createdAt: new Date()
+      });
+    }
     res.send(`
       <div style="background:#020510;color:#00f5ff;font-family:monospace;padding:40px;min-height:100vh;">
-        <h2>✅ Admin créé !</h2>
-        <p>Email: admin@trading-ia.com</p>
-        <p>Mot de passe: Admin2024!</p>
-        <br>
-        <a href="/login.html" style="color:#00f5ff;">→ Aller au login</a>
+        <h2>✅ Admins créés !</h2>
+        <p>Email: admin@ai-mazza.com / Mx#9kL$2vP!qR7nT</p>
+        <p>Email: admin2@ai-mazza.com / Zw@4jF$8mK!xQ3bY</p>
+        <br><a href="/login.html" style="color:#00f5ff;">→ Aller au login</a>
       </div>
     `);
-  } catch(e) {
-    res.send('Erreur: ' + e.message);
-  }
+  } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
 // ===== INSCRIPTION =====
