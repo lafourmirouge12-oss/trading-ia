@@ -397,8 +397,7 @@
     const confMatch = text.match(/Confiance\s*:\s*(\d{1,3})%/i);
     if(confMatch) decision.confidence = confMatch[1]+'%';
 
-    const entryMatch = text.match(/Entr[ée]\s*:\s*([^\n]+)/i);
-    if(entryMatch) metrics.entry = entryMatch[1].trim().substring(0,16);
+    const entryMatch = text.match(/Entr[ée][e]?\s*:\s*([^\n]+)/i) || text.match(/ENTR[EÉ][E]?\s*:\s*([^\n]+)/i) || text.match(/entr.e\s*:\s*([^\n]+)/i);
 
     const slMatch = text.match(/Stop Loss\s*:\s*([^\n(]+)/i);
     if(slMatch) metrics.sl = slMatch[1].trim().substring(0,16);
