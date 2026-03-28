@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>j4ke-IA — Trading IA</title>
+  <title>J4keIA — Trading IA</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
     :root{--cyan:#00f5ff;--blue:#0080ff;--purple:#8000ff;--green:#00ff88;--red:#ff3060;--gold:#ffd700;--dark:#020510;--panel:rgba(0,20,50,0.6);}
@@ -33,8 +33,6 @@
     .analyses-counter{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;text-align:center;padding:8px 20px;border-radius:2px;display:none;}
     .analyses-counter.ok{color:var(--cyan);background:rgba(0,245,255,0.05);border:1px solid rgba(0,245,255,0.15);}
     .analyses-counter.empty{color:var(--red);background:rgba(255,48,96,0.05);border:1px solid rgba(255,48,96,0.2);}
-
-    /* CAPITAL */
     .capital-panel{width:100%;max-width:700px;margin-bottom:16px;animation:fadeUp 1s ease 0.1s forwards;opacity:0;}
     .capital-box{background:rgba(0,20,50,0.7);border:1px solid rgba(0,245,255,0.2);border-radius:4px;padding:20px;backdrop-filter:blur(10px);}
     .capital-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:rgba(0,245,255,0.6);text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
@@ -54,8 +52,6 @@
     .rl-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;}
     .rl-val.main{color:var(--gold);font-size:18px;}
     .rl-val.sec{color:rgba(255,255,255,0.5);}
-
-    /* UPLOAD */
     .upload-panel{width:100%;max-width:700px;position:relative;margin-bottom:20px;animation:fadeUp 1s ease 0.3s forwards;opacity:0;}
     .corner{position:absolute;width:16px;height:16px;z-index:2;}
     .corner::before,.corner::after{content:'';position:absolute;background:var(--cyan);}
@@ -85,8 +81,6 @@
     .hud-item span{color:var(--green);margin-left:4px;}
     .hud-dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--green);animation:blink 2s ease-in-out infinite;}
     @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.3;}}
-
-    /* BTN */
     .btn-wrapper{position:relative;margin-bottom:20px;animation:fadeUp 1s ease 0.5s forwards;opacity:0;width:100%;max-width:320px;}
     #analyzeBtn{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#fff;background:transparent;border:1px solid rgba(0,245,255,0.4);padding:15px 30px;cursor:pointer;transition:all 0.3s ease;width:100%;clip-path:polygon(12px 0%,100% 0%,calc(100% - 12px) 100%,0% 100%);}
     #analyzeBtn:hover{border-color:var(--cyan);box-shadow:0 0 30px rgba(0,245,255,0.3);color:var(--cyan);}
@@ -101,8 +95,6 @@
     .loading-text{display:none;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-top:8px;animation:textBlink 1s ease-in-out infinite;text-align:center;}
     .loading-text.active{display:block;}
     @keyframes textBlink{0%,100%{opacity:1;}50%{opacity:0.4;}}
-
-    /* RESULTS */
     .result-panel{width:100%;max-width:700px;display:none;}
     .result-panel.visible{display:block;animation:fadeUp 0.6s ease forwards;}
     .decision-block{width:100%;padding:16px 12px;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:clamp(20px,6vw,32px);font-weight:900;letter-spacing:6px;text-transform:uppercase;border-radius:4px;margin-bottom:12px;position:relative;}
@@ -118,20 +110,16 @@
     .metric-block.sl .metric-value{color:var(--red);}
     .metric-block.tp .metric-value{color:var(--green);}
     .metric-sub{font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;}
-
-    /* RISK RESULT */
     .risk-result{background:rgba(0,10,30,0.8);border:1px solid rgba(255,215,0,0.2);border-radius:4px;padding:16px;margin-bottom:12px;display:none;}
     .risk-result.show{display:block;}
     .risk-result-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,215,0,0.6);text-transform:uppercase;margin-bottom:12px;}
-    .risk-main-row{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.12);border-radius:2px;margin-bottom:12px;}
-    .risk-main-label{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,215,0,0.5);text-transform:uppercase;}
+    .risk-main-row{display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.12);border-radius:2px;margin-bottom:12px;}
+    .risk-main-label{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,215,0,0.5);text-transform:uppercase;margin-bottom:4px;}
     .risk-main-amount{font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:var(--gold);}
     .risk-sub-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
     .risk-sub-item{text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:2px;}
     .risk-sub-label{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:4px;}
     .risk-sub-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:rgba(255,255,255,0.6);}
-
-    /* ANALYSE TOGGLE */
     .analysis-toggle{width:100%;background:rgba(0,245,255,0.03);border:1px solid rgba(0,245,255,0.1);border-radius:4px;overflow:hidden;}
     .analysis-toggle-btn{width:100%;background:none;border:none;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background 0.3s;}
     .analysis-toggle-btn:hover{background:rgba(0,245,255,0.05);}
@@ -141,10 +129,8 @@
     .analysis-body{max-height:0;overflow:hidden;transition:max-height 0.4s ease;padding:0 16px;}
     .analysis-toggle.open .analysis-body{max-height:1000px;padding:0 16px 16px;}
     .analysis-text{font-size:13px;line-height:1.9;color:rgba(255,255,255,0.55);white-space:pre-wrap;}
-
     @keyframes fadeDown{from{opacity:0;transform:translateY(-20px);}to{opacity:1;transform:translateY(0);}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
-
     @media(max-width:480px){
       .nav-logo{font-size:11px;letter-spacing:3px;}
       .nav-logout,.nav-link{font-size:8px;padding:6px 10px;letter-spacing:1px;}
@@ -158,66 +144,37 @@
 <body>
 <nav class="nav">
   <a href="/logout" class="nav-logout">✕ Déco</a>
-  <div class="nav-logo">AI-Mazza</div>
+  <div class="nav-logo">J4keIA</div>
   <div class="nav-right" id="navRight">
     <a href="/abonnement.html" class="nav-link">◈ Plans</a>
   </div>
 </nav>
-
 <div class="particles" id="particles"></div>
-
 <div class="container">
   <div class="header">
-    <div class="header-badge">◈ Analyse IA Institutionnelle ◈</div>
-    <h1>AI-Mazza</h1>
+    <div class="header-badge">◈ Analyse IA Professionnelle ◈</div>
+    <h1>J4keIA</h1>
     <div class="header-line"></div>
   </div>
-
   <div class="analyses-counter" id="analysesCounter">
     Analyses restantes : <span id="analysesLeft">—</span>
   </div>
-
-  <!-- CAPITAL METATRADER -->
   <div class="capital-panel">
     <div class="capital-box">
-      <div class="capital-title">
-        ◈ Capital de votre compte MetaTrader
-        <span class="capital-required">* Obligatoire</span>
-      </div>
-      <div class="capital-desc">
-        Entrez le montant disponible sur votre compte MetaTrader. L'IA calculera automatiquement la taille de position optimale avec un risque de <strong style="color:var(--gold);">5% de votre capital</strong> par trade.
-      </div>
+      <div class="capital-title">◈ Capital MetaTrader <span class="capital-required">* Obligatoire</span></div>
+      <div class="capital-desc">Entrez le montant de votre compte MetaTrader. L'IA calculera la taille de position avec un risque de <strong style="color:var(--gold);">5% de votre capital</strong> par trade.</div>
       <div class="capital-row">
         <span class="capital-currency">$</span>
-        <input
-          type="number"
-          class="capital-input"
-          id="capitalInput"
-          placeholder="Montant sur MetaTrader (ex: 1000)"
-          min="1"
-          step="any"
-          oninput="updateRiskLive()"
-        />
+        <input type="number" class="capital-input" id="capitalInput" placeholder="Ex: 1000" min="1" step="any" oninput="updateRiskLive()"/>
         <span class="capital-unit">USD</span>
       </div>
       <div class="risk-live" id="riskLive">
-        <div class="rl-item">
-          <div class="rl-label">⭐ Risque 5%</div>
-          <div class="rl-val main" id="rl5">—</div>
-        </div>
-        <div class="rl-item">
-          <div class="rl-label">Risque 2%</div>
-          <div class="rl-val sec" id="rl2">—</div>
-        </div>
-        <div class="rl-item">
-          <div class="rl-label">Risque 1%</div>
-          <div class="rl-val sec" id="rl1">—</div>
-        </div>
+        <div class="rl-item"><div class="rl-label">⭐ Risque 5%</div><div class="rl-val main" id="rl5">—</div></div>
+        <div class="rl-item"><div class="rl-label">Risque 2%</div><div class="rl-val sec" id="rl2">—</div></div>
+        <div class="rl-item"><div class="rl-label">Risque 1%</div><div class="rl-val sec" id="rl1">—</div></div>
       </div>
     </div>
   </div>
-
-  <!-- UPLOAD GRAPHIQUE -->
   <div class="upload-panel">
     <div class="corner tl"></div><div class="corner tr"></div>
     <div class="corner bl"></div><div class="corner br"></div>
@@ -235,54 +192,35 @@
           </svg>
         </div>
         <div class="upload-title">Importer graphique MetaTrader</div>
-        <div class="upload-sub">Glisser-déposer ou cliquer pour choisir</div>
+        <div class="upload-sub">Glisser-déposer ou cliquer</div>
       </div>
       <img id="preview" src="" alt="graphique" />
     </div>
     <div class="hud-bar">
       <div class="hud-item"><span class="hud-dot"></span>SYSTÈME <span>EN LIGNE</span></div>
-      <div class="hud-item">IA <span>INSTITUTIONNELLE</span></div>
+      <div class="hud-item">IA <span>ACTIVE</span></div>
       <div class="hud-item">STATUT <span id="statusText">EN ATTENTE</span></div>
     </div>
   </div>
-
-  <!-- BTN ANALYSE -->
   <div class="btn-wrapper">
     <div class="btn-corner tl"></div><div class="btn-corner tr"></div>
     <div class="btn-corner bl"></div><div class="btn-corner br"></div>
     <button id="analyzeBtn" onclick="analyzeChart()">◈ Lancer l'analyse</button>
     <div style="text-align:center;">
       <div class="loading-bar" id="loadingBar"></div>
-      <div class="loading-text" id="loadingText">Analyse IA en cours...</div>
+      <div class="loading-text" id="loadingText">Analyse en cours...</div>
     </div>
   </div>
-
-  <!-- RÉSULTATS -->
   <div class="result-panel" id="resultPanel">
     <div class="decision-block neutral" id="decisionBlock">
       <span id="decisionText">—</span>
       <span class="confidence" id="confidenceText"></span>
     </div>
-
     <div class="metrics-grid">
-      <div class="metric-block entry">
-        <div class="metric-label">Entrée</div>
-        <div class="metric-value" id="metricEntry">—</div>
-        <div class="metric-sub">Zone d'entrée</div>
-      </div>
-      <div class="metric-block sl">
-        <div class="metric-label">Stop Loss</div>
-        <div class="metric-value" id="metricSL">—</div>
-        <div class="metric-sub">Risque max</div>
-      </div>
-      <div class="metric-block tp">
-        <div class="metric-label">Take Profit 1</div>
-        <div class="metric-value" id="metricTP">—</div>
-        <div class="metric-sub">1er objectif</div>
-      </div>
+      <div class="metric-block entry"><div class="metric-label">Entrée</div><div class="metric-value" id="metricEntry">—</div><div class="metric-sub">Zone d'entrée</div></div>
+      <div class="metric-block sl"><div class="metric-label">Stop Loss</div><div class="metric-value" id="metricSL">—</div><div class="metric-sub">Risque max</div></div>
+      <div class="metric-block tp"><div class="metric-label">Take Profit 1</div><div class="metric-value" id="metricTP">—</div><div class="metric-sub">1er objectif</div></div>
     </div>
-
-    <!-- RISK MANAGEMENT -->
     <div class="risk-result" id="riskResult">
       <div class="risk-result-title">◈ Gestion du capital MetaTrader</div>
       <div class="risk-main-row">
@@ -292,209 +230,164 @@
         </div>
       </div>
       <div class="risk-sub-grid">
-        <div class="risk-sub-item">
-          <div class="risk-sub-label">Risque 1%</div>
-          <div class="risk-sub-val" id="rRisk1">—</div>
-        </div>
-        <div class="risk-sub-item">
-          <div class="risk-sub-label">Risque 2%</div>
-          <div class="risk-sub-val" id="rRisk2">—</div>
-        </div>
-        <div class="risk-sub-item">
-          <div class="risk-sub-label">Risque 3%</div>
-          <div class="risk-sub-val" id="rRisk3">—</div>
-        </div>
+        <div class="risk-sub-item"><div class="risk-sub-label">Risque 1%</div><div class="risk-sub-val" id="rRisk1">—</div></div>
+        <div class="risk-sub-item"><div class="risk-sub-label">Risque 2%</div><div class="risk-sub-val" id="rRisk2">—</div></div>
+        <div class="risk-sub-item"><div class="risk-sub-label">Risque 3%</div><div class="risk-sub-val" id="rRisk3">—</div></div>
       </div>
     </div>
-
     <div class="analysis-toggle" id="analysisToggle">
       <button class="analysis-toggle-btn" onclick="toggleAnalysis()">
-        <span class="analysis-toggle-label">◈ Analyse technique complète</span>
+        <span class="analysis-toggle-label">◈ Analyse complète</span>
         <span class="analysis-arrow">▾</span>
       </button>
-      <div class="analysis-body">
-        <div class="analysis-text" id="analysisText"></div>
-      </div>
+      <div class="analysis-body"><div class="analysis-text" id="analysisText"></div></div>
     </div>
   </div>
 </div>
-
 <script>
-  // Particules
-  const pContainer = document.getElementById('particles');
-  for(let i=0;i<40;i++){
-    const p = document.createElement('div');
-    p.className = 'particle';
-    p.style.cssText = `left:${Math.random()*100}%;animation-duration:${6+Math.random()*12}s;animation-delay:${Math.random()*10}s;--drift:${(Math.random()-0.5)*100}px;background:${Math.random()>0.5?'#00f5ff':Math.random()>0.5?'#0080ff':'#8000ff'};box-shadow:0 0 4px currentColor;`;
-    pContainer.appendChild(p);
-  }
+  const pContainer=document.getElementById('particles');
+  for(let i=0;i<40;i++){const p=document.createElement('div');p.className='particle';p.style.cssText=`left:${Math.random()*100}%;animation-duration:${6+Math.random()*12}s;animation-delay:${Math.random()*10}s;--drift:${(Math.random()-0.5)*100}px;background:${Math.random()>0.5?'#00f5ff':Math.random()>0.5?'#0080ff':'#8000ff'};box-shadow:0 0 4px currentColor;`;pContainer.appendChild(p);}
 
-  // Charger infos user
   fetch('/me').then(r=>r.json()).then(user=>{
-    if(user.error==='session_conflict'){alert('Votre compte est connecté sur un autre appareil.');window.location.href='/login.html';return;}
-    if(user.error==='banned'){alert('Votre compte a été banni. Contactez le support.');window.location.href='/login.html';return;}
-
-    const counter = document.getElementById('analysesCounter');
-    if(user.role !== 'admin'){
-      const left = user.analysesLeft || 0;
-      counter.style.display = 'block';
-      document.getElementById('analysesLeft').textContent = user.analysisMax >= 999999 ? '∞' : left;
-      counter.className = 'analyses-counter ' + (left > 0 ? 'ok' : 'empty');
+    if(user.error==='session_conflict'){alert('Compte connecté ailleurs.');window.location.href='/login.html';return;}
+    if(user.error==='banned'){alert('Compte banni.');window.location.href='/login.html';return;}
+    const counter=document.getElementById('analysesCounter');
+    if(user.role!=='admin'){
+      const left=user.analysesLeft||0;
+      counter.style.display='block';
+      document.getElementById('analysesLeft').textContent=user.analysisMax>=999999?'∞':left;
+      counter.className='analyses-counter '+(left>0?'ok':'empty');
     }
-
-    if(user.role === 'admin'){
-      const adminLink = document.createElement('a');
-      adminLink.href = '/admin.html';
-      adminLink.className = 'nav-link admin';
-      adminLink.textContent = '◈ Admin';
-      const navRight = document.getElementById('navRight');
-      navRight.insertBefore(adminLink, navRight.firstChild);
+    if(user.role==='admin'){
+      const a=document.createElement('a');
+      a.href='/admin.html';a.className='nav-link admin';a.textContent='◈ Admin';
+      document.getElementById('navRight').insertBefore(a,document.getElementById('navRight').firstChild);
     }
   });
 
-  // Upload
-  const uploadBox = document.getElementById('uploadBox');
-  const fileInput = document.getElementById('fileInput');
-  const preview = document.getElementById('preview');
-  const uploadContent = document.getElementById('uploadContent');
-
-  uploadBox.addEventListener('click', () => fileInput.click());
-  uploadBox.addEventListener('dragover', e=>{e.preventDefault();uploadBox.classList.add('drag');});
-  uploadBox.addEventListener('dragleave', ()=>uploadBox.classList.remove('drag'));
-  uploadBox.addEventListener('drop', e=>{e.preventDefault();uploadBox.classList.remove('drag');if(e.dataTransfer.files[0])showPreview(e.dataTransfer.files[0]);});
-  fileInput.addEventListener('change', ()=>{if(fileInput.files[0])showPreview(fileInput.files[0]);});
+  const uploadBox=document.getElementById('uploadBox');
+  const fileInput=document.getElementById('fileInput');
+  const preview=document.getElementById('preview');
+  const uploadContent=document.getElementById('uploadContent');
+  uploadBox.addEventListener('click',()=>fileInput.click());
+  uploadBox.addEventListener('dragover',e=>{e.preventDefault();uploadBox.classList.add('drag');});
+  uploadBox.addEventListener('dragleave',()=>uploadBox.classList.remove('drag'));
+  uploadBox.addEventListener('drop',e=>{e.preventDefault();uploadBox.classList.remove('drag');if(e.dataTransfer.files[0])showPreview(e.dataTransfer.files[0]);});
+  fileInput.addEventListener('change',()=>{if(fileInput.files[0])showPreview(fileInput.files[0]);});
 
   function showPreview(file){
-    const reader = new FileReader();
-    reader.onload = e=>{preview.src=e.target.result;preview.style.display='block';uploadContent.style.display='none';};
+    const reader=new FileReader();
+    reader.onload=e=>{preview.src=e.target.result;preview.style.display='block';uploadContent.style.display='none';};
     reader.readAsDataURL(file);
-    document.getElementById('statusText').textContent = 'GRAPHIQUE CHARGÉ';
+    document.getElementById('statusText').textContent='GRAPHIQUE CHARGÉ';
   }
 
-  // Aperçu risque en temps réel
   function updateRiskLive(){
-    const c = parseFloat(document.getElementById('capitalInput').value);
-    const riskLive = document.getElementById('riskLive');
-    if(c && c > 0){
-      riskLive.classList.add('show');
-      document.getElementById('rl5').textContent = '$' + (c*0.05).toFixed(2);
-      document.getElementById('rl2').textContent = '$' + (c*0.02).toFixed(2);
-      document.getElementById('rl1').textContent = '$' + (c*0.01).toFixed(2);
-    } else {
-      riskLive.classList.remove('show');
-    }
+    const c=parseFloat(document.getElementById('capitalInput').value);
+    const rl=document.getElementById('riskLive');
+    if(c&&c>0){rl.classList.add('show');document.getElementById('rl5').textContent='$'+(c*0.05).toFixed(2);document.getElementById('rl2').textContent='$'+(c*0.02).toFixed(2);document.getElementById('rl1').textContent='$'+(c*0.01).toFixed(2);}
+    else{rl.classList.remove('show');}
   }
 
   function toggleAnalysis(){document.getElementById('analysisToggle').classList.toggle('open');}
 
+  function cleanPrice(str){
+    // Nettoie les ** et autres symboles markdown
+    return str.replace(/\*+/g,'').replace(/#/g,'').replace(/`/g,'').trim().substring(0,20);
+  }
+
   function parseResult(text){
-    const decision = {type:'neutral',text:'ANALYSE',confidence:''};
-    const metrics = {entry:'—',sl:'—',tp:'—'};
+    const decision={type:'neutral',text:'ANALYSE',confidence:''};
+    const metrics={entry:'—',sl:'—',tp:'—'};
 
-    if(/BUY\s*🟢|🟢\s*BUY|\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
-    else if(/SELL\s*🔴|🔴\s*SELL|\bSELL\b/i.test(text)){decision.type='sell';decision.text='▼ SELL';}
+    if(/\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
+    else if(/\bSELL\b/i.test(text)){decision.type='sell';decision.text='▼ SELL';}
 
-    const confMatch = text.match(/Confiance\s*:\s*(\d{1,3})%/i);
-    if(confMatch) decision.confidence = confMatch[1]+'%';
+    const confMatch=text.match(/Confiance\s*:\s*(\d{1,3})%/i);
+    if(confMatch)decision.confidence=confMatch[1]+'%';
 
-    const entryMatch = text.match(/Entr[ée][e]?\s*:\s*([^\n]+)/i) || text.match(/ENTR[EÉ][E]?\s*:\s*([^\n]+)/i) || text.match(/entr.e\s*:\s*([^\n]+)/i);
+    // Entrée — cherche "Entrée :" ou "Entree :" avec nettoyage
+    const entryMatch=text.match(/Entr[eé][e]?\s*:\s*([^\n]+)/i);
+    if(entryMatch){
+      const raw=cleanPrice(entryMatch[1]);
+      if(raw&&raw!=='-'&&raw.length>1)metrics.entry=raw;
+    }
 
-    const slMatch = text.match(/Stop Loss\s*:\s*([^\n(]+)/i);
-    if(slMatch) metrics.sl = slMatch[1].trim().substring(0,16);
+    // Stop Loss
+    const slMatch=text.match(/Stop Loss\s*:\s*([^\n(]+)/i)||text.match(/SL\s*:\s*([^\n(]+)/i);
+    if(slMatch)metrics.sl=cleanPrice(slMatch[1]);
 
-    const tpMatch = text.match(/Take Profit 1\s*:\s*([^\n(]+)/i) || text.match(/Take Profit\s*:\s*([^\n(]+)/i);
-    if(tpMatch) metrics.tp = tpMatch[1].trim().substring(0,16);
+    // Take Profit 1
+    const tpMatch=text.match(/Take Profit 1\s*:\s*([^\n(]+)/i)||text.match(/Take Profit\s*:\s*([^\n(]+)/i)||text.match(/TP1?\s*:\s*([^\n(]+)/i);
+    if(tpMatch)metrics.tp=cleanPrice(tpMatch[1]);
 
-    return {decision, metrics};
+    return{decision,metrics};
   }
 
   async function analyzeChart(){
-    const capital = document.getElementById('capitalInput').value;
-    const file = fileInput.files[0];
-
-    if(!capital || parseFloat(capital) <= 0){
-      const inp = document.getElementById('capitalInput');
-      inp.classList.add('err');
-      inp.placeholder = '⚠ Entrez le capital de votre compte MetaTrader !';
-      inp.focus();
-      setTimeout(()=>{inp.classList.remove('err');inp.placeholder='Montant sur MetaTrader (ex: 1000)';}, 3000);
+    const capital=document.getElementById('capitalInput').value;
+    const file=fileInput.files[0];
+    if(!capital||parseFloat(capital)<=0){
+      const inp=document.getElementById('capitalInput');
+      inp.classList.add('err');inp.placeholder='⚠ Entrez votre capital MetaTrader !';inp.focus();
+      setTimeout(()=>{inp.classList.remove('err');inp.placeholder='Ex: 1000';},3000);
       return;
     }
+    if(!file){alert('Veuillez importer un graphique !');return;}
 
-    if(!file){
-      alert('Veuillez importer une capture de votre graphique MetaTrader !');
-      return;
-    }
+    const btn=document.getElementById('analyzeBtn');
+    const resultPanel=document.getElementById('resultPanel');
+    const loadingBar=document.getElementById('loadingBar');
+    const loadingText=document.getElementById('loadingText');
+    const statusText=document.getElementById('statusText');
 
-    const btn = document.getElementById('analyzeBtn');
-    const resultPanel = document.getElementById('resultPanel');
-    const loadingBar = document.getElementById('loadingBar');
-    const loadingText = document.getElementById('loadingText');
-    const statusText = document.getElementById('statusText');
+    btn.textContent='ANALYSE...';btn.disabled=true;
+    loadingBar.classList.add('active');loadingText.classList.add('active');
+    statusText.textContent='ANALYSE EN COURS';resultPanel.classList.remove('visible');
 
-    btn.textContent = 'ANALYSE EN COURS...';
-    btn.disabled = true;
-    loadingBar.classList.add('active');
-    loadingText.classList.add('active');
-    statusText.textContent = 'ANALYSE EN COURS';
-    resultPanel.classList.remove('visible');
-
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('capital', capital);
+    const formData=new FormData();
+    formData.append('image',file);
+    formData.append('capital',capital);
 
     try{
-      const response = await fetch('/analyze', {method:'POST', body:formData});
-      const data = await response.json();
-
-      if(data.error === 'session_conflict'){window.location.href='/login.html';return;}
-      if(data.limitReached){window.location.href = data.redirect||'/abonnement.html';return;}
-
+      const response=await fetch('/analyze',{method:'POST',body:formData});
+      const data=await response.json();
+      if(data.error==='session_conflict'){window.location.href='/login.html';return;}
+      if(data.limitReached){window.location.href=data.redirect||'/abonnement.html';return;}
       if(data.result){
-        const {decision, metrics} = parseResult(data.result);
+        const{decision,metrics}=parseResult(data.result);
+        document.getElementById('decisionBlock').className='decision-block '+decision.type;
+        document.getElementById('decisionText').textContent=decision.text;
+        document.getElementById('confidenceText').textContent=decision.confidence?'Confiance '+decision.confidence:'';
+        document.getElementById('metricEntry').textContent=metrics.entry;
+        document.getElementById('metricSL').textContent=metrics.sl;
+        document.getElementById('metricTP').textContent=metrics.tp;
+        document.getElementById('analysisText').textContent=data.result;
 
-        document.getElementById('decisionBlock').className = 'decision-block ' + decision.type;
-        document.getElementById('decisionText').textContent = decision.text;
-        document.getElementById('confidenceText').textContent = decision.confidence ? 'Confiance '+decision.confidence : '';
-        document.getElementById('metricEntry').textContent = metrics.entry;
-        document.getElementById('metricSL').textContent = metrics.sl;
-        document.getElementById('metricTP').textContent = metrics.tp;
-        document.getElementById('analysisText').textContent = data.result;
-
-        // Bloc risk management
-        const c = parseFloat(capital);
-        document.getElementById('riskMain5').textContent = '$' + (c*0.05).toFixed(2);
-        document.getElementById('rRisk1').textContent = '$' + (c*0.01).toFixed(2);
-        document.getElementById('rRisk2').textContent = '$' + (c*0.02).toFixed(2);
-        document.getElementById('rRisk3').textContent = '$' + (c*0.03).toFixed(2);
+        const c=parseFloat(capital);
+        document.getElementById('riskMain5').textContent='$'+(c*0.05).toFixed(2);
+        document.getElementById('rRisk1').textContent='$'+(c*0.01).toFixed(2);
+        document.getElementById('rRisk2').textContent='$'+(c*0.02).toFixed(2);
+        document.getElementById('rRisk3').textContent='$'+(c*0.03).toFixed(2);
         document.getElementById('riskResult').classList.add('show');
 
         resultPanel.classList.add('visible');
-        statusText.textContent = 'ANALYSE COMPLÈTE';
+        statusText.textContent='ANALYSE COMPLÈTE';
 
-        // Mise à jour compteur
-        const counter = document.getElementById('analysesCounter');
-        if(data.analysesLeft !== null && data.analysesLeft !== undefined){
-          const left = data.analysesLeft;
-          document.getElementById('analysesLeft').textContent = left;
-          counter.style.display = 'block';
-          counter.className = 'analyses-counter ' + (left > 0 ? 'ok' : 'empty');
+        const counter=document.getElementById('analysesCounter');
+        if(data.analysesLeft!==null&&data.analysesLeft!==undefined){
+          const left=data.analysesLeft;
+          document.getElementById('analysesLeft').textContent=left;
+          counter.style.display='block';
+          counter.className='analyses-counter '+(left>0?'ok':'empty');
         }
-
         document.getElementById('analysisToggle').classList.add('open');
-        setTimeout(()=>resultPanel.scrollIntoView({behavior:'smooth',block:'start'}), 200);
-      } else {
-        statusText.textContent = 'ERREUR';
-      }
-    } catch(e){
-      statusText.textContent = 'ERREUR SERVEUR';
-      console.error(e);
-    }
+        setTimeout(()=>resultPanel.scrollIntoView({behavior:'smooth',block:'start'}),200);
+      }else{statusText.textContent='ERREUR';}
+    }catch(e){statusText.textContent='ERREUR SERVEUR';}
 
-    btn.textContent = '◈ Lancer l\'analyse';
-    btn.disabled = false;
-    loadingBar.classList.remove('active');
-    loadingText.classList.remove('active');
+    btn.textContent='◈ Lancer l\'analyse';btn.disabled=false;
+    loadingBar.classList.remove('active');loadingText.classList.remove('active');
   }
 </script>
 </body>

@@ -119,9 +119,8 @@ app.post('/register', async (req, res) => {
     try {
       await sendEmail(email, '✅ Confirmez votre compte J4keIA', `
         <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
-          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4KEIA</h1>
+          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4keIA</h1>
           <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
-          <p style="color:rgba(255,255,255,0.8);margin-bottom:8px;">Bienvenue !</p>
           <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour accéder à la plateforme.</p>
           <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
           <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
@@ -153,7 +152,7 @@ app.post('/resend-email', async (req, res) => {
     const verifyUrl = BASE_URL + '/verify/' + token;
     await sendEmail(email, '✅ Nouveau lien — J4keIA', `
       <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
-        <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4KEIA</h1>
+        <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4keIA</h1>
         <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:24px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
         <p style="color:rgba(255,255,255,0.3);font-size:11px;">Lien valide 24h.</p>
       </div>`);
@@ -228,65 +227,42 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     const imageData = fs.readFileSync(req.file.path);
     const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
+
     const risk5 = capital > 0 ? (capital * 0.05).toFixed(2) : null;
     const risk3 = capital > 0 ? (capital * 0.03).toFixed(2) : null;
     const risk2 = capital > 0 ? (capital * 0.02).toFixed(2) : null;
     const risk1 = capital > 0 ? (capital * 0.01).toFixed(2) : null;
 
-    const capitalSection = capital > 0 ? `
-Le trader dispose d'un capital de $${capital} sur son compte MetaTrader.
-CALCULS OBLIGATOIRES :
-- Risque 5% (recommandé) : $${risk5}
-- Risque 3% : $${risk3} | Risque 2% : $${risk2} | Risque 1% : $${risk1}
-- Calcule la taille de position exacte en lots
-- Formule : Lots = Montant risqué / (SL en pips × valeur du pip)
-- Précise le type d'actif pour adapter le calcul` : '';
-
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      max_tokens: 800,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader institutionnel avec 20 ans d'expérience. Analyse avec précision chirurgicale.${capitalSection}
+          { type: 'text', text: `Tu es un trader professionnel. Analyse ce graphique et réponds EXACTEMENT dans ce format, sans markdown, sans astérisques, sans symboles supplémentaires :
 
-Réponds UNIQUEMENT en français avec ce format EXACT — respecte chaque mot exactement :
+DÉCISION: BUY ou SELL — Confiance : XX%
 
-━━━ DÉCISION ━━━
-BUY 🟢 ou SELL 🔴 — Confiance : XX%
+TENDANCE: [une phrase directe sur la tendance]
 
-━━━ TENDANCE ━━━
-[Analyse courte et précise]
+Entrée : [prix précis uniquement, exemple: 4425.50]
+Stop Loss : [prix précis uniquement, exemple: 4445.00] (XX pips)
+Take Profit 1 : [prix précis uniquement] (XX pips) — RR X:X
+Take Profit 2 : [prix précis uniquement] (XX pips) — RR X:X
+Take Profit 3 : [prix précis uniquement] (XX pips) — RR X:X
 
-━━━ NIVEAUX CLÉS ━━━
-Entrée : [prix précis]
-Stop Loss : [prix précis] (XX pips)
-Take Profit 1 : [prix] (XX pips) — RR X:X
-Take Profit 2 : [prix] (XX pips) — RR X:X
-Take Profit 3 : [prix] (XX pips) — RR X:X
+SETUP: [2-3 phrases sur les indicateurs clés]
 
-━━━ SETUP TECHNIQUE ━━━
-Patterns : [détails]
-RSI : [valeur + signal]
-MACD : [signal]
-EMA : [confluence]
-Volume : [analyse]
-
-${capital > 0 ? `━━━ GESTION DU CAPITAL MetaTrader ($${capital}) ━━━
-Risque 5% recommandé : $${risk5}
+${capital > 0 ? `CAPITAL ($${capital}):
+Risque 5% : $${risk5}
 Risque 3% : $${risk3} | Risque 2% : $${risk2} | Risque 1% : $${risk1}
-Taille position (risque 5%) : X.XX lots
-Levier conseillé : X:1
-Marge requise : $XX` : ''}
+Position (risque 5%) : X.XX lots
+Levier conseillé : X:1` : ''}
 
-━━━ INVALIDATION ━━━
-[Condition précise]
+INVALIDATION: [condition précise]
 
-━━━ TIMING ━━━
-Timeframe : [X] | Entrée : [moment précis]
-
-RÈGLES : Chiffres précis. RR minimum 1:2.` }
+IMPORTANT: Écris les prix sans aucun symbole avant (pas de **, pas de #, pas de -). Juste les chiffres.` }
         ]
       }]
     });
@@ -305,7 +281,6 @@ RÈGLES : Chiffres précis. RR minimum 1:2.` }
   }
 });
 
-// ─── ADMIN ────────────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
@@ -358,20 +333,16 @@ app.post('/admin/restrict/:id', checkAdmin, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// +1 analyse
 app.post('/admin/add-one/:id', checkAdmin, async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const currentMax = user.analysisMax || 0;
-    const newMax = currentMax + 1;
-    const numUpdated = await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    console.log('add-one:', user.email, 'ancien max:', currentMax, 'nouveau max:', newMax, 'updated:', numUpdated);
+    const newMax = (user.analysisMax || 0) + 1;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
     res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// -1 analyse
 app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.params.id });
@@ -382,21 +353,17 @@ app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// +N analyses
 app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
   try {
     const n = parseInt(req.body.amount) || 10;
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const currentMax = user.analysisMax || 0;
-    const newMax = currentMax + n;
+    const newMax = (user.analysisMax || 0) + n;
     await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    console.log('add-analyses:', user.email, n, 'ancien:', currentMax, 'nouveau:', newMax);
     res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// -N analyses
 app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
   try {
     const n = parseInt(req.body.amount) || 10;
