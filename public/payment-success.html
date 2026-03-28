@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Paiement réussi — AI-Mazza</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --cyan: #00f5ff; --green: #00ff88; --dark: #020510; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--dark); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; cursor: crosshair; }
+    body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(0,245,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,245,255,0.03) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+    .card { position: relative; z-index: 1; background: rgba(0,15,40,0.9); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; padding: 60px 48px; width: 100%; max-width: 480px; text-align: center; backdrop-filter: blur(20px); box-shadow: 0 0 60px rgba(0,255,136,0.1); }
+    .icon { font-size: 60px; margin-bottom: 24px; }
+    h1 { font-family: 'Orbitron', monospace; font-size: 22px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; color: var(--green); margin-bottom: 16px; filter: drop-shadow(0 0 12px rgba(0,255,136,0.4)); }
+    p { font-size: 16px; color: rgba(255,255,255,0.6); margin-bottom: 32px; line-height: 1.6; }
+    .btn { display: inline-block; font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: #020510; background: var(--cyan); text-decoration: none; padding: 16px 32px; clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%); transition: all 0.3s; }
+    .btn:hover { box-shadow: 0 0 30px rgba(0,245,255,0.4); }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">✅</div>
+  <h1>Paiement réussi !</h1>
+  <p>Votre abonnement est maintenant actif.<br>Vous avez accès à toutes les fonctionnalités.</p>
+  <a href="/" class="btn">Commencer l'analyse</a>
+</div>
+</body>
+</html>
