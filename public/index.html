@@ -110,6 +110,15 @@
     .metric-block.sl .metric-value{color:var(--red);}
     .metric-block.tp .metric-value{color:var(--green);}
     .metric-sub{font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;}
+    /* BREAK EVEN */
+    .be-block{background:rgba(0,10,30,0.8);border:1px solid rgba(128,0,255,0.25);border-radius:4px;padding:12px 16px;margin-bottom:12px;display:none;}
+    .be-block.show{display:flex;align-items:center;gap:12px;}
+    .be-icon{font-size:20px;}
+    .be-content{}
+    .be-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(128,0,255,0.7);text-transform:uppercase;margin-bottom:4px;}
+    .be-text{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;}
+    .be-price{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--purple);}
+    /* RISK */
     .risk-result{background:rgba(0,10,30,0.8);border:1px solid rgba(255,215,0,0.2);border-radius:4px;padding:16px;margin-bottom:12px;display:none;}
     .risk-result.show{display:block;}
     .risk-result-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,215,0,0.6);text-transform:uppercase;margin-bottom:12px;}
@@ -120,7 +129,7 @@
     .risk-sub-item{text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:2px;}
     .risk-sub-label{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:4px;}
     .risk-sub-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:rgba(255,255,255,0.6);}
-    .analysis-toggle{width:100%;background:rgba(0,245,255,0.03);border:1px solid rgba(0,245,255,0.1);border-radius:4px;overflow:hidden;}
+    .analysis-toggle{width:100%;background:rgba(0,245,255,0.03);border:1px solid rgba(0,245,255,0.1);border-radius:4px;overflow:hidden;margin-bottom:12px;}
     .analysis-toggle-btn{width:100%;background:none;border:none;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background 0.3s;}
     .analysis-toggle-btn:hover{background:rgba(0,245,255,0.05);}
     .analysis-toggle-label{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(0,245,255,0.4);text-transform:uppercase;}
@@ -129,6 +138,21 @@
     .analysis-body{max-height:0;overflow:hidden;transition:max-height 0.4s ease;padding:0 16px;}
     .analysis-toggle.open .analysis-body{max-height:1000px;padding:0 16px 16px;}
     .analysis-text{font-size:13px;line-height:1.9;color:rgba(255,255,255,0.55);white-space:pre-wrap;}
+    /* FEEDBACK */
+    .feedback-panel{width:100%;max-width:700px;margin-bottom:20px;display:none;}
+    .feedback-panel.show{display:block;animation:fadeUp 0.5s ease forwards;}
+    .feedback-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,0.3);text-transform:uppercase;text-align:center;margin-bottom:10px;}
+    .feedback-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+    .fb-btn{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:14px 8px;border:1px solid;background:transparent;cursor:pointer;transition:all 0.3s;border-radius:2px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+    .fb-icon{font-size:22px;}
+    .fb-btn.tp{color:rgba(0,255,136,0.6);border-color:rgba(0,255,136,0.15);}
+    .fb-btn.tp:hover,.fb-btn.tp.selected{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08);box-shadow:0 0 20px rgba(0,255,136,0.15);}
+    .fb-btn.sl{color:rgba(255,48,96,0.6);border-color:rgba(255,48,96,0.15);}
+    .fb-btn.sl:hover,.fb-btn.sl.selected{color:var(--red);border-color:var(--red);background:rgba(255,48,96,0.08);box-shadow:0 0 20px rgba(255,48,96,0.15);}
+    .fb-btn.pending{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.15);}
+    .fb-btn.pending:hover,.fb-btn.pending.selected{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);box-shadow:0 0 20px rgba(255,215,0,0.15);}
+    .feedback-thanks{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;text-align:center;margin-top:10px;display:none;}
+    .feedback-thanks.show{display:block;}
     @keyframes fadeDown{from{opacity:0;transform:translateY(-20px);}to{opacity:1;transform:translateY(0);}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
     @media(max-width:480px){
@@ -221,6 +245,14 @@
       <div class="metric-block sl"><div class="metric-label">Stop Loss</div><div class="metric-value" id="metricSL">—</div><div class="metric-sub">Risque max</div></div>
       <div class="metric-block tp"><div class="metric-label">Take Profit 1</div><div class="metric-value" id="metricTP">—</div><div class="metric-sub">1er objectif</div></div>
     </div>
+    <!-- BREAK EVEN -->
+    <div class="be-block" id="beBlock">
+      <div class="be-icon">🔒</div>
+      <div class="be-content">
+        <div class="be-title">◈ Break Even — Sécuriser le trade</div>
+        <div class="be-text">Dès que <strong style="color:var(--green);">TP1 est atteint</strong>, déplacez votre Stop Loss au point d'entrée : <span class="be-price" id="bePrice">—</span></div>
+      </div>
+    </div>
     <div class="risk-result" id="riskResult">
       <div class="risk-result-title">◈ Gestion du capital MetaTrader</div>
       <div class="risk-main-row">
@@ -243,10 +275,22 @@
       <div class="analysis-body"><div class="analysis-text" id="analysisText"></div></div>
     </div>
   </div>
+  <!-- FEEDBACK -->
+  <div class="feedback-panel" id="feedbackPanel">
+    <div class="feedback-title">◈ Résultat du trade — aidez l'IA à s'améliorer</div>
+    <div class="feedback-btns">
+      <button class="fb-btn tp" onclick="sendFeedback('tp')"><span class="fb-icon">✅</span>TP Atteint</button>
+      <button class="fb-btn sl" onclick="sendFeedback('sl')"><span class="fb-icon">❌</span>SL Touché</button>
+      <button class="fb-btn pending" onclick="sendFeedback('pending')"><span class="fb-icon">⏳</span>En cours</button>
+    </div>
+    <div class="feedback-thanks" id="feedbackThanks">◈ Merci ! L'IA en tiendra compte ◈</div>
+  </div>
 </div>
 <script>
   const pContainer=document.getElementById('particles');
   for(let i=0;i<40;i++){const p=document.createElement('div');p.className='particle';p.style.cssText=`left:${Math.random()*100}%;animation-duration:${6+Math.random()*12}s;animation-delay:${Math.random()*10}s;--drift:${(Math.random()-0.5)*100}px;background:${Math.random()>0.5?'#00f5ff':Math.random()>0.5?'#0080ff':'#8000ff'};box-shadow:0 0 4px currentColor;`;pContainer.appendChild(p);}
+
+  let lastAnalysisData={};
 
   fetch('/me').then(r=>r.json()).then(user=>{
     if(user.error==='session_conflict'){alert('Compte connecté ailleurs.');window.location.href='/login.html';return;}
@@ -292,36 +336,34 @@
   function toggleAnalysis(){document.getElementById('analysisToggle').classList.toggle('open');}
 
   function cleanPrice(str){
-    // Nettoie les ** et autres symboles markdown
     return str.replace(/\*+/g,'').replace(/#/g,'').replace(/`/g,'').trim().substring(0,20);
   }
 
   function parseResult(text){
     const decision={type:'neutral',text:'ANALYSE',confidence:''};
-    const metrics={entry:'—',sl:'—',tp:'—'};
-
+    const metrics={entry:'—',sl:'—',tp:'—',be:'—'};
     if(/\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
     else if(/\bSELL\b/i.test(text)){decision.type='sell';decision.text='▼ SELL';}
-
     const confMatch=text.match(/Confiance\s*:\s*(\d{1,3})%/i);
     if(confMatch)decision.confidence=confMatch[1]+'%';
-
-    // Entrée — cherche "Entrée :" ou "Entree :" avec nettoyage
     const entryMatch=text.match(/Entr[eé][e]?\s*:\s*([^\n]+)/i);
-    if(entryMatch){
-      const raw=cleanPrice(entryMatch[1]);
-      if(raw&&raw!=='-'&&raw.length>1)metrics.entry=raw;
-    }
-
-    // Stop Loss
+    if(entryMatch){const raw=cleanPrice(entryMatch[1]);if(raw&&raw!=='-'&&raw.length>1)metrics.entry=raw;}
     const slMatch=text.match(/Stop Loss\s*:\s*([^\n(]+)/i)||text.match(/SL\s*:\s*([^\n(]+)/i);
     if(slMatch)metrics.sl=cleanPrice(slMatch[1]);
-
-    // Take Profit 1
-    const tpMatch=text.match(/Take Profit 1\s*:\s*([^\n(]+)/i)||text.match(/Take Profit\s*:\s*([^\n(]+)/i)||text.match(/TP1?\s*:\s*([^\n(]+)/i);
+    const tpMatch=text.match(/Take Profit 1\s*:\s*([^\n(]+)/i)||text.match(/Take Profit\s*:\s*([^\n(]+)/i);
     if(tpMatch)metrics.tp=cleanPrice(tpMatch[1]);
-
+    // Break Even = point d'entrée
+    metrics.be=metrics.entry;
     return{decision,metrics};
+  }
+
+  async function sendFeedback(result){
+    document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('selected'));
+    document.querySelector('.fb-btn.'+result).classList.add('selected');
+    try{
+      await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...lastAnalysisData,result})});
+      document.getElementById('feedbackThanks').classList.add('show');
+    }catch(e){}
   }
 
   async function analyzeChart(){
@@ -337,13 +379,16 @@
 
     const btn=document.getElementById('analyzeBtn');
     const resultPanel=document.getElementById('resultPanel');
+    const feedbackPanel=document.getElementById('feedbackPanel');
     const loadingBar=document.getElementById('loadingBar');
     const loadingText=document.getElementById('loadingText');
     const statusText=document.getElementById('statusText');
 
     btn.textContent='ANALYSE...';btn.disabled=true;
     loadingBar.classList.add('active');loadingText.classList.add('active');
-    statusText.textContent='ANALYSE EN COURS';resultPanel.classList.remove('visible');
+    statusText.textContent='ANALYSE EN COURS';
+    resultPanel.classList.remove('visible');
+    feedbackPanel.classList.remove('show');
 
     const formData=new FormData();
     formData.append('image',file);
@@ -364,6 +409,13 @@
         document.getElementById('metricTP').textContent=metrics.tp;
         document.getElementById('analysisText').textContent=data.result;
 
+        // Break Even
+        if(metrics.be&&metrics.be!=='—'){
+          document.getElementById('bePrice').textContent=metrics.be;
+          document.getElementById('beBlock').classList.add('show');
+        }
+
+        // Risk
         const c=parseFloat(capital);
         document.getElementById('riskMain5').textContent='$'+(c*0.05).toFixed(2);
         document.getElementById('rRisk1').textContent='$'+(c*0.01).toFixed(2);
@@ -373,6 +425,11 @@
 
         resultPanel.classList.add('visible');
         statusText.textContent='ANALYSE COMPLÈTE';
+
+        lastAnalysisData={capital,decision:decision.text,entry:metrics.entry,sl:metrics.sl,tp:metrics.tp};
+        feedbackPanel.classList.add('show');
+        document.getElementById('feedbackThanks').classList.remove('show');
+        document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('selected'));
 
         const counter=document.getElementById('analysesCounter');
         if(data.analysesLeft!==null&&data.analysesLeft!==undefined){

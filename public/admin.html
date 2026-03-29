@@ -3,146 +3,133 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Panel Admin — AI-Mazza</title>
+  <title>Panel Admin — J4keIA</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
-    :root{--cyan:#00f5ff;--blue:#0080ff;--purple:#8000ff;--green:#00ff88;--red:#ff3060;--gold:#ffd700;--dark:#020510;--panel:rgba(0,15,40,0.8);}
+    :root{--cyan:#00f5ff;--green:#00ff88;--red:#ff3060;--gold:#ffd700;--orange:#ff8c00;--purple:#8000ff;--dark:#020510;--panel:rgba(0,15,40,0.85);}
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{background:var(--dark);font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden;}
+    body{background:var(--dark);font-family:'Rajdhani',sans-serif;min-height:100vh;}
     body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,245,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
-
-    /* NAV */
-    .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 20px;z-index:9999;background:rgba(2,5,16,0.97);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,215,0,0.15);}
-    .nav-logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,var(--gold),#fff,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-    .nav-badge{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:4px 10px;text-transform:uppercase;}
-    .nav-actions{display:flex;gap:10px;align-items:center;}
+    .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 20px;z-index:9999;background:rgba(2,5,16,0.97);border-bottom:1px solid rgba(255,215,0,0.15);}
+    .nav-logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;letter-spacing:4px;color:var(--gold);}
+    .nav-badge{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:var(--gold);border:1px solid rgba(255,215,0,0.3);padding:4px 10px;}
+    .nav-actions{display:flex;gap:8px;}
     .nav-btn{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;text-decoration:none;text-transform:uppercase;padding:7px 12px;border:1px solid;transition:all 0.3s;cursor:pointer;background:transparent;}
     .nav-btn.site{color:rgba(0,245,255,0.7);border-color:rgba(0,245,255,0.2);}
     .nav-btn.site:hover{color:var(--cyan);border-color:var(--cyan);}
     .nav-btn.logout{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.2);}
     .nav-btn.logout:hover{color:var(--red);border-color:var(--red);}
-
-    /* CONTAINER */
-    .container{position:relative;z-index:1;padding:80px 20px 40px;max-width:1400px;margin:0 auto;}
-
-    /* STATS */
-    .stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:28px;}
-    .stat-card{background:var(--panel);border:1px solid rgba(0,245,255,0.1);border-radius:4px;padding:16px;text-align:center;backdrop-filter:blur(10px);}
-    .stat-value{font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:var(--cyan);}
-    .stat-value.green{color:var(--green);}
-    .stat-value.red{color:var(--red);}
-    .stat-value.gold{color:var(--gold);}
-    .stat-value.blue{color:var(--blue);}
-    .stat-label{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-top:6px;}
-
-    /* SECTION */
-    .section-title{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid rgba(0,245,255,0.1);}
-
-    /* SEARCH */
-    .search-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
-    .search-input{flex:1;min-width:200px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.15);border-radius:2px;padding:10px 14px;color:#fff;font-family:'Rajdhani',sans-serif;font-size:14px;outline:none;}
+    .container{position:relative;z-index:1;padding:80px 16px 40px;max-width:1400px;margin:0 auto;}
+    .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;}
+    .stat-card{background:var(--panel);border:1px solid rgba(0,245,255,0.12);border-radius:4px;padding:16px 12px;text-align:center;}
+    .stat-num{font-size:32px;font-weight:900;line-height:1;}
+    .stat-num.cyan{color:var(--cyan);}.stat-num.green{color:var(--green);}.stat-num.gold{color:var(--gold);}.stat-num.orange{color:var(--orange);}.stat-num.red{color:var(--red);}.stat-num.blue{color:#4488ff;}
+    .stat-label{font-size:11px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-top:6px;}
+    .section-title{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid rgba(0,245,255,0.1);}
+    .toolbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;}
+    .search-input{flex:1;min-width:180px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.15);border-radius:2px;padding:9px 12px;color:#fff;font-family:'Rajdhani',sans-serif;font-size:14px;outline:none;}
     .search-input:focus{border-color:var(--cyan);}
     .search-input::placeholder{color:rgba(255,255,255,0.2);}
-    .filter-btn{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;padding:10px 14px;border:1px solid rgba(0,245,255,0.2);color:rgba(0,245,255,0.5);background:transparent;cursor:pointer;transition:all 0.3s;}
-    .filter-btn.active,.filter-btn:hover{border-color:var(--cyan);color:var(--cyan);}
-
-    /* TABLE */
-    .table-wrap{background:var(--panel);border:1px solid rgba(0,245,255,0.1);border-radius:4px;overflow:hidden;backdrop-filter:blur(10px);}
-    table{width:100%;border-collapse:collapse;}
-    th{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(0,245,255,0.4);text-transform:uppercase;padding:12px 14px;text-align:left;border-bottom:1px solid rgba(0,245,255,0.1);white-space:nowrap;}
-    td{padding:12px 14px;font-size:14px;color:rgba(255,255,255,0.7);border-bottom:1px solid rgba(0,245,255,0.05);vertical-align:middle;}
+    .fbtn{font-family:'Rajdhani',sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;padding:9px 12px;border:1px solid rgba(0,245,255,0.2);color:rgba(255,255,255,0.4);background:transparent;cursor:pointer;transition:all 0.3s;white-space:nowrap;}
+    .fbtn.active,.fbtn:hover{border-color:var(--cyan);color:var(--cyan);}
+    .table-wrap{background:var(--panel);border:1px solid rgba(0,245,255,0.1);border-radius:4px;overflow-x:auto;}
+    table{width:100%;border-collapse:collapse;min-width:800px;}
+    th{font-size:10px;letter-spacing:2px;color:rgba(0,245,255,0.4);text-transform:uppercase;padding:12px 12px;text-align:left;border-bottom:1px solid rgba(0,245,255,0.1);white-space:nowrap;font-family:'Rajdhani',sans-serif;font-weight:600;}
+    td{padding:10px 12px;font-size:13px;color:rgba(255,255,255,0.75);border-bottom:1px solid rgba(0,245,255,0.04);vertical-align:middle;}
     tr:last-child td{border-bottom:none;}
-    tr:hover td{background:rgba(0,245,255,0.03);}
-
-    /* BADGES */
-    .badge{display:inline-block;font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;padding:3px 8px;border-radius:2px;text-transform:uppercase;white-space:nowrap;}
+    tr:hover td{background:rgba(0,245,255,0.02);}
+    .badge{display:inline-block;font-size:10px;letter-spacing:1px;padding:3px 8px;border-radius:2px;text-transform:uppercase;white-space:nowrap;font-family:'Rajdhani',sans-serif;font-weight:600;}
     .badge.online{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);color:var(--green);}
-    .badge.offline{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.3);}
+    .badge.offline{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:rgba(255,255,255,0.3);}
     .badge.verified{background:rgba(0,245,255,0.08);border:1px solid rgba(0,245,255,0.2);color:var(--cyan);}
     .badge.unverified{background:rgba(255,48,96,0.08);border:1px solid rgba(255,48,96,0.2);color:var(--red);}
-    .badge.subscribed{background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.2);color:var(--gold);}
     .badge.banned{background:rgba(255,48,96,0.15);border:1px solid rgba(255,48,96,0.4);color:var(--red);}
-    .badge.free{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);}
-
-    /* ACTION BUTTONS */
-    .actions{display:flex;gap:6px;flex-wrap:wrap;}
-    .action-btn{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;text-transform:uppercase;padding:5px 9px;border:1px solid;background:transparent;cursor:pointer;transition:all 0.3s;white-space:nowrap;}
-    .action-btn.ban{color:rgba(255,48,96,0.6);border-color:rgba(255,48,96,0.2);}
-    .action-btn.ban:hover{color:var(--red);border-color:var(--red);box-shadow:0 0 10px rgba(255,48,96,0.2);}
-    .action-btn.unban{color:rgba(0,255,136,0.6);border-color:rgba(0,255,136,0.2);}
-    .action-btn.unban:hover{color:var(--green);border-color:var(--green);}
-    .action-btn.restrict{color:rgba(255,165,0,0.6);border-color:rgba(255,165,0,0.2);}
-    .action-btn.restrict:hover{color:orange;border-color:orange;}
-    .action-btn.add{color:rgba(0,245,255,0.6);border-color:rgba(0,245,255,0.2);}
-    .action-btn.add:hover{color:var(--cyan);border-color:var(--cyan);}
-    .action-btn.sub{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.2);}
-    .action-btn.sub:hover{color:var(--gold);border-color:var(--gold);}
-    .action-btn.kick{color:rgba(128,0,255,0.6);border-color:rgba(128,0,255,0.2);}
-    .action-btn.kick:hover{color:var(--purple);border-color:var(--purple);}
-
-    /* MODAL */
-    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;align-items:center;justify-content:center;}
+    .badge.paid{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);color:var(--green);}
+    .badge.pending{background:rgba(255,140,0,0.1);border:1px solid rgba(255,140,0,0.3);color:var(--orange);}
+    .badge.unpaid{background:rgba(255,48,96,0.1);border:1px solid rgba(255,48,96,0.3);color:var(--red);}
+    .badge.plan{background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.2);color:var(--gold);}
+    .ac{display:flex;align-items:center;gap:5px;}
+    .ac-num{font-size:15px;font-weight:700;min-width:55px;text-align:center;color:var(--cyan);}
+    .ac-num.empty{color:var(--red);}
+    .pm{width:28px;height:28px;border:1px solid;background:transparent;cursor:pointer;font-size:16px;font-weight:900;display:flex;align-items:center;justify-content:center;transition:all 0.2s;border-radius:2px;}
+    .pm.p{color:rgba(0,255,136,0.7);border-color:rgba(0,255,136,0.3);}
+    .pm.p:hover{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08);}
+    .pm.m{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.3);}
+    .pm.m:hover{color:var(--red);border-color:var(--red);background:rgba(255,48,96,0.08);}
+    .pm.pp{color:rgba(0,245,255,0.6);border-color:rgba(0,245,255,0.2);font-size:11px;width:auto;padding:0 6px;}
+    .pm.pp:hover{color:var(--cyan);border-color:var(--cyan);}
+    .pm.mm{color:rgba(255,140,0,0.6);border-color:rgba(255,140,0,0.2);font-size:11px;width:auto;padding:0 6px;}
+    .pm.mm:hover{color:var(--orange);border-color:var(--orange);}
+    .acts{display:flex;gap:4px;flex-wrap:wrap;}
+    .abtn{font-size:11px;padding:5px 9px;border:1px solid;background:transparent;cursor:pointer;transition:all 0.2s;white-space:nowrap;font-family:'Rajdhani',sans-serif;letter-spacing:0.5px;}
+    .abtn.pay{color:rgba(255,215,0,0.7);border-color:rgba(255,215,0,0.2);}
+    .abtn.pay:hover{color:var(--gold);border-color:var(--gold);}
+    .abtn.ban{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.2);}
+    .abtn.ban:hover{color:var(--red);border-color:var(--red);}
+    .abtn.unban{color:rgba(0,255,136,0.7);border-color:rgba(0,255,136,0.2);}
+    .abtn.unban:hover{color:var(--green);border-color:var(--green);}
+    .abtn.block{color:rgba(255,140,0,0.7);border-color:rgba(255,140,0,0.2);}
+    .abtn.block:hover{color:var(--orange);border-color:var(--orange);}
+    .abtn.kick{color:rgba(128,0,255,0.7);border-color:rgba(128,0,255,0.2);}
+    .abtn.kick:hover{color:var(--purple);border-color:var(--purple);}
+    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10000;align-items:center;justify-content:center;padding:20px;}
     .modal.open{display:flex;}
-    .modal-box{background:#020d20;border:1px solid rgba(0,245,255,0.3);border-radius:4px;padding:32px;width:100%;max-width:360px;}
-    .modal-title{font-family:'Orbitron',monospace;font-size:12px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-bottom:20px;}
-    .modal-input{width:100%;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:12px 14px;color:#fff;font-family:'Rajdhani',sans-serif;font-size:16px;outline:none;margin-bottom:16px;}
-    .modal-btns{display:flex;gap:10px;}
-    .modal-confirm{flex:1;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#020510;background:var(--cyan);border:none;padding:12px;cursor:pointer;}
-    .modal-cancel{flex:1;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.4);background:transparent;border:1px solid rgba(255,255,255,0.1);padding:12px;cursor:pointer;}
-
-    /* TOAST */
-    .toast{position:fixed;bottom:24px;right:24px;padding:14px 20px;border-radius:2px;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;z-index:99999;animation:toastIn 0.3s ease;display:none;}
-    .toast.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.4);color:var(--green);}
-    .toast.error{background:rgba(255,48,96,0.1);border:1px solid rgba(255,48,96,0.4);color:var(--red);}
-    @keyframes toastIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
-
-    /* EMPTY */
-    .empty{text-align:center;padding:40px;color:rgba(255,255,255,0.2);font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;}
-
-    @media(max-width:900px){
-      .stats-grid{grid-template-columns:repeat(2,1fr);}
-      th:nth-child(4),td:nth-child(4){display:none;}
-    }
-    @media(max-width:600px){
-      .stats-grid{grid-template-columns:1fr 1fr;}
-      th:nth-child(3),td:nth-child(3),th:nth-child(5),td:nth-child(5){display:none;}
-      .nav-badge{display:none;}
-    }
+    .modal-box{background:#020d20;border:1px solid rgba(0,245,255,0.3);border-radius:4px;padding:28px;width:100%;max-width:380px;}
+    .modal-title{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-bottom:18px;}
+    .mlabel{font-size:11px;letter-spacing:1px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:6px;display:block;margin-top:10px;}
+    .minput,.mselect{width:100%;background:#010a1a;border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:10px 12px;color:#fff;font-family:'Rajdhani',sans-serif;font-size:15px;outline:none;}
+    .mbtns{display:flex;gap:8px;margin-top:16px;}
+    .mok{flex:1;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#020510;background:var(--cyan);border:none;padding:12px;cursor:pointer;}
+    .mcancel{flex:1;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.4);background:transparent;border:1px solid rgba(255,255,255,0.1);padding:12px;cursor:pointer;}
+    .toast{position:fixed;bottom:24px;right:16px;padding:12px 18px;border-radius:2px;font-size:12px;letter-spacing:1px;text-transform:uppercase;z-index:99999;display:none;font-family:'Rajdhani',sans-serif;}
+    .toast.s{background:rgba(0,255,136,0.12);border:1px solid rgba(0,255,136,0.4);color:var(--green);}
+    .toast.e{background:rgba(255,48,96,0.12);border:1px solid rgba(255,48,96,0.4);color:var(--red);}
+    .empty-row{text-align:center;padding:36px;color:rgba(255,255,255,0.2);font-size:12px;letter-spacing:2px;}
+    .winrate-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;}
+    @media(max-width:700px){.stats-grid{grid-template-columns:repeat(2,1fr);}.winrate-grid{grid-template-columns:repeat(2,1fr);}.nav-badge{display:none;}}
   </style>
 </head>
 <body>
 <nav class="nav">
-  <div style="display:flex;align-items:center;gap:12px;">
-    <div class="nav-logo">AI-Mazza</div>
-    <div class="nav-badge">◈ Admin Panel</div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div class="nav-logo">J4keIA</div>
+    <div class="nav-badge">Admin</div>
   </div>
   <div class="nav-actions">
-    <a href="/" class="nav-btn site">◈ Site</a>
-    <a href="/logout" class="nav-btn logout">✕ Déco</a>
+    <a href="/" class="nav-btn site">Site</a>
+    <a href="/logout" class="nav-btn logout">Déco</a>
   </div>
 </nav>
 
 <div class="container">
-
-  <!-- STATS -->
-  <div class="stats-grid" id="statsGrid">
-    <div class="stat-card"><div class="stat-value" id="statTotal">—</div><div class="stat-label">Utilisateurs</div></div>
-    <div class="stat-card"><div class="stat-value green" id="statOnline">—</div><div class="stat-label">En ligne</div></div>
-    <div class="stat-card"><div class="stat-value blue" id="statVerified">—</div><div class="stat-label">Vérifiés</div></div>
-    <div class="stat-card"><div class="stat-value gold" id="statSubscribed">—</div><div class="stat-label">Abonnés</div></div>
-    <div class="stat-card"><div class="stat-value red" id="statBanned">—</div><div class="stat-label">Bannis</div></div>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-num cyan" id="sTotal">0</div><div class="stat-label">Utilisateurs</div></div>
+    <div class="stat-card"><div class="stat-num green" id="sOnline">0</div><div class="stat-label">En ligne</div></div>
+    <div class="stat-card"><div class="stat-num green" id="sPaid">0</div><div class="stat-label">✓ Payé</div></div>
+    <div class="stat-card"><div class="stat-num orange" id="sPending">0</div><div class="stat-label">⏳ Attente</div></div>
+    <div class="stat-card"><div class="stat-num blue" id="sVerified">0</div><div class="stat-label">Vérifiés</div></div>
+    <div class="stat-card"><div class="stat-num gold" id="sSubscribed">0</div><div class="stat-label">Abonnés</div></div>
+    <div class="stat-card"><div class="stat-num red" id="sBanned">0</div><div class="stat-label">Bannis</div></div>
+    <div class="stat-card"><div class="stat-num cyan" id="sTotal2">0</div><div class="stat-label">Total clients</div></div>
   </div>
 
-  <!-- USERS TABLE -->
-  <div class="section-title">◈ Gestion des utilisateurs</div>
+  <div class="section-title">◈ Performance IA — Feedback clients</div>
+  <div class="winrate-grid">
+    <div class="stat-card"><div class="stat-num green" id="fbTP">0</div><div class="stat-label">✅ TP atteints</div></div>
+    <div class="stat-card"><div class="stat-num red" id="fbSL">0</div><div class="stat-label">❌ SL touchés</div></div>
+    <div class="stat-card"><div class="stat-num gold" id="fbPending">0</div><div class="stat-label">⏳ En cours</div></div>
+    <div class="stat-card"><div class="stat-num cyan" id="fbWinrate">—%</div><div class="stat-label">Win Rate IA</div></div>
+  </div>
 
-  <div class="search-bar">
-    <input type="text" class="search-input" id="searchInput" placeholder="Rechercher par email..." oninput="filterUsers()"/>
-    <button class="filter-btn active" onclick="setFilter('all',this)">Tous</button>
-    <button class="filter-btn" onclick="setFilter('online',this)">En ligne</button>
-    <button class="filter-btn" onclick="setFilter('subscribed',this)">Abonnés</button>
-    <button class="filter-btn" onclick="setFilter('banned',this)">Bannis</button>
-    <button class="filter-btn" onclick="loadAll()">↻ Actualiser</button>
+  <div class="section-title">◈ Gestion des utilisateurs</div>
+  <div class="toolbar">
+    <input type="text" class="search-input" id="searchInput" placeholder="Rechercher par email..." oninput="renderUsers()"/>
+    <button class="fbtn active" onclick="setFilter('all',this)">Tous</button>
+    <button class="fbtn" onclick="setFilter('paid',this)">✓ Payé</button>
+    <button class="fbtn" onclick="setFilter('pending',this)">⏳ Attente</button>
+    <button class="fbtn" onclick="setFilter('online',this)">En ligne</button>
+    <button class="fbtn" onclick="setFilter('banned',this)">Bannis</button>
+    <button class="fbtn" onclick="loadAll()">↻</button>
   </div>
 
   <div class="table-wrap">
@@ -150,189 +137,241 @@
       <thead>
         <tr>
           <th>Email</th>
-          <th>Statut</th>
-          <th>Analyses</th>
-          <th>Inscription</th>
+          <th>Compte</th>
+          <th>Paiement</th>
           <th>Plan</th>
+          <th>Analyses (restant / max)</th>
           <th>Actions</th>
         </tr>
       </thead>
-      <tbody id="usersTable">
-        <tr><td colspan="6" class="empty">Chargement...</td></tr>
+      <tbody id="tbody">
+        <tr><td colspan="6" class="empty-row">Chargement...</td></tr>
       </tbody>
     </table>
   </div>
-
 </div>
 
-<!-- MODAL AJOUTER ANALYSES -->
-<div class="modal" id="modalAnalyses">
+<!-- MODAL PAIEMENT -->
+<div class="modal" id="mPay">
   <div class="modal-box">
-    <div class="modal-title">◈ Ajouter des analyses</div>
-    <input type="number" class="modal-input" id="analysesAmount" value="2" min="1" max="100" placeholder="Nombre d'analyses"/>
-    <div class="modal-btns">
-      <button class="modal-confirm" onclick="confirmAddAnalyses()">Confirmer</button>
-      <button class="modal-cancel" onclick="closeModal()">Annuler</button>
+    <div class="modal-title">◈ Gérer le paiement</div>
+    <label class="mlabel">Statut</label>
+    <select class="mselect" id="pStatus">
+      <option value="paid">✓ Payé — Activer l'accès</option>
+      <option value="pending">⏳ En attente de paiement</option>
+      <option value="unpaid">✕ Impayé — Bloquer l'accès</option>
+    </select>
+    <label class="mlabel">Plan</label>
+    <select class="mselect" id="pPlan">
+      <option value="starter">Starter — 30 analyses</option>
+      <option value="pro">Pro — 150 analyses</option>
+      <option value="elite">Elite — Illimité</option>
+    </select>
+    <label class="mlabel">Note (référence virement, date...)</label>
+    <input type="text" class="minput" id="pNote" placeholder="Ex: Virement 27/03 — 24€"/>
+    <div class="mbtns">
+      <button class="mok" onclick="confirmPay()">Confirmer</button>
+      <button class="mcancel" onclick="closeM('mPay')">Annuler</button>
     </div>
   </div>
 </div>
 
-<!-- TOAST -->
+<!-- MODAL BULK -->
+<div class="modal" id="mBulk">
+  <div class="modal-box">
+    <div class="modal-title" id="mBulkTitle">◈ Modifier les analyses</div>
+    <label class="mlabel">Nombre d'analyses</label>
+    <input type="number" class="minput" id="bulkAmt" value="10" min="1" max="99999"/>
+    <div class="mbtns">
+      <button class="mok" onclick="confirmBulk()">Confirmer</button>
+      <button class="mcancel" onclick="closeM('mBulk')">Annuler</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-  let allUsers = [];
-  let currentFilter = 'all';
-  let pendingUserId = null;
+let users=[],filter='all',pendingId=null,bulkMode='add';
 
-  async function loadStats() {
-    try {
-      const res = await fetch('/admin/stats');
-      const s = await res.json();
-      document.getElementById('statTotal').textContent = s.total;
-      document.getElementById('statOnline').textContent = s.online;
-      document.getElementById('statVerified').textContent = s.verified;
-      document.getElementById('statSubscribed').textContent = s.subscribed;
-      document.getElementById('statBanned').textContent = s.banned;
-    } catch(e) {}
-  }
+async function loadStats(){
+  try{
+    const r=await fetch('/admin/stats');
+    const s=await r.json();
+    document.getElementById('sTotal').textContent=s.total||0;
+    document.getElementById('sTotal2').textContent=s.total||0;
+    document.getElementById('sOnline').textContent=s.online||0;
+    document.getElementById('sVerified').textContent=s.verified||0;
+    document.getElementById('sSubscribed').textContent=s.subscribed||0;
+    document.getElementById('sPaid').textContent=s.paid||0;
+    document.getElementById('sPending').textContent=s.pending||0;
+    document.getElementById('sBanned').textContent=s.banned||0;
+  }catch(e){}
+}
 
-  async function loadUsers() {
-    try {
-      const res = await fetch('/admin/users');
-      allUsers = await res.json();
-      renderUsers();
-    } catch(e) {
-      document.getElementById('usersTable').innerHTML = '<tr><td colspan="6" class="empty">Erreur de chargement</td></tr>';
-    }
-  }
+async function loadFeedback(){
+  try{
+    const r=await fetch('/admin/feedback');
+    const d=await r.json();
+    document.getElementById('fbTP').textContent=d.tp||0;
+    document.getElementById('fbSL').textContent=d.sl||0;
+    document.getElementById('fbPending').textContent=d.pending||0;
+    document.getElementById('fbWinrate').textContent=(d.winrate||0)+'%';
+  }catch(e){}
+}
 
-  function loadAll() { loadStats(); loadUsers(); }
-
-  function setFilter(f, btn) {
-    currentFilter = f;
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+async function loadUsers(){
+  try{
+    const r=await fetch('/admin/users');
+    users=await r.json();
     renderUsers();
-  }
+  }catch(e){}
+}
 
-  function filterUsers() { renderUsers(); }
+function loadAll(){loadStats();loadFeedback();loadUsers();}
 
-  function renderUsers() {
-    const search = document.getElementById('searchInput').value.toLowerCase();
-    let users = allUsers.filter(u => {
-      if (search && !u.email.toLowerCase().includes(search)) return false;
-      if (currentFilter === 'online') return u.online;
-      if (currentFilter === 'subscribed') return u.subscribed;
-      if (currentFilter === 'banned') return u.banned;
-      return true;
-    });
+function setFilter(f,btn){
+  filter=f;
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderUsers();
+}
 
-    if (users.length === 0) {
-      document.getElementById('usersTable').innerHTML = '<tr><td colspan="6" class="empty">Aucun utilisateur trouvé</td></tr>';
-      return;
-    }
-
-    document.getElementById('usersTable').innerHTML = users.map(u => `
-      <tr>
-        <td>
-          <span class="badge ${u.online ? 'online' : 'offline'}">${u.online ? '● EN LIGNE' : '○ HORS LIGNE'}</span>
-          <br><span style="color:#fff;margin-top:4px;display:inline-block;">${u.email}</span>
-        </td>
-        <td>
-          ${u.banned ? '<span class="badge banned">BANNI</span>' : u.isVerified ? '<span class="badge verified">VÉRIFIÉ</span>' : '<span class="badge unverified">NON VÉRIFIÉ</span>'}
-        </td>
-        <td>
-          <span style="font-family:'Orbitron',monospace;font-size:14px;color:${u.analysisCount >= 2 && !u.subscribed ? 'var(--red)' : 'var(--cyan)'};">${u.analysisCount}</span>
-          <span style="color:rgba(255,255,255,0.3);font-size:12px;"> / ${u.subscribed ? '∞' : '2'}</span>
-        </td>
-        <td style="color:rgba(255,255,255,0.4);font-size:12px;">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('fr-FR') : '—'}</td>
-        <td>${u.subscribed ? '<span class="badge subscribed">ABONNÉ</span>' : '<span class="badge free">GRATUIT</span>'}</td>
-        <td>
-          <div class="actions">
-            ${u.banned
-              ? `<button class="action-btn unban" onclick="banUser('${u._id}')">✓ Débannir</button>`
-              : `<button class="action-btn ban" onclick="banUser('${u._id}')">✕ Bannir</button>`
-            }
-            <button class="action-btn restrict" onclick="restrictUser('${u._id}')">⊘ Restreindre</button>
-            <button class="action-btn add" onclick="openAddAnalyses('${u._id}')">+ Analyses</button>
-            <button class="action-btn sub" onclick="toggleSubscribe('${u._id}')">${u.subscribed ? '▼ Désabo' : '▲ Abonner'}</button>
-            ${u.online ? `<button class="action-btn kick" onclick="kickUser('${u._id}')">⚡ Kick</button>` : ''}
-          </div>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  async function banUser(id) {
-    const res = await fetch('/admin/ban/' + id, { method: 'POST' });
-    const d = await res.json();
-    if (d.success) {
-      showToast(d.banned ? 'Utilisateur banni' : 'Utilisateur débanni', d.banned ? 'error' : 'success');
-      loadAll();
-    }
-  }
-
-  async function restrictUser(id) {
-    if (!confirm('Restreindre cet utilisateur ? (bloque ses analyses)')) return;
-    const res = await fetch('/admin/restrict/' + id, { method: 'POST' });
-    const d = await res.json();
-    if (d.success) { showToast('Utilisateur restreint', 'success'); loadAll(); }
-  }
-
-  function openAddAnalyses(id) {
-    pendingUserId = id;
-    document.getElementById('analysesAmount').value = '2';
-    document.getElementById('modalAnalyses').classList.add('open');
-  }
-
-  function closeModal() {
-    document.getElementById('modalAnalyses').classList.remove('open');
-    pendingUserId = null;
-  }
-
-  async function confirmAddAnalyses() {
-    const amount = parseInt(document.getElementById('analysesAmount').value) || 2;
-    const res = await fetch('/admin/add-analyses/' + pendingUserId, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount })
-    });
-    const d = await res.json();
-    if (d.success) { showToast(amount + ' analyses ajoutées', 'success'); loadAll(); }
-    closeModal();
-  }
-
-  async function toggleSubscribe(id) {
-    const res = await fetch('/admin/subscribe/' + id, { method: 'POST' });
-    const d = await res.json();
-    if (d.success) {
-      showToast(d.subscribed ? 'Abonnement activé' : 'Abonnement désactivé', 'success');
-      loadAll();
-    }
-  }
-
-  async function kickUser(id) {
-    const res = await fetch('/admin/kick/' + id, { method: 'POST' });
-    const d = await res.json();
-    if (d.success) { showToast('Utilisateur déconnecté', 'success'); loadAll(); }
-  }
-
-  function showToast(msg, type) {
-    const t = document.getElementById('toast');
-    t.textContent = msg; t.className = 'toast ' + type;
-    t.style.display = 'block';
-    setTimeout(() => { t.style.display = 'none'; }, 3000);
-  }
-
-  // Fermer modal au clic extérieur
-  document.getElementById('modalAnalyses').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
+function renderUsers(){
+  const q=document.getElementById('searchInput').value.toLowerCase();
+  const list=users.filter(u=>{
+    if(q&&!u.email.toLowerCase().includes(q))return false;
+    if(filter==='online')return u.online;
+    if(filter==='banned')return u.banned;
+    if(filter==='paid')return u.paymentStatus==='paid';
+    if(filter==='pending')return u.paymentStatus!=='paid';
+    return true;
   });
 
-  // Auto-refresh toutes les 30s
-  loadAll();
-  setInterval(loadAll, 30000);
+  if(!list.length){document.getElementById('tbody').innerHTML='<tr><td colspan="6" class="empty-row">Aucun utilisateur</td></tr>';return;}
+
+  const left=u=>Math.max(0,(u.analysisMax||0)-(u.analysisCount||0));
+  const maxStr=u=>u.analysisMax>=999999?'∞':(u.analysisMax||0);
+
+  document.getElementById('tbody').innerHTML=list.map(u=>{
+    const l=left(u);
+    const payBadge=u.paymentStatus==='paid'?'<span class="badge paid">✓ Payé</span>':u.paymentStatus==='unpaid'?'<span class="badge unpaid">✕ Impayé</span>':'<span class="badge pending">⏳ Attente</span>';
+    return`<tr>
+      <td>
+        <span class="badge ${u.online?'online':'offline'}">${u.online?'●':'○'}</span>
+        <span style="color:#fff;margin-left:6px;">${u.email}</span>
+        ${u.paymentNote?`<br><span style="font-size:11px;color:rgba(255,255,255,0.3);margin-left:18px;">${u.paymentNote}</span>`:''}
+      </td>
+      <td>${u.banned?'<span class="badge banned">Banni</span>':u.isVerified?'<span class="badge verified">Vérifié</span>':'<span class="badge unverified">Non vérifié</span>'}</td>
+      <td>${payBadge}</td>
+      <td>${u.subscribed?`<span class="badge plan">${(u.plan||'free').toUpperCase()}</span>`:'<span style="color:rgba(255,255,255,0.3);font-size:12px;">Gratuit</span>'}</td>
+      <td>
+        <div class="ac">
+          <button class="pm m" onclick="rmOne('${u._id}')">−</button>
+          <span class="ac-num ${l===0?'empty':''}">${l} / ${maxStr(u)}</span>
+          <button class="pm p" onclick="addOne('${u._id}')">+</button>
+          <button class="pm pp" onclick="openBulk('${u._id}','add')">+N</button>
+          <button class="pm mm" onclick="openBulk('${u._id}','rm')">−N</button>
+        </div>
+      </td>
+      <td>
+        <div class="acts">
+          <button class="abtn pay" onclick="openPay('${u._id}')">💰 Paiement</button>
+          ${u.banned?`<button class="abtn unban" onclick="doBan('${u._id}')">✓ Débannir</button>`:`<button class="abtn ban" onclick="doBan('${u._id}')">✕ Bannir</button>`}
+          <button class="abtn block" onclick="doBlock('${u._id}')">⊘ Bloquer</button>
+          ${u.online?`<button class="abtn kick" onclick="doKick('${u._id}')">⚡ Kick</button>`:''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function addOne(id){
+  const r=await fetch('/admin/add-one/'+id,{method:'POST'});
+  const d=await r.json();
+  if(d.success){updateLocal(id,'analysisMax',d.analysisMax);toast('+1 analyse','s');}
+}
+
+async function rmOne(id){
+  const r=await fetch('/admin/remove-one/'+id,{method:'POST'});
+  const d=await r.json();
+  if(d.success){updateLocal(id,'analysisMax',d.analysisMax);toast('−1 analyse','e');}
+}
+
+function openBulk(id,mode){
+  pendingId=id;bulkMode=mode;
+  document.getElementById('mBulkTitle').textContent=mode==='add'?'◈ Ajouter des analyses':'◈ Retirer des analyses';
+  document.getElementById('bulkAmt').value='10';
+  document.getElementById('mBulk').classList.add('open');
+}
+
+async function confirmBulk(){
+  const n=parseInt(document.getElementById('bulkAmt').value)||10;
+  const route=bulkMode==='add'?'/admin/add-analyses/':'/admin/remove-analyses/';
+  const r=await fetch(route+pendingId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:n})});
+  const d=await r.json();
+  if(d.success){updateLocal(pendingId,'analysisMax',d.analysisMax);toast((bulkMode==='add'?'+':'-')+n+' analyses',bulkMode==='add'?'s':'e');}
+  closeM('mBulk');
+}
+
+function openPay(id){
+  pendingId=id;
+  const u=users.find(u=>u._id===id);
+  if(u){
+    document.getElementById('pStatus').value=u.paymentStatus||'pending';
+    document.getElementById('pPlan').value=u.plan==='free'?'starter':(u.plan||'starter');
+    document.getElementById('pNote').value=u.paymentNote||'';
+  }
+  document.getElementById('mPay').classList.add('open');
+}
+
+async function confirmPay(){
+  const status=document.getElementById('pStatus').value;
+  const plan=document.getElementById('pPlan').value;
+  const note=document.getElementById('pNote').value;
+  const r=await fetch('/admin/payment/'+pendingId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,plan,note})});
+  const d=await r.json();
+  if(d.success){toast(status==='paid'?'✓ Accès activé !':status==='unpaid'?'Accès suspendu':'En attente',status==='paid'?'s':'e');loadAll();}
+  closeM('mPay');
+}
+
+async function doBan(id){
+  const r=await fetch('/admin/ban/'+id,{method:'POST'});
+  const d=await r.json();
+  if(d.success){toast(d.banned?'Utilisateur banni':'Débanni',d.banned?'e':'s');loadAll();}
+}
+
+async function doBlock(id){
+  if(!confirm('Bloquer toutes les analyses ?'))return;
+  const r=await fetch('/admin/restrict/'+id,{method:'POST'});
+  const d=await r.json();
+  if(d.success){toast('Accès bloqué','e');loadAll();}
+}
+
+async function doKick(id){
+  const r=await fetch('/admin/kick/'+id,{method:'POST'});
+  const d=await r.json();
+  if(d.success){toast('Déconnecté','s');loadAll();}
+}
+
+function updateLocal(id,key,val){
+  const u=users.find(u=>u._id===id);
+  if(u){u[key]=val;renderUsers();}
+}
+
+function closeM(id){document.getElementById(id).classList.remove('open');pendingId=null;}
+
+function toast(msg,type){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast '+(type||'s');
+  t.style.display='block';
+  setTimeout(()=>t.style.display='none',2500);
+}
+
+document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
+
+loadAll();
+setInterval(loadAll,30000);
 </script>
 </body>
 </html>
