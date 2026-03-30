@@ -100,7 +100,6 @@
     <a href="/logout" class="nav-btn logout">Déco</a>
   </div>
 </nav>
-
 <div class="container">
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-num cyan" id="sTotal">0</div><div class="stat-label">Utilisateurs</div></div>
@@ -110,7 +109,7 @@
     <div class="stat-card"><div class="stat-num blue" id="sVerified">0</div><div class="stat-label">Vérifiés</div></div>
     <div class="stat-card"><div class="stat-num gold" id="sSubscribed">0</div><div class="stat-label">Abonnés</div></div>
     <div class="stat-card"><div class="stat-num red" id="sBanned">0</div><div class="stat-label">Bannis</div></div>
-    <div class="stat-card"><div class="stat-num cyan" id="sTotal2">0</div><div class="stat-label">Total clients</div></div>
+    <div class="stat-card"><div class="stat-num cyan" id="sTotal2">0</div><div class="stat-label">Total inscrits</div></div>
   </div>
 
   <div class="section-title">◈ Performance IA — Feedback clients</div>
@@ -131,7 +130,6 @@
     <button class="fbtn" onclick="setFilter('banned',this)">Bannis</button>
     <button class="fbtn" onclick="loadAll()">↻</button>
   </div>
-
   <div class="table-wrap">
     <table>
       <thead>
@@ -151,7 +149,6 @@
   </div>
 </div>
 
-<!-- MODAL PAIEMENT -->
 <div class="modal" id="mPay">
   <div class="modal-box">
     <div class="modal-title">◈ Gérer le paiement</div>
@@ -168,7 +165,7 @@
       <option value="elite">Elite — Illimité</option>
     </select>
     <label class="mlabel">Note (référence virement, date...)</label>
-    <input type="text" class="minput" id="pNote" placeholder="Ex: Virement 27/03 — 24€"/>
+    <input type="text" class="minput" id="pNote" placeholder="Ex: Virement 27/03 — 50€"/>
     <div class="mbtns">
       <button class="mok" onclick="confirmPay()">Confirmer</button>
       <button class="mcancel" onclick="closeM('mPay')">Annuler</button>
@@ -176,7 +173,6 @@
   </div>
 </div>
 
-<!-- MODAL BULK -->
 <div class="modal" id="mBulk">
   <div class="modal-box">
     <div class="modal-title" id="mBulkTitle">◈ Modifier les analyses</div>
@@ -247,12 +243,9 @@ function renderUsers(){
     if(filter==='pending')return u.paymentStatus!=='paid';
     return true;
   });
-
   if(!list.length){document.getElementById('tbody').innerHTML='<tr><td colspan="6" class="empty-row">Aucun utilisateur</td></tr>';return;}
-
   const left=u=>Math.max(0,(u.analysisMax||0)-(u.analysisCount||0));
   const maxStr=u=>u.analysisMax>=999999?'∞':(u.analysisMax||0);
-
   document.getElementById('tbody').innerHTML=list.map(u=>{
     const l=left(u);
     const payBadge=u.paymentStatus==='paid'?'<span class="badge paid">✓ Payé</span>':u.paymentStatus==='unpaid'?'<span class="badge unpaid">✕ Impayé</span>':'<span class="badge pending">⏳ Attente</span>';
@@ -286,17 +279,8 @@ function renderUsers(){
   }).join('');
 }
 
-async function addOne(id){
-  const r=await fetch('/admin/add-one/'+id,{method:'POST'});
-  const d=await r.json();
-  if(d.success){updateLocal(id,'analysisMax',d.analysisMax);toast('+1 analyse','s');}
-}
-
-async function rmOne(id){
-  const r=await fetch('/admin/remove-one/'+id,{method:'POST'});
-  const d=await r.json();
-  if(d.success){updateLocal(id,'analysisMax',d.analysisMax);toast('−1 analyse','e');}
-}
+async function addOne(id){const r=await fetch('/admin/add-one/'+id,{method:'POST'});const d=await r.json();if(d.success){updateLocal(id,'analysisMax',d.analysisMax);toast('+1 analyse','s');}}
+async function rmOne(id){const r=await fetch('/admin/remove-one/'+id,{method:'POST'});const d=await r.json();if(d.success){updateLocal(id,'analysisMax',d.analysisMax);toast('−1 analyse','e');}}
 
 function openBulk(id,mode){
   pendingId=id;bulkMode=mode;
@@ -335,41 +319,15 @@ async function confirmPay(){
   closeM('mPay');
 }
 
-async function doBan(id){
-  const r=await fetch('/admin/ban/'+id,{method:'POST'});
-  const d=await r.json();
-  if(d.success){toast(d.banned?'Utilisateur banni':'Débanni',d.banned?'e':'s');loadAll();}
-}
+async function doBan(id){const r=await fetch('/admin/ban/'+id,{method:'POST'});const d=await r.json();if(d.success){toast(d.banned?'Banni':'Débanni',d.banned?'e':'s');loadAll();}}
+async function doBlock(id){if(!confirm('Bloquer toutes les analyses ?'))return;const r=await fetch('/admin/restrict/'+id,{method:'POST'});const d=await r.json();if(d.success){toast('Bloqué','e');loadAll();}}
+async function doKick(id){const r=await fetch('/admin/kick/'+id,{method:'POST'});const d=await r.json();if(d.success){toast('Déconnecté','s');loadAll();}}
 
-async function doBlock(id){
-  if(!confirm('Bloquer toutes les analyses ?'))return;
-  const r=await fetch('/admin/restrict/'+id,{method:'POST'});
-  const d=await r.json();
-  if(d.success){toast('Accès bloqué','e');loadAll();}
-}
-
-async function doKick(id){
-  const r=await fetch('/admin/kick/'+id,{method:'POST'});
-  const d=await r.json();
-  if(d.success){toast('Déconnecté','s');loadAll();}
-}
-
-function updateLocal(id,key,val){
-  const u=users.find(u=>u._id===id);
-  if(u){u[key]=val;renderUsers();}
-}
-
+function updateLocal(id,key,val){const u=users.find(u=>u._id===id);if(u){u[key]=val;renderUsers();}}
 function closeM(id){document.getElementById(id).classList.remove('open');pendingId=null;}
-
-function toast(msg,type){
-  const t=document.getElementById('toast');
-  t.textContent=msg;t.className='toast '+(type||'s');
-  t.style.display='block';
-  setTimeout(()=>t.style.display='none',2500);
-}
+function toast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+(type||'s');t.style.display='block';setTimeout(()=>t.style.display='none',2500);}
 
 document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
-
 loadAll();
 setInterval(loadAll,30000);
 </script>
