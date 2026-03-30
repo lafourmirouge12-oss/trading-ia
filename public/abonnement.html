@@ -74,12 +74,16 @@
     .feat-disabled{opacity:0.25;text-decoration:line-through;}
     .cta-btn{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:rgba(255,255,255,0.8);background:transparent;border:1px solid rgba(0,245,255,0.3);padding:14px 20px;width:100%;cursor:pointer;position:relative;overflow:hidden;transition:all 0.3s ease;clip-path:polygon(10px 0%,100% 0%,calc(100% - 10px) 100%,0% 100%);}
     .cta-btn:hover{border-color:var(--holo-cyan);color:var(--holo-cyan);box-shadow:0 0 20px rgba(0,245,255,0.2);}
+    .cta-btn:disabled{opacity:0.5;cursor:not-allowed;}
     .card.featured .cta-btn{background:rgba(0,245,255,0.08);border-color:var(--holo-cyan);color:var(--holo-cyan);}
     .card.elite .cta-btn{border-color:rgba(255,215,0,0.4);color:var(--holo-gold);}
+    .subscribed-badge{display:none;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--holo-green);border:1px solid rgba(0,255,136,0.3);background:rgba(0,255,136,0.08);padding:10px;text-align:center;margin-top:8px;}
     .payment-section{margin-top:50px;width:100%;max-width:1100px;text-align:center;}
     .payment-title{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:rgba(255,255,255,0.2);text-transform:uppercase;margin-bottom:20px;}
     .payment-methods{display:flex;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap;}
-    .payment-badge{display:flex;align-items:center;gap:8px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.1);border-radius:2px;padding:10px 18px;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;transition:all 0.3s;}
+    .payment-badge{display:flex;align-items:center;gap:8px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.1);border-radius:2px;padding:10px 18px;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;}
+    .manage-btn{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:rgba(0,245,255,0.6);border:1px solid rgba(0,245,255,0.2);background:transparent;padding:12px 24px;cursor:pointer;margin-top:24px;transition:all 0.3s;}
+    .manage-btn:hover{color:var(--holo-cyan);border-color:var(--holo-cyan);}
     .faq-section{width:100%;max-width:700px;margin-top:60px;}
     .faq-title{font-family:'Orbitron',monospace;font-size:12px;letter-spacing:4px;text-transform:uppercase;color:rgba(0,245,255,0.4);text-align:center;margin-bottom:30px;}
     .faq-item{border-bottom:1px solid rgba(0,245,255,0.08);overflow:hidden;}
@@ -124,6 +128,7 @@
     <span class="save-badge">− 20%</span>
   </div>
   <div class="cards-grid">
+    <!-- STARTER -->
     <div class="card starter">
       <div class="card-corner tl"></div><div class="card-corner tr"></div><div class="card-corner bl"></div><div class="card-corner br"></div>
       <div class="card-tier">◇ Niveau 01</div>
@@ -141,8 +146,9 @@
         <li><span class="feat-icon feat-disabled">◇</span><span class="feat-disabled">Analyse multi-timeframe</span></li>
         <li><span class="feat-icon feat-disabled">◇</span><span class="feat-disabled">Support prioritaire</span></li>
       </ul>
-      <button class="cta-btn" onclick="checkout('starter')">Commencer</button>
+      <button class="cta-btn" id="btn-starter" onclick="checkout('starter')">Commencer</button>
     </div>
+    <!-- PRO -->
     <div class="card featured">
       <div class="popular-badge">⬡ Plus populaire</div>
       <div class="card-corner tl"></div><div class="card-corner tr"></div><div class="card-corner bl"></div><div class="card-corner br"></div>
@@ -161,8 +167,9 @@
         <li><span class="feat-icon">◆</span> Explication des indicateurs</li>
         <li><span class="feat-icon feat-disabled">◇</span><span class="feat-disabled">Support prioritaire</span></li>
       </ul>
-      <button class="cta-btn" onclick="checkout('pro')">Choisir Pro</button>
+      <button class="cta-btn" id="btn-pro" onclick="checkout('pro')">Choisir Pro</button>
     </div>
+    <!-- ELITE -->
     <div class="card elite">
       <div class="card-corner tl"></div><div class="card-corner tr"></div><div class="card-corner bl"></div><div class="card-corner br"></div>
       <div class="card-tier">◉ Niveau 03</div>
@@ -180,17 +187,24 @@
         <li><span class="feat-icon">◆</span> Analyse multi-timeframe</li>
         <li><span class="feat-icon">◆</span> Support prioritaire 24/7</li>
       </ul>
-      <button class="cta-btn" onclick="checkout('elite')">Accès Elite</button>
+      <button class="cta-btn" id="btn-elite" onclick="checkout('elite')">Accès Elite</button>
     </div>
   </div>
+
+  <!-- GÉRER ABONNEMENT -->
+  <div id="manageSection" style="display:none;margin-top:24px;text-align:center;">
+    <button class="manage-btn" onclick="manageSubscription()">⚙ Gérer mon abonnement</button>
+  </div>
+
   <div class="payment-section">
     <div class="payment-title">Paiement sécurisé</div>
     <div class="payment-methods">
       <div class="payment-badge">💳 Carte bancaire (Stripe)</div>
-      <div class="payment-badge">🅿 PayPal</div>
       <div class="payment-badge">🔒 SSL Sécurisé</div>
+      <div class="payment-badge">↺ Annulation à tout moment</div>
     </div>
   </div>
+
   <div class="faq-section">
     <div class="faq-title">◈ Questions fréquentes ◈</div>
     <div class="faq-item">
@@ -211,16 +225,71 @@
     </div>
   </div>
 </div>
+
 <script>
   const pContainer=document.getElementById('particles');
   for(let i=0;i<35;i++){const p=document.createElement('div');p.className='particle';const colors=['#00f5ff','#0080ff','#8000ff','#ffd700'];p.style.cssText=`left:${Math.random()*100}%;background:${colors[Math.floor(Math.random()*colors.length)]};box-shadow:0 0 4px currentColor;animation-duration:${7+Math.random()*12}s;animation-delay:${Math.random()*12}s;--drift:${(Math.random()-0.5)*80}px;`;pContainer.appendChild(p);}
-  let isYearly=false;
-  const prices={starter:{monthly:9,yearly:7},pro:{monthly:24,yearly:19},elite:{monthly:59,yearly:47}};
+
+  let isYearly = false;
+  const prices = { starter:{monthly:9,yearly:7}, pro:{monthly:24,yearly:19}, elite:{monthly:59,yearly:47} };
+
+  // Vérifier si déjà abonné
+  fetch('/me').then(r=>r.json()).then(user => {
+    if (user.subscribed) {
+      document.getElementById('manageSection').style.display = 'block';
+      ['starter','pro','elite'].forEach(p => {
+        const btn = document.getElementById('btn-' + p);
+        if (user.plan === p) {
+          btn.textContent = '✓ Plan actif';
+          btn.disabled = true;
+          btn.style.borderColor = 'rgba(0,255,136,0.4)';
+          btn.style.color = '#00ff88';
+        }
+      });
+    }
+  });
+
   function toggleBilling(){isYearly=!isYearly;updatePrices();}
   function setBilling(mode){isYearly=mode==='yearly';updatePrices();}
-  function updatePrices(){document.getElementById('toggleSwitch').classList.toggle('yearly',isYearly);document.getElementById('labelMonthly').classList.toggle('active',!isYearly);document.getElementById('labelYearly').classList.toggle('active',isYearly);['starter','pro','elite'].forEach(plan=>{document.getElementById('price-'+plan).textContent=isYearly?prices[plan].yearly:prices[plan].monthly;document.getElementById('note-'+plan).classList.toggle('visible',isYearly);});}
-  function toggleFaq(btn){const item=btn.parentElement;const wasOpen=item.classList.contains('open');document.querySelectorAll('.faq-item').forEach(i=>i.classList.remove('open'));if(!wasOpen)item.classList.add('open');}
-  function checkout(plan){const names={starter:'Starter',pro:'Pro',elite:'Elite'};const price=isYearly?prices[plan].yearly:prices[plan].monthly;alert(`Redirection paiement\n\nFormule : ${names[plan]}\nPrix : ${price} €/mois\n\n→ Connectez Stripe ici`);}
+  function updatePrices(){
+    document.getElementById('toggleSwitch').classList.toggle('yearly',isYearly);
+    document.getElementById('labelMonthly').classList.toggle('active',!isYearly);
+    document.getElementById('labelYearly').classList.toggle('active',isYearly);
+    ['starter','pro','elite'].forEach(plan=>{
+      document.getElementById('price-'+plan).textContent=isYearly?prices[plan].yearly:prices[plan].monthly;
+      document.getElementById('note-'+plan).classList.toggle('visible',isYearly);
+    });
+  }
+
+  function toggleFaq(btn){
+    const item=btn.parentElement;
+    const wasOpen=item.classList.contains('open');
+    document.querySelectorAll('.faq-item').forEach(i=>i.classList.remove('open'));
+    if(!wasOpen)item.classList.add('open');
+  }
+async function checkout(plan) {
+  try {
+    const res = await fetch('/create-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan })
+    });
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
+    else alert('Erreur: ' + (data.error || 'Inconnu'));
+  } catch(e) {
+    alert('Erreur serveur');
+  }
+}
+
+  async function manageSubscription() {
+    try {
+      const res = await fetch('/customer-portal', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else alert('Erreur: ' + (data.error || 'Impossible d\'ouvrir le portail'));
+    } catch(e) { alert('Erreur serveur'); }
+  }
 </script>
 </body>
 </html>

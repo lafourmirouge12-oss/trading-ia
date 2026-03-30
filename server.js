@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
+const NedbStore = require('nedb-session-store')(session);
 const Datastore = require('@seald-io/nedb');
 const bcrypt = require('bcryptjs');
 const fetch = require('node-fetch');
@@ -38,7 +39,8 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'j4keia-secret-2024',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+  store: new NedbStore({ filename: path.join(__dirname, 'sessions.db') }),
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
@@ -228,41 +230,47 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
 
-    const risk5 = capital > 0 ? (capital * 0.05).toFixed(2) : null;
-    const risk3 = capital > 0 ? (capital * 0.03).toFixed(2) : null;
-    const risk2 = capital > 0 ? (capital * 0.02).toFixed(2) : null;
-    const risk1 = capital > 0 ? (capital * 0.01).toFixed(2) : null;
-
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader professionnel. Analyse ce graphique et réponds EXACTEMENT dans ce format, sans markdown, sans astérisques, sans symboles supplémentaires :
+          { type: 'text', text: `Tu es un trader institutionnel professionnel. Analyse ce graphique MT5 avec précision.
+
+${capital > 0 ? `Capital du trader : $${capital}
+
+CALCUL DU RISQUE ADAPTÉ :
+- Si le setup est excellent (8-10/10) : risque 5% = $${(capital * 0.05).toFixed(2)}
+- Si le setup est bon (5-7/10) : risque 3% = $${(capital * 0.03).toFixed(2)}
+- Si le setup est faible (1-4/10) : NE PAS TRADER — dis-le clairement
+Calcule les lots en fonction du risque choisi et du Stop Loss.` : ''}
+
+Réponds EXACTEMENT dans ce format, sans markdown, sans astérisques :
 
 DÉCISION: BUY ou SELL — Confiance : XX%
+SCORE SETUP: X/10
 
-TENDANCE: [une phrase directe sur la tendance]
+TENDANCE: [une phrase directe]
 
-Entrée : [prix précis uniquement, exemple: 4425.50]
-Stop Loss : [prix précis uniquement, exemple: 4445.00] (XX pips)
-Take Profit 1 : [prix précis uniquement] (XX pips) — RR X:X
-Take Profit 2 : [prix précis uniquement] (XX pips) — RR X:X
-Take Profit 3 : [prix précis uniquement] (XX pips) — RR X:X
+Entrée : [prix précis]
+Stop Loss : [prix précis] (XX pips)
+Take Profit 1 : [prix précis] (XX pips) — RR X:X
+Take Profit 2 : [prix précis] (XX pips) — RR X:X
+Take Profit 3 : [prix précis] (XX pips) — RR X:X
+Break Even : Déplacer SL au point d'entrée dès que TP1 atteint
 
-SETUP: [2-3 phrases sur les indicateurs clés]
+SETUP: [2-3 phrases sur RSI, tendance, indicateurs]
 
 ${capital > 0 ? `CAPITAL ($${capital}):
-Risque 5% : $${risk5}
-Risque 3% : $${risk3} | Risque 2% : $${risk2} | Risque 1% : $${risk1}
-Position (risque 5%) : X.XX lots
-Levier conseillé : X:1` : ''}
+Score setup: X/10 → Risque recommandé: X% = $XX
+Lots recommandés: X.XX lots
+Levier conseillé: X:1` : ''}
 
 INVALIDATION: [condition précise]
 
-IMPORTANT: Écris les prix sans aucun symbole avant (pas de **, pas de #, pas de -). Juste les chiffres.` }
+IMPORTANT: Prix sans symboles. Si setup faible dis clairement de ne pas trader.` }
         ]
       }]
     });
@@ -281,21 +289,30 @@ IMPORTANT: Écris les prix sans aucun symbole avant (pas de **, pas de #, pas de
   }
 });
 
+app.post('/feedback', checkAuth, async (req, res) => {
+  try {
+    const { result, capital, decision, entry, sl, tp } = req.body;
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!user) return res.json({ error: 'Non connecté' });
+    await db.insertAsync({
+      type: 'feedback', userId: req.session.userId,
+      email: user.email, result, capital, decision, entry, sl, tp,
+      createdAt: new Date()
+    });
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
     res.json(users.map(u => ({
-      _id: u._id, email: u.email,
-      isVerified: u.isVerified,
-      analysisCount: u.analysisCount || 0,
-      analysisMax: u.analysisMax || 0,
-      subscribed: u.subscribed || false,
-      plan: u.plan || 'free',
-      banned: u.banned || false,
-      createdAt: u.createdAt,
+      _id: u._id, email: u.email, isVerified: u.isVerified,
+      analysisCount: u.analysisCount || 0, analysisMax: u.analysisMax || 0,
+      subscribed: u.subscribed || false, plan: u.plan || 'free',
+      banned: u.banned || false, createdAt: u.createdAt,
       online: !!activeSessions[u._id],
-      paymentStatus: u.paymentStatus || 'pending',
-      paymentNote: u.paymentNote || ''
+      paymentStatus: u.paymentStatus || 'pending', paymentNote: u.paymentNote || ''
     })));
   } catch(e) { res.json({ error: e.message }); }
 });
@@ -312,6 +329,17 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
       paid: users.filter(u => u.paymentStatus === 'paid').length,
       pending: users.filter(u => u.paymentStatus !== 'paid').length
     });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.get('/admin/feedback', checkAdmin, async (req, res) => {
+  try {
+    const feedbacks = await db.findAsync({ type: 'feedback' });
+    const tp = feedbacks.filter(f => f.result === 'tp').length;
+    const sl = feedbacks.filter(f => f.result === 'sl').length;
+    const pending = feedbacks.filter(f => f.result === 'pending').length;
+    const winrate = (tp + sl) > 0 ? ((tp / (tp + sl)) * 100).toFixed(1) : 0;
+    res.json({ total: feedbacks.length, tp, sl, pending, winrate });
   } catch(e) { res.json({ error: e.message }); }
 });
 

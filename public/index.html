@@ -101,7 +101,15 @@
     .decision-block.buy{background:rgba(0,255,136,0.08);border:2px solid var(--green);color:var(--green);box-shadow:0 0 40px rgba(0,255,136,0.15);}
     .decision-block.sell{background:rgba(255,48,96,0.08);border:2px solid var(--red);color:var(--red);box-shadow:0 0 40px rgba(255,48,96,0.15);}
     .decision-block.neutral{background:rgba(0,245,255,0.05);border:2px solid rgba(0,245,255,0.3);color:var(--cyan);}
+    .decision-block.skip{background:rgba(255,140,0,0.05);border:2px solid rgba(255,140,0,0.4);color:var(--orange);}
     .confidence{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:10px;letter-spacing:1px;opacity:0.7;}
+    /* SCORE */
+    .score-block{width:100%;padding:10px 16px;background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.1);border-radius:4px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
+    .score-label{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;}
+    .score-value{font-family:'Orbitron',monospace;font-size:18px;font-weight:900;}
+    .score-value.high{color:var(--green);}
+    .score-value.mid{color:var(--gold);}
+    .score-value.low{color:var(--red);}
     .metrics-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
     .metric-block{background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.15);border-radius:4px;padding:12px 8px;text-align:center;}
     .metric-label{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:8px;}
@@ -110,15 +118,12 @@
     .metric-block.sl .metric-value{color:var(--red);}
     .metric-block.tp .metric-value{color:var(--green);}
     .metric-sub{font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;}
-    /* BREAK EVEN */
     .be-block{background:rgba(0,10,30,0.8);border:1px solid rgba(128,0,255,0.25);border-radius:4px;padding:12px 16px;margin-bottom:12px;display:none;}
     .be-block.show{display:flex;align-items:center;gap:12px;}
     .be-icon{font-size:20px;}
-    .be-content{}
     .be-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(128,0,255,0.7);text-transform:uppercase;margin-bottom:4px;}
     .be-text{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;}
     .be-price{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--purple);}
-    /* RISK */
     .risk-result{background:rgba(0,10,30,0.8);border:1px solid rgba(255,215,0,0.2);border-radius:4px;padding:16px;margin-bottom:12px;display:none;}
     .risk-result.show{display:block;}
     .risk-result-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,215,0,0.6);text-transform:uppercase;margin-bottom:12px;}
@@ -138,7 +143,6 @@
     .analysis-body{max-height:0;overflow:hidden;transition:max-height 0.4s ease;padding:0 16px;}
     .analysis-toggle.open .analysis-body{max-height:1000px;padding:0 16px 16px;}
     .analysis-text{font-size:13px;line-height:1.9;color:rgba(255,255,255,0.55);white-space:pre-wrap;}
-    /* FEEDBACK */
     .feedback-panel{width:100%;max-width:700px;margin-bottom:20px;display:none;}
     .feedback-panel.show{display:block;animation:fadeUp 0.5s ease forwards;}
     .feedback-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,0.3);text-transform:uppercase;text-align:center;margin-bottom:10px;}
@@ -146,11 +150,11 @@
     .fb-btn{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:14px 8px;border:1px solid;background:transparent;cursor:pointer;transition:all 0.3s;border-radius:2px;display:flex;flex-direction:column;align-items:center;gap:6px;}
     .fb-icon{font-size:22px;}
     .fb-btn.tp{color:rgba(0,255,136,0.6);border-color:rgba(0,255,136,0.15);}
-    .fb-btn.tp:hover,.fb-btn.tp.selected{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08);box-shadow:0 0 20px rgba(0,255,136,0.15);}
+    .fb-btn.tp:hover,.fb-btn.tp.selected{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08);}
     .fb-btn.sl{color:rgba(255,48,96,0.6);border-color:rgba(255,48,96,0.15);}
-    .fb-btn.sl:hover,.fb-btn.sl.selected{color:var(--red);border-color:var(--red);background:rgba(255,48,96,0.08);box-shadow:0 0 20px rgba(255,48,96,0.15);}
+    .fb-btn.sl:hover,.fb-btn.sl.selected{color:var(--red);border-color:var(--red);background:rgba(255,48,96,0.08);}
     .fb-btn.pending{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.15);}
-    .fb-btn.pending:hover,.fb-btn.pending.selected{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);box-shadow:0 0 20px rgba(255,215,0,0.15);}
+    .fb-btn.pending:hover,.fb-btn.pending.selected{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);}
     .feedback-thanks{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;text-align:center;margin-top:10px;display:none;}
     .feedback-thanks.show{display:block;}
     @keyframes fadeDown{from{opacity:0;transform:translateY(-20px);}to{opacity:1;transform:translateY(0);}}
@@ -186,16 +190,16 @@
   <div class="capital-panel">
     <div class="capital-box">
       <div class="capital-title">◈ Capital MetaTrader <span class="capital-required">* Obligatoire</span></div>
-      <div class="capital-desc">Entrez le montant de votre compte MetaTrader. L'IA calculera la taille de position avec un risque de <strong style="color:var(--gold);">5% de votre capital</strong> par trade.</div>
+      <div class="capital-desc">Entrez le montant de votre compte MetaTrader. L'IA adaptera automatiquement le risque selon la qualité du setup.</div>
       <div class="capital-row">
         <span class="capital-currency">$</span>
-        <input type="number" class="capital-input" id="capitalInput" placeholder="Ex: 1000" min="1" step="any" oninput="updateRiskLive()"/>
+        <input type="number" class="capital-input" id="capitalInput" placeholder="Ex: 600" min="1" step="any" oninput="updateRiskLive()"/>
         <span class="capital-unit">USD</span>
       </div>
       <div class="risk-live" id="riskLive">
-        <div class="rl-item"><div class="rl-label">⭐ Risque 5%</div><div class="rl-val main" id="rl5">—</div></div>
-        <div class="rl-item"><div class="rl-label">Risque 2%</div><div class="rl-val sec" id="rl2">—</div></div>
-        <div class="rl-item"><div class="rl-label">Risque 1%</div><div class="rl-val sec" id="rl1">—</div></div>
+        <div class="rl-item"><div class="rl-label">Setup excellent</div><div class="rl-val main" id="rl5">—</div></div>
+        <div class="rl-item"><div class="rl-label">Setup bon</div><div class="rl-val sec" id="rl3">—</div></div>
+        <div class="rl-item"><div class="rl-label">Setup faible</div><div class="rl-val sec" style="color:var(--red)">Ne pas trader</div></div>
       </div>
     </div>
   </div>
@@ -215,14 +219,14 @@
             <line x1="24" y1="52" x2="40" y2="52" stroke-width="1.5"/>
           </svg>
         </div>
-        <div class="upload-title">Importer graphique MetaTrader</div>
-        <div class="upload-sub">Glisser-déposer ou cliquer</div>
+        <div class="upload-title">Importer graphique MT5</div>
+        <div class="upload-sub">Glisser-déposer ou cliquer — 1H recommandé</div>
       </div>
       <img id="preview" src="" alt="graphique" />
     </div>
     <div class="hud-bar">
       <div class="hud-item"><span class="hud-dot"></span>SYSTÈME <span>EN LIGNE</span></div>
-      <div class="hud-item">IA <span>ACTIVE</span></div>
+      <div class="hud-item">IA <span>SONNET</span></div>
       <div class="hud-item">STATUT <span id="statusText">EN ATTENTE</span></div>
     </div>
   </div>
@@ -240,31 +244,34 @@
       <span id="decisionText">—</span>
       <span class="confidence" id="confidenceText"></span>
     </div>
+    <div class="score-block" id="scoreBlock" style="display:none;">
+      <span class="score-label">◈ Score du setup</span>
+      <span class="score-value" id="scoreValue">—/10</span>
+    </div>
     <div class="metrics-grid">
       <div class="metric-block entry"><div class="metric-label">Entrée</div><div class="metric-value" id="metricEntry">—</div><div class="metric-sub">Zone d'entrée</div></div>
       <div class="metric-block sl"><div class="metric-label">Stop Loss</div><div class="metric-value" id="metricSL">—</div><div class="metric-sub">Risque max</div></div>
       <div class="metric-block tp"><div class="metric-label">Take Profit 1</div><div class="metric-value" id="metricTP">—</div><div class="metric-sub">1er objectif</div></div>
     </div>
-    <!-- BREAK EVEN -->
     <div class="be-block" id="beBlock">
       <div class="be-icon">🔒</div>
       <div class="be-content">
-        <div class="be-title">◈ Break Even — Sécuriser le trade</div>
-        <div class="be-text">Dès que <strong style="color:var(--green);">TP1 est atteint</strong>, déplacez votre Stop Loss au point d'entrée : <span class="be-price" id="bePrice">—</span></div>
+        <div class="be-title">◈ Break Even</div>
+        <div class="be-text">Dès que <strong style="color:var(--green);">TP1 atteint</strong>, déplacez votre SL au point d'entrée : <span class="be-price" id="bePrice">—</span></div>
       </div>
     </div>
     <div class="risk-result" id="riskResult">
-      <div class="risk-result-title">◈ Gestion du capital MetaTrader</div>
+      <div class="risk-result-title">◈ Gestion du capital — Risque adapté par l'IA</div>
       <div class="risk-main-row">
         <div>
-          <div class="risk-main-label">Risque recommandé — 5% de votre capital</div>
+          <div class="risk-main-label" id="riskMainLabel">Risque recommandé</div>
           <div class="risk-main-amount" id="riskMain5">—</div>
         </div>
       </div>
       <div class="risk-sub-grid">
         <div class="risk-sub-item"><div class="risk-sub-label">Risque 1%</div><div class="risk-sub-val" id="rRisk1">—</div></div>
-        <div class="risk-sub-item"><div class="risk-sub-label">Risque 2%</div><div class="risk-sub-val" id="rRisk2">—</div></div>
         <div class="risk-sub-item"><div class="risk-sub-label">Risque 3%</div><div class="risk-sub-val" id="rRisk3">—</div></div>
+        <div class="risk-sub-item"><div class="risk-sub-label">Risque 5%</div><div class="risk-sub-val" id="rRisk5">—</div></div>
       </div>
     </div>
     <div class="analysis-toggle" id="analysisToggle">
@@ -275,15 +282,14 @@
       <div class="analysis-body"><div class="analysis-text" id="analysisText"></div></div>
     </div>
   </div>
-  <!-- FEEDBACK -->
   <div class="feedback-panel" id="feedbackPanel">
-    <div class="feedback-title">◈ Résultat du trade — aidez l'IA à s'améliorer</div>
+    <div class="feedback-title">◈ Résultat du trade</div>
     <div class="feedback-btns">
       <button class="fb-btn tp" onclick="sendFeedback('tp')"><span class="fb-icon">✅</span>TP Atteint</button>
       <button class="fb-btn sl" onclick="sendFeedback('sl')"><span class="fb-icon">❌</span>SL Touché</button>
       <button class="fb-btn pending" onclick="sendFeedback('pending')"><span class="fb-icon">⏳</span>En cours</button>
     </div>
-    <div class="feedback-thanks" id="feedbackThanks">◈ Merci ! L'IA en tiendra compte ◈</div>
+    <div class="feedback-thanks" id="feedbackThanks">◈ Merci ! ◈</div>
   </div>
 </div>
 <script>
@@ -329,8 +335,11 @@
   function updateRiskLive(){
     const c=parseFloat(document.getElementById('capitalInput').value);
     const rl=document.getElementById('riskLive');
-    if(c&&c>0){rl.classList.add('show');document.getElementById('rl5').textContent='$'+(c*0.05).toFixed(2);document.getElementById('rl2').textContent='$'+(c*0.02).toFixed(2);document.getElementById('rl1').textContent='$'+(c*0.01).toFixed(2);}
-    else{rl.classList.remove('show');}
+    if(c&&c>0){
+      rl.classList.add('show');
+      document.getElementById('rl5').textContent='$'+(c*0.05).toFixed(2)+' (5%)';
+      document.getElementById('rl3').textContent='$'+(c*0.03).toFixed(2)+' (3%)';
+    } else { rl.classList.remove('show'); }
   }
 
   function toggleAnalysis(){document.getElementById('analysisToggle').classList.toggle('open');}
@@ -341,19 +350,30 @@
 
   function parseResult(text){
     const decision={type:'neutral',text:'ANALYSE',confidence:''};
-    const metrics={entry:'—',sl:'—',tp:'—',be:'—'};
-    if(/\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
+    const metrics={entry:'—',sl:'—',tp:'—',be:'—',score:null};
+
+    // Détecter si l'IA dit de ne pas trader
+    if(/ne pas trader|pas de trade|setup faible|éviter/i.test(text)){
+      decision.type='skip';decision.text='⚠ NE PAS TRADER';
+    } else if(/\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
     else if(/\bSELL\b/i.test(text)){decision.type='sell';decision.text='▼ SELL';}
+
     const confMatch=text.match(/Confiance\s*:\s*(\d{1,3})%/i);
     if(confMatch)decision.confidence=confMatch[1]+'%';
+
+    const scoreMatch=text.match(/SCORE[^:]*:\s*(\d+)\s*\/\s*10/i);
+    if(scoreMatch)metrics.score=parseInt(scoreMatch[1]);
+
     const entryMatch=text.match(/Entr[eé][e]?\s*:\s*([^\n]+)/i);
     if(entryMatch){const raw=cleanPrice(entryMatch[1]);if(raw&&raw!=='-'&&raw.length>1)metrics.entry=raw;}
+    metrics.be=metrics.entry;
+
     const slMatch=text.match(/Stop Loss\s*:\s*([^\n(]+)/i)||text.match(/SL\s*:\s*([^\n(]+)/i);
     if(slMatch)metrics.sl=cleanPrice(slMatch[1]);
+
     const tpMatch=text.match(/Take Profit 1\s*:\s*([^\n(]+)/i)||text.match(/Take Profit\s*:\s*([^\n(]+)/i);
     if(tpMatch)metrics.tp=cleanPrice(tpMatch[1]);
-    // Break Even = point d'entrée
-    metrics.be=metrics.entry;
+
     return{decision,metrics};
   }
 
@@ -372,10 +392,10 @@
     if(!capital||parseFloat(capital)<=0){
       const inp=document.getElementById('capitalInput');
       inp.classList.add('err');inp.placeholder='⚠ Entrez votre capital MetaTrader !';inp.focus();
-      setTimeout(()=>{inp.classList.remove('err');inp.placeholder='Ex: 1000';},3000);
+      setTimeout(()=>{inp.classList.remove('err');inp.placeholder='Ex: 600';},3000);
       return;
     }
-    if(!file){alert('Veuillez importer un graphique !');return;}
+    if(!file){alert('Veuillez importer un graphique MT5 !');return;}
 
     const btn=document.getElementById('analyzeBtn');
     const resultPanel=document.getElementById('resultPanel');
@@ -401,9 +421,19 @@
       if(data.limitReached){window.location.href=data.redirect||'/abonnement.html';return;}
       if(data.result){
         const{decision,metrics}=parseResult(data.result);
+
         document.getElementById('decisionBlock').className='decision-block '+decision.type;
         document.getElementById('decisionText').textContent=decision.text;
         document.getElementById('confidenceText').textContent=decision.confidence?'Confiance '+decision.confidence:'';
+
+        // Score setup
+        if(metrics.score!==null){
+          const scoreEl=document.getElementById('scoreValue');
+          scoreEl.textContent=metrics.score+'/10';
+          scoreEl.className='score-value '+(metrics.score>=8?'high':metrics.score>=5?'mid':'low');
+          document.getElementById('scoreBlock').style.display='flex';
+        }
+
         document.getElementById('metricEntry').textContent=metrics.entry;
         document.getElementById('metricSL').textContent=metrics.sl;
         document.getElementById('metricTP').textContent=metrics.tp;
@@ -415,12 +445,15 @@
           document.getElementById('beBlock').classList.add('show');
         }
 
-        // Risk
+        // Risk adapté
         const c=parseFloat(capital);
-        document.getElementById('riskMain5').textContent='$'+(c*0.05).toFixed(2);
+        const riskPct = metrics.score>=8?5:metrics.score>=5?3:1;
+        const riskAmount = (c*riskPct/100).toFixed(2);
+        document.getElementById('riskMainLabel').textContent=`Risque IA recommandé — ${riskPct}% (score ${metrics.score}/10)`;
+        document.getElementById('riskMain5').textContent='$'+riskAmount;
         document.getElementById('rRisk1').textContent='$'+(c*0.01).toFixed(2);
-        document.getElementById('rRisk2').textContent='$'+(c*0.02).toFixed(2);
         document.getElementById('rRisk3').textContent='$'+(c*0.03).toFixed(2);
+        document.getElementById('rRisk5').textContent='$'+(c*0.05).toFixed(2);
         document.getElementById('riskResult').classList.add('show');
 
         resultPanel.classList.add('visible');
