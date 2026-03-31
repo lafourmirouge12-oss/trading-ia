@@ -6,7 +6,7 @@
   <title>j4ke-IA — Trading</title>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
   <style>
-    :root { --cyan: #00f5ff; --blue: #0080ff; --purple: #8000ff; --green: #00ff88; --red: #ff3060; --dark: #020510; --panel: rgba(0,20,50,0.6); }
+    :root { --cyan: #00f5ff; --blue: #0080ff; --purple: #8000ff; --green: #00ff88; --red: #ff3060; --gold: #ffd700; --dark: #020510; --panel: rgba(0,20,50,0.6); }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: var(--dark); font-family: 'Rajdhani', sans-serif; min-height: 100vh; overflow-x: hidden; cursor: crosshair; }
     body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(0,245,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,245,255,0.03) 1px, transparent 1px); background-size: 40px 40px; animation: gridPulse 8s ease-in-out infinite; pointer-events: none; z-index: 0; }
@@ -15,38 +15,48 @@
     .particles { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
     .particle { position: absolute; width: 2px; height: 2px; border-radius: 50%; animation: float linear infinite; opacity: 0; }
     @keyframes float { 0% { transform: translateY(100vh); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(-10vh) translateX(var(--drift)); opacity: 0; } }
-    .container { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
-    .nav-abonnement { position: absolute; top: 40px; right: 40px; font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 3px; color: rgba(0,245,255,0.6); text-decoration: none; text-transform: uppercase; border: 1px solid rgba(0,245,255,0.2); padding: 10px 18px; transition: all 0.3s; clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%); }
-    .nav-abonnement:hover { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 20px rgba(0,245,255,0.2); }
-    .nav-logout { position: absolute; top: 40px; left: 40px; font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 3px; color: rgba(255,48,96,0.6); text-decoration: none; text-transform: uppercase; border: 1px solid rgba(255,48,96,0.2); padding: 10px 18px; transition: all 0.3s; clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%); }
-    .nav-logout:hover { color: var(--red); border-color: var(--red); box-shadow: 0 0 20px rgba(255,48,96,0.2); }
-    .header { text-align: center; margin-bottom: 24px; animation: fadeDown 1s ease forwards; margin-top: 20px; }
-    .header-badge { display: inline-block; font-size: 11px; letter-spacing: 4px; color: var(--cyan); text-transform: uppercase; margin-bottom: 12px; opacity: 0.7; }
-    h1 { font-family: 'Orbitron', monospace; font-size: clamp(24px, 5vw, 48px); font-weight: 900; letter-spacing: 6px; text-transform: uppercase; background: linear-gradient(135deg, #fff 0%, var(--cyan) 40%, var(--blue) 70%, var(--purple) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; filter: drop-shadow(0 0 20px rgba(0,245,255,0.4)); }
-    .header-line { width: 200px; height: 1px; margin: 16px auto 0; background: linear-gradient(90deg, transparent, var(--cyan), transparent); animation: lineGlow 2s ease-in-out infinite; }
-    @keyframes lineGlow { 0%, 100% { opacity: 0.4; width: 150px; } 50% { opacity: 1; width: 250px; } }
-    .analyses-counter { font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 2px; color: rgba(0,245,255,0.5); text-transform: uppercase; margin-bottom: 16px; display: none; }
+
+    /* NAV */
+    .nav-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(2,5,16,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(0,245,255,0.08); gap: 6px; }
+    .nav-left, .nav-right { display: flex; gap: 6px; align-items: center; }
+    .nav-btn { font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 2px; text-decoration: none; text-transform: uppercase; padding: 8px 12px; border-radius: 2px; transition: all 0.3s; white-space: nowrap; clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%); border: 1px solid; }
+    .nav-btn.logout { color: rgba(255,48,96,0.7); border-color: rgba(255,48,96,0.3); }
+    .nav-btn.logout:hover { color: var(--red); border-color: var(--red); box-shadow: 0 0 15px rgba(255,48,96,0.3); }
+    .nav-btn.plans { color: rgba(0,245,255,0.7); border-color: rgba(0,245,255,0.3); }
+    .nav-btn.plans:hover { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 15px rgba(0,245,255,0.3); }
+    .nav-btn.admin { color: rgba(255,215,0,0.85); border-color: rgba(255,215,0,0.4); display: none; }
+    .nav-btn.admin:hover { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 15px rgba(255,215,0,0.3); }
+
+    /* LAYOUT */
+    .container { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 76px 14px 40px; }
+    .header { text-align: center; margin-bottom: 18px; animation: fadeDown 1s ease forwards; }
+    .header-badge { display: inline-block; font-size: 9px; letter-spacing: 3px; color: var(--cyan); text-transform: uppercase; margin-bottom: 8px; opacity: 0.7; }
+    h1 { font-family: 'Orbitron', monospace; font-size: clamp(22px, 6vw, 48px); font-weight: 900; letter-spacing: 4px; text-transform: uppercase; background: linear-gradient(135deg, #fff 0%, var(--cyan) 40%, var(--blue) 70%, var(--purple) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; filter: drop-shadow(0 0 20px rgba(0,245,255,0.4)); }
+    .header-line { width: 160px; height: 1px; margin: 10px auto 0; background: linear-gradient(90deg, transparent, var(--cyan), transparent); animation: lineGlow 2s ease-in-out infinite; }
+    @keyframes lineGlow { 0%, 100% { opacity: 0.4; width: 100px; } 50% { opacity: 1; width: 200px; } }
+    .analyses-counter { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 2px; color: rgba(0,245,255,0.5); text-transform: uppercase; margin-bottom: 12px; display: none; text-align: center; }
     .analyses-counter span { color: var(--cyan); }
 
-    /* Capital Panel */
-    .capital-panel { width: 100%; max-width: 700px; margin-bottom: 20px; background: rgba(0,10,30,0.8); border: 1px solid rgba(0,245,255,0.2); border-radius: 4px; padding: 20px 24px; backdrop-filter: blur(10px); }
-    .capital-header { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: rgba(0,245,255,0.6); text-transform: uppercase; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    /* CAPITAL INPUT */
+    .capital-panel { width: 100%; max-width: 700px; margin-bottom: 14px; background: rgba(0,10,30,0.8); border: 1px solid rgba(0,245,255,0.2); border-radius: 4px; padding: 14px 16px; backdrop-filter: blur(10px); }
+    .capital-header { font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 3px; color: rgba(0,245,255,0.6); text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
     .capital-header::before { content: '◈'; color: var(--cyan); }
-    .capital-row { display: flex; align-items: center; gap: 12px; }
-    .capital-currency { font-family: 'Orbitron', monospace; font-size: 22px; font-weight: 900; color: var(--cyan); opacity: 0.8; }
-    #capitalInput { flex: 1; background: rgba(0,245,255,0.05); border: 1px solid rgba(0,245,255,0.2); border-radius: 2px; padding: 12px 16px; color: #fff; font-family: 'Orbitron', monospace; font-size: 22px; font-weight: 700; outline: none; transition: all 0.3s; -webkit-appearance: none; }
+    .capital-row { display: flex; align-items: center; gap: 8px; }
+    .capital-currency { font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 900; color: var(--cyan); opacity: 0.8; flex-shrink: 0; }
+    #capitalInput { flex: 1; background: rgba(0,245,255,0.05); border: 1px solid rgba(0,245,255,0.2); border-radius: 2px; padding: 10px 12px; color: #fff; font-family: 'Orbitron', monospace; font-size: clamp(15px, 4vw, 22px); font-weight: 700; outline: none; transition: all 0.3s; -webkit-appearance: none; min-width: 0; width: 100%; }
     #capitalInput:focus { border-color: var(--cyan); box-shadow: 0 0 20px rgba(0,245,255,0.15); }
-    #capitalInput::placeholder { color: rgba(255,255,255,0.15); font-size: 16px; font-weight: 400; }
-    .capital-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
-    .capital-stat { background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.08); border-radius: 2px; padding: 10px 12px; text-align: center; }
-    .capital-stat-label { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; color: rgba(0,245,255,0.4); text-transform: uppercase; margin-bottom: 6px; }
-    .capital-stat-value { font-family: 'Orbitron', monospace; font-size: 14px; font-weight: 700; }
+    #capitalInput::placeholder { color: rgba(255,255,255,0.15); font-size: 12px; font-weight: 400; }
+    .capital-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+    .capital-stat { background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.08); border-radius: 2px; padding: 8px 6px; text-align: center; }
+    .capital-stat-label { font-family: 'Orbitron', monospace; font-size: 6px; letter-spacing: 1px; color: rgba(0,245,255,0.4); text-transform: uppercase; margin-bottom: 4px; }
+    .capital-stat-value { font-family: 'Orbitron', monospace; font-size: clamp(10px, 2.8vw, 14px); font-weight: 700; }
     .capital-stat.risk .capital-stat-value { color: var(--red); }
     .capital-stat.gain .capital-stat-value { color: var(--green); }
     .capital-stat.lots .capital-stat-value { color: var(--cyan); }
 
-    .upload-panel { width: 100%; max-width: 700px; position: relative; margin-bottom: 30px; animation: fadeUp 1s ease 0.3s forwards; opacity: 0; }
-    .corner { position: absolute; width: 20px; height: 20px; z-index: 2; }
+    /* UPLOAD */
+    .upload-panel { width: 100%; max-width: 700px; position: relative; margin-bottom: 20px; animation: fadeUp 1s ease 0.3s forwards; opacity: 0; }
+    .corner { position: absolute; width: 14px; height: 14px; z-index: 2; }
     .corner::before, .corner::after { content: ''; position: absolute; background: var(--cyan); }
     .corner::before { width: 100%; height: 2px; top: 0; left: 0; }
     .corner::after { width: 2px; height: 100%; top: 0; left: 0; }
@@ -54,103 +64,129 @@
     .corner.bl::before { top: auto; bottom: 0; } .corner.bl::after { top: auto; bottom: 0; }
     .corner.br::before { left: auto; right: 0; top: auto; bottom: 0; } .corner.br::after { left: auto; right: 0; top: auto; bottom: 0; }
     .corner.tl { top: -2px; left: -2px; } .corner.tr { top: -2px; right: -2px; } .corner.bl { bottom: -2px; left: -2px; } .corner.br { bottom: -2px; right: -2px; }
-    .upload-box { background: var(--panel); border: 1px solid rgba(0,245,255,0.2); border-radius: 4px; padding: 16px; cursor: pointer; transition: all 0.3s; position: relative; overflow: hidden; min-height: 220px; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px); }
+    .upload-box { background: var(--panel); border: 1px solid rgba(0,245,255,0.2); border-radius: 4px; padding: 14px; cursor: pointer; transition: all 0.3s; position: relative; overflow: hidden; min-height: 160px; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px); }
     .upload-box::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(0,245,255,0.6), transparent); animation: scanLine 4s ease-in-out infinite; pointer-events: none; }
     @keyframes scanLine { 0% { top: -2px; opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
-    .upload-box:hover { border-color: rgba(0,245,255,0.5); box-shadow: 0 0 30px rgba(0,245,255,0.1); }
-    .upload-box.drag { border-color: var(--cyan); box-shadow: 0 0 60px rgba(0,245,255,0.3); }
+    .upload-box:hover { border-color: rgba(0,245,255,0.5); }
+    .upload-box.drag { border-color: var(--cyan); box-shadow: 0 0 40px rgba(0,245,255,0.2); }
     .upload-content { text-align: center; position: relative; z-index: 1; }
-    .upload-icon { width: 52px; height: 52px; margin: 0 auto 14px; position: relative; }
+    .upload-icon { width: 44px; height: 44px; margin: 0 auto 10px; position: relative; }
     .upload-icon svg { width: 100%; height: 100%; stroke: var(--cyan); fill: none; filter: drop-shadow(0 0 8px var(--cyan)); }
     .upload-ring { position: absolute; inset: -8px; border: 1px solid rgba(0,245,255,0.3); border-radius: 50%; animation: ringPulse 2s ease-in-out infinite; }
     .upload-ring:nth-child(2) { inset: -16px; animation-delay: 0.5s; border-color: rgba(0,245,255,0.15); }
     @keyframes ringPulse { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.1); opacity: 1; } }
-    .upload-title { font-family: 'Orbitron', monospace; font-size: 12px; letter-spacing: 3px; color: var(--cyan); text-transform: uppercase; margin-bottom: 6px; }
-    .upload-sub { font-size: 12px; color: rgba(255,255,255,0.3); letter-spacing: 1px; }
-    #preview { max-width: 100%; max-height: 280px; border-radius: 2px; display: none; filter: drop-shadow(0 0 20px rgba(0,245,255,0.3)); }
-    .hud-bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; margin-top: 1px; background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.1); border-radius: 2px; }
-    .hud-item { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 2px; color: rgba(0,245,255,0.5); text-transform: uppercase; }
-    .hud-item span { color: var(--green); margin-left: 6px; }
-    .hud-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 8px var(--green); animation: blink 2s ease-in-out infinite; }
+    .upload-title { font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 2px; color: var(--cyan); text-transform: uppercase; margin-bottom: 4px; }
+    .upload-sub { font-size: 11px; color: rgba(255,255,255,0.3); }
+    #preview { max-width: 100%; max-height: 220px; border-radius: 2px; display: none; filter: drop-shadow(0 0 20px rgba(0,245,255,0.3)); }
+    .hud-bar { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; margin-top: 1px; background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.1); border-radius: 2px; flex-wrap: wrap; gap: 4px; }
+    .hud-item { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 1px; color: rgba(0,245,255,0.5); text-transform: uppercase; }
+    .hud-item span { color: var(--green); margin-left: 4px; }
+    .hud-dot { width: 5px; height: 5px; background: var(--green); border-radius: 50%; display: inline-block; margin-right: 5px; box-shadow: 0 0 6px var(--green); animation: blink 2s ease-in-out infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .btn-wrapper { position: relative; margin-bottom: 30px; animation: fadeUp 1s ease 0.6s forwards; opacity: 0; }
-    #analyzeBtn { font-family: 'Orbitron', monospace; font-size: 13px; font-weight: 700; letter-spacing: 5px; text-transform: uppercase; color: #fff; background: transparent; border: 1px solid rgba(0,245,255,0.4); padding: 18px 60px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.3s; clip-path: polygon(12px 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%); }
-    #analyzeBtn::after { content: ''; position: absolute; top: 0; left: -100%; width: 60%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent); transform: skewX(-20deg); transition: left 0.5s; }
-    #analyzeBtn:hover::after { left: 150%; }
+
+    /* ANALYZE BUTTON */
+    .btn-wrapper { position: relative; margin-bottom: 20px; animation: fadeUp 1s ease 0.6s forwards; opacity: 0; text-align: center; }
+    #analyzeBtn { font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: #fff; background: transparent; border: 1px solid rgba(0,245,255,0.4); padding: 15px 36px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.3s; clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%); -webkit-appearance: none; }
     #analyzeBtn:hover { border-color: var(--cyan); box-shadow: 0 0 30px rgba(0,245,255,0.3); color: var(--cyan); }
     #analyzeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-corner { position: absolute; width: 8px; height: 8px; border-color: var(--cyan); border-style: solid; }
     .btn-corner.tl { top: -1px; left: 0; border-width: 2px 0 0 2px; } .btn-corner.tr { top: -1px; right: 0; border-width: 2px 2px 0 0; }
     .btn-corner.bl { bottom: -1px; left: 0; border-width: 0 0 2px 2px; } .btn-corner.br { bottom: -1px; right: 0; border-width: 0 2px 2px 0; }
-    .loading-bar { display: none; width: 300px; height: 2px; background: rgba(0,245,255,0.1); margin-top: 16px; position: relative; overflow: hidden; }
+    .loading-bar { display: none; width: 100%; max-width: 240px; height: 2px; background: rgba(0,245,255,0.1); margin: 12px auto 0; position: relative; overflow: hidden; }
     .loading-bar.active { display: block; }
     .loading-bar::after { content: ''; position: absolute; left: -40%; width: 40%; height: 100%; background: linear-gradient(90deg, transparent, var(--cyan), transparent); animation: loadSweep 1.2s ease-in-out infinite; }
     @keyframes loadSweep { 0% { left: -40%; } 100% { left: 140%; } }
-    .loading-text { display: none; font-family: 'Orbitron', monospace; font-size: 10px; letter-spacing: 3px; color: var(--cyan); text-transform: uppercase; margin-top: 8px; animation: textBlink 1s ease-in-out infinite; }
+    .loading-text { display: none; font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: var(--cyan); text-transform: uppercase; margin-top: 6px; animation: textBlink 1s ease-in-out infinite; }
     .loading-text.active { display: block; }
     @keyframes textBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* RESULT */
     .result-panel { width: 100%; max-width: 700px; display: none; }
     .result-panel.visible { display: block; animation: fadeUp 0.6s ease forwards; }
-    .decision-block { width: 100%; padding: 20px; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', monospace; font-size: 30px; font-weight: 900; letter-spacing: 8px; text-transform: uppercase; border-radius: 4px; margin-bottom: 16px; position: relative; }
+
+    .decision-block { width: 100%; padding: 16px 12px; display: flex; align-items: center; justify-content: center; font-family: 'Orbitron', monospace; font-size: clamp(18px, 5.5vw, 30px); font-weight: 900; letter-spacing: 5px; text-transform: uppercase; border-radius: 4px; margin-bottom: 10px; position: relative; flex-wrap: wrap; gap: 6px; min-height: 64px; }
     .decision-block.buy { background: rgba(0,255,136,0.08); border: 2px solid var(--green); color: var(--green); box-shadow: 0 0 40px rgba(0,255,136,0.15); }
     .decision-block.sell { background: rgba(255,48,96,0.08); border: 2px solid var(--red); color: var(--red); box-shadow: 0 0 40px rgba(255,48,96,0.15); }
     .decision-block.neutral { background: rgba(0,245,255,0.05); border: 2px solid rgba(0,245,255,0.3); color: var(--cyan); }
-    .confidence { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); font-size: 13px; letter-spacing: 2px; opacity: 0.7; }
-    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
-    @media(max-width:600px){ .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
-    .metric-block { background: rgba(0,10,30,0.8); border: 1px solid rgba(0,245,255,0.15); border-radius: 4px; padding: 14px 10px; text-align: center; backdrop-filter: blur(10px); transition: all 0.3s; }
-    .metric-block:hover { border-color: rgba(0,245,255,0.4); }
-    .metric-label { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; color: rgba(0,245,255,0.5); text-transform: uppercase; margin-bottom: 8px; }
-    .metric-value { font-family: 'Orbitron', monospace; font-size: 16px; font-weight: 700; color: #fff; }
+    .confidence { font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: 2px; opacity: 0.8; }
+    @media(min-width:500px){ .confidence { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); } }
+
+    /* Score */
+    .score-bar { display: flex; justify-content: space-between; align-items: center; background: rgba(0,10,30,0.8); border: 1px solid rgba(0,245,255,0.15); border-radius: 4px; padding: 10px 14px; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+    .score-label { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; color: rgba(0,245,255,0.5); text-transform: uppercase; }
+    .score-right { display: flex; align-items: center; gap: 10px; }
+    .score-dots { display: flex; gap: 3px; flex-wrap: wrap; }
+    .score-dot { width: 8px; height: 8px; border-radius: 2px; background: rgba(255,255,255,0.1); }
+    .score-dot.on { background: var(--cyan); box-shadow: 0 0 5px var(--cyan); }
+    .score-dot.warn { background: var(--red); box-shadow: 0 0 5px var(--red); }
+    .score-value { font-family: 'Orbitron', monospace; font-size: 16px; font-weight: 900; color: var(--cyan); }
+    .score-value.low { color: var(--red); }
+
+    /* No trade */
+    .no-trade-warning { width: 100%; padding: 14px 10px; background: rgba(255,48,96,0.1); border: 2px solid var(--red); border-radius: 4px; color: var(--red); font-family: 'Orbitron', monospace; font-size: clamp(10px, 3.5vw, 14px); font-weight: 900; letter-spacing: 3px; text-transform: uppercase; text-align: center; margin-bottom: 10px; animation: pulseRed 1.5s ease-in-out infinite; }
+    @keyframes pulseRed { 0%,100%{ box-shadow: 0 0 20px rgba(255,48,96,0.2); } 50%{ box-shadow: 0 0 40px rgba(255,48,96,0.5); } }
+
+    /* Metrics */
+    .metrics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+    @media(min-width:500px){ .metrics-grid { grid-template-columns: repeat(4, 1fr); } }
+    .metric-block { background: rgba(0,10,30,0.8); border: 1px solid rgba(0,245,255,0.15); border-radius: 4px; padding: 12px 8px; text-align: center; backdrop-filter: blur(10px); }
+    .metric-label { font-family: 'Orbitron', monospace; font-size: 6px; letter-spacing: 1px; color: rgba(0,245,255,0.5); text-transform: uppercase; margin-bottom: 7px; }
+    .metric-value { font-family: 'Orbitron', monospace; font-size: clamp(12px, 3.5vw, 16px); font-weight: 700; color: #fff; word-break: break-all; }
     .metric-block.entry .metric-value { color: var(--cyan); }
     .metric-block.sl .metric-value { color: var(--red); }
     .metric-block.tp .metric-value { color: var(--green); }
-    .metric-block.lots .metric-value { color: #ffd700; }
-    .metric-sub { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 5px; }
-    .analysis-toggle { width: 100%; background: rgba(0,245,255,0.03); border: 1px solid rgba(0,245,255,0.1); border-radius: 4px; overflow: hidden; }
-    .analysis-toggle-btn { width: 100%; background: none; border: none; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.3s; }
+    .metric-block.lots .metric-value { color: var(--gold); }
+    .metric-sub { font-size: 9px; color: rgba(255,255,255,0.3); margin-top: 4px; }
+
+    /* Break Even */
+    .be-block { display: flex; align-items: flex-start; gap: 10px; background: rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.2); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; color: rgba(0,255,136,0.8); line-height: 1.5; }
+    .be-icon { font-size: 16px; flex-shrink: 0; }
+
+    /* Capital result — HOLOGRAMME OR */
+    .capital-result { position: relative; background: rgba(0,8,22,0.97); border: 1px solid rgba(255,215,0,0.35); border-radius: 4px; padding: 14px; margin-bottom: 10px; overflow: hidden; }
+    .capital-result::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,215,0,0.05) 0%, transparent 50%, rgba(255,215,0,0.03) 100%); pointer-events: none; }
+    .capital-result::after { content: ''; position: absolute; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,215,0,0.7), transparent); animation: goldScan 3s ease-in-out infinite; pointer-events: none; }
+    @keyframes goldScan { 0%{ top: -1px; opacity: 0; } 5%{ opacity: 1; } 95%{ opacity: 1; } 100%{ top: 100%; opacity: 0; } }
+    .capital-result-header { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; color: rgba(255,215,0,0.55); text-transform: uppercase; margin-bottom: 8px; }
+    .capital-result-label { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; color: rgba(255,215,0,0.45); text-transform: uppercase; margin-bottom: 4px; }
+    .capital-result-main { font-family: 'Orbitron', monospace; font-size: clamp(24px, 7vw, 32px); font-weight: 900; color: var(--gold); margin-bottom: 12px; text-shadow: 0 0 20px rgba(255,215,0,0.5); filter: drop-shadow(0 0 8px rgba(255,215,0,0.4)); }
+    .capital-result-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .capital-result-item { background: rgba(255,215,0,0.04); border: 1px solid rgba(255,215,0,0.1); border-radius: 2px; padding: 8px 6px; text-align: center; }
+    .capital-result-item.highlight { border-color: rgba(255,215,0,0.45); background: rgba(255,215,0,0.09); box-shadow: 0 0 12px rgba(255,215,0,0.15); }
+    .cri-label { font-family: 'Orbitron', monospace; font-size: 6px; letter-spacing: 1px; color: rgba(255,215,0,0.4); text-transform: uppercase; margin-bottom: 5px; }
+    .cri-value { font-family: 'Orbitron', monospace; font-size: clamp(11px, 3vw, 13px); font-weight: 700; color: rgba(255,215,0,0.9); }
+
+    /* Analysis toggle */
+    .analysis-toggle { width: 100%; background: rgba(0,245,255,0.03); border: 1px solid rgba(0,245,255,0.1); border-radius: 4px; overflow: hidden; margin-bottom: 24px; }
+    .analysis-toggle-btn { width: 100%; background: none; border: none; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.3s; }
     .analysis-toggle-btn:hover { background: rgba(0,245,255,0.05); }
-    .analysis-toggle-label { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: rgba(0,245,255,0.4); text-transform: uppercase; }
+    .analysis-toggle-label { font-family: 'Orbitron', monospace; font-size: 8px; letter-spacing: 2px; color: rgba(0,245,255,0.4); text-transform: uppercase; }
     .analysis-arrow { font-size: 10px; color: rgba(0,245,255,0.4); transition: transform 0.3s; }
     .analysis-toggle.open .analysis-arrow { transform: rotate(180deg); }
-    .analysis-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; padding: 0 16px; }
-    .analysis-toggle.open .analysis-body { max-height: 800px; padding: 0 16px 16px; }
+    .analysis-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; padding: 0 14px; }
+    .analysis-toggle.open .analysis-body { max-height: 1000px; padding: 0 14px 14px; }
     .analysis-text { font-size: 12px; line-height: 1.8; color: rgba(255,255,255,0.4); }
 
-    /* Score Setup */
-    .score-bar { display:flex; justify-content:space-between; align-items:center; background:rgba(0,10,30,0.8); border:1px solid rgba(0,245,255,0.15); border-radius:4px; padding:12px 16px; margin-bottom:12px; }
-    .score-label { font-family:'Orbitron',monospace; font-size:9px; letter-spacing:3px; color:rgba(0,245,255,0.5); text-transform:uppercase; }
-    .score-right { display:flex; align-items:center; gap:12px; }
-    .score-dots { display:flex; gap:4px; }
-    .score-dot { width:10px; height:10px; border-radius:2px; background:rgba(255,255,255,0.1); }
-    .score-dot.on { background:var(--cyan); box-shadow:0 0 6px var(--cyan); }
-    .score-dot.warn { background:var(--red); box-shadow:0 0 6px var(--red); }
-    .score-value { font-family:'Orbitron',monospace; font-size:18px; font-weight:900; color:var(--cyan); }
-    .score-value.low { color:var(--red); }
-    /* No Trade Warning */
-    .no-trade-warning { width:100%; padding:16px; background:rgba(255,48,96,0.1); border:2px solid var(--red); border-radius:4px; color:var(--red); font-family:'Orbitron',monospace; font-size:14px; font-weight:900; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:12px; box-shadow:0 0 30px rgba(255,48,96,0.2); animation:pulseRed 1.5s ease-in-out infinite; }
-    @keyframes pulseRed { 0%,100%{box-shadow:0 0 20px rgba(255,48,96,0.2);} 50%{box-shadow:0 0 40px rgba(255,48,96,0.5);} }
-    /* Break Even */
-    .be-block { display:flex; align-items:center; gap:12px; background:rgba(0,255,136,0.05); border:1px solid rgba(0,255,136,0.2); border-radius:4px; padding:12px 16px; margin-bottom:12px; font-size:13px; color:rgba(0,255,136,0.8); }
-    .be-icon { font-size:18px; }
-    /* Capital Result */
-    .capital-result { background:rgba(0,10,30,0.9); border:1px solid rgba(0,245,255,0.2); border-radius:4px; padding:16px; margin-bottom:12px; }
-    .capital-result-header { font-family:'Orbitron',monospace; font-size:8px; letter-spacing:3px; color:rgba(0,245,255,0.5); text-transform:uppercase; margin-bottom:12px; }
-    .capital-result-main { font-family:'Orbitron',monospace; font-size:28px; font-weight:900; color:var(--red); margin-bottom:14px; }
-    .capital-result-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-    .capital-result-item { background:rgba(0,245,255,0.04); border:1px solid rgba(0,245,255,0.08); border-radius:2px; padding:10px; text-align:center; }
-    .capital-result-item.highlight { border-color:rgba(0,245,255,0.3); background:rgba(0,245,255,0.08); }
-    .cri-label { font-family:'Orbitron',monospace; font-size:7px; letter-spacing:2px; color:rgba(0,245,255,0.4); text-transform:uppercase; margin-bottom:6px; }
-    .cri-value { font-family:'Orbitron',monospace; font-size:14px; font-weight:700; color:#fff; }
     @keyframes fadeDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body>
-<a href="/abonnement.html" class="nav-abonnement">◈ Abonnements</a>
-<a href="/logout" class="nav-logout">✕ Déconnexion</a>
+
+<!-- NAV FIXE -->
+<nav class="nav-bar">
+  <div class="nav-left">
+    <a href="/logout" class="nav-btn logout">✕ Déco</a>
+  </div>
+  <div class="nav-right">
+    <a href="/admin.html" class="nav-btn admin" id="adminBtn">⚙ Admin</a>
+    <a href="/abonnement.html" class="nav-btn plans">◈ Plans</a>
+  </div>
+</nav>
+
 <div class="particles" id="particles"></div>
 <div class="container">
+
   <div class="header">
     <div class="header-badge">◈ Analyse IA pour MetaTrader 5 ◈</div>
     <h1>j4ke-IA</h1>
@@ -159,29 +195,21 @@
 
   <div class="analyses-counter" id="analysesCounter">Analyses restantes : <span id="analysesLeft">—</span></div>
 
-  <!-- Capital MT5 -->
+  <!-- Capital -->
   <div class="capital-panel">
     <div class="capital-header">Capital MetaTrader 5</div>
     <div class="capital-row">
       <span class="capital-currency">$</span>
-      <input type="number" id="capitalInput" placeholder="Entrez votre capital MT5" min="0" step="100" oninput="updateCapitalStats()"/>
+      <input type="number" id="capitalInput" placeholder="Votre capital MT5" min="0" step="100" oninput="updateCapitalStats()" inputmode="decimal"/>
     </div>
     <div class="capital-stats">
-      <div class="capital-stat risk">
-        <div class="capital-stat-label">Risque 5%</div>
-        <div class="capital-stat-value" id="riskAmount">—</div>
-      </div>
-      <div class="capital-stat gain">
-        <div class="capital-stat-label">Objectif 10%</div>
-        <div class="capital-stat-value" id="gainAmount">—</div>
-      </div>
-      <div class="capital-stat lots">
-        <div class="capital-stat-label">Lots estimés</div>
-        <div class="capital-stat-value" id="lotsEstimate">—</div>
-      </div>
+      <div class="capital-stat risk"><div class="capital-stat-label">Risque 5%</div><div class="capital-stat-value" id="riskAmount">—</div></div>
+      <div class="capital-stat gain"><div class="capital-stat-label">Objectif 10%</div><div class="capital-stat-value" id="gainAmount">—</div></div>
+      <div class="capital-stat lots"><div class="capital-stat-label">Lots estimés</div><div class="capital-stat-value" id="lotsEstimate">—</div></div>
     </div>
   </div>
 
+  <!-- Upload -->
   <div class="upload-panel">
     <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
     <div class="upload-box" id="uploadBox">
@@ -209,16 +237,19 @@
     </div>
   </div>
 
+  <!-- Bouton -->
   <div class="btn-wrapper">
     <div class="btn-corner tl"></div><div class="btn-corner tr"></div><div class="btn-corner bl"></div><div class="btn-corner br"></div>
-    <button id="analyzeBtn" onclick="analyzeChart()">Analyser</button>
-    <div style="text-align:center;">
+    <button id="analyzeBtn" onclick="analyzeChart()">+ Lancer l'analyse</button>
+    <div>
       <div class="loading-bar" id="loadingBar"></div>
       <div class="loading-text" id="loadingText">Analyse en cours...</div>
     </div>
   </div>
 
+  <!-- Résultats -->
   <div class="result-panel" id="resultPanel">
+
     <div class="decision-block" id="decisionBlock">
       <span id="decisionText">—</span>
       <span class="confidence" id="confidenceText"></span>
@@ -245,11 +276,12 @@
 
     <div class="be-block" id="beBlock" style="display:none">
       <span class="be-icon">🔒</span>
-      <span id="beText">Dès que TP1 atteint, déplacez votre SL au point d'entrée</span>
+      <span id="beText"> BE Dès que TP1 atteint, déplacez votre SL au point d'entrée</span>
     </div>
 
     <div class="capital-result" id="capitalResult" style="display:none">
       <div class="capital-result-header">◈ Gestion du capital — Risque adopté par l'IA</div>
+      <div class="capital-result-label">Risque recommandé</div>
       <div class="capital-result-main" id="capitalResultMain">—</div>
       <div class="capital-result-grid">
         <div class="capital-result-item"><div class="cri-label">Risque 3%</div><div class="cri-value" id="crRisk3">—</div></div>
@@ -265,12 +297,13 @@
       </button>
       <div class="analysis-body"><div class="analysis-text" id="analysisText"></div></div>
     </div>
+
   </div>
 </div>
 
 <script>
   const pContainer = document.getElementById('particles');
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 28; i++) {
     const p = document.createElement('div');
     p.className = 'particle';
     p.style.cssText = `left:${Math.random()*100}%;animation-duration:${6+Math.random()*12}s;animation-delay:${Math.random()*10}s;--drift:${(Math.random()-0.5)*100}px;background:${Math.random()>0.5?'#00f5ff':Math.random()>0.5?'#0080ff':'#8000ff'};box-shadow:0 0 4px currentColor;`;
@@ -278,26 +311,26 @@
   }
 
   fetch('/me').then(r=>r.json()).then(user=>{
+    if(user.role==='admin'){
+      document.getElementById('adminBtn').style.display='inline-block';
+    }
     if(user.role!=='admin'&&!user.subscribed){
       const left=Math.max(0,2-user.analysisCount);
       document.getElementById('analysesCounter').style.display='block';
       document.getElementById('analysesLeft').textContent=left+' / 2';
     }
-  });
+  }).catch(()=>{});
 
-  function updateCapitalStats() {
-    const capital = parseFloat(document.getElementById('capitalInput').value);
-    if (capital && capital > 0) {
-      const risk = (capital * 0.05).toFixed(2);
-      const gain = (capital * 0.10).toFixed(2);
-      const lots = (capital * 0.05 / 1000).toFixed(2);
-      document.getElementById('riskAmount').textContent = '€' + risk;
-      document.getElementById('gainAmount').textContent = '€' + gain;
-      document.getElementById('lotsEstimate').textContent = lots + ' L';
+  function updateCapitalStats(){
+    const c=parseFloat(document.getElementById('capitalInput').value);
+    if(c&&c>0){
+      document.getElementById('riskAmount').textContent='$'+(c*0.05).toFixed(2);
+      document.getElementById('gainAmount').textContent='$'+(c*0.10).toFixed(2);
+      document.getElementById('lotsEstimate').textContent=(c*0.05/1000).toFixed(2)+' L';
     } else {
-      document.getElementById('riskAmount').textContent = '—';
-      document.getElementById('gainAmount').textContent = '—';
-      document.getElementById('lotsEstimate').textContent = '—';
+      document.getElementById('riskAmount').textContent='—';
+      document.getElementById('gainAmount').textContent='—';
+      document.getElementById('lotsEstimate').textContent='—';
     }
   }
 
@@ -316,38 +349,24 @@
   function parseResult(text){
     const decision={type:'neutral',text:'NEUTRE',confidence:'',score:0,noTrade:false};
     const metrics={entry:'—',sl:'—',tp:'—',lots:'—',be:''};
-
-    // BUY/SELL
     if(/\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
     else if(/\bSELL\b/i.test(text)){decision.type='sell';decision.text='▼ SELL';}
-    // Ne pas trader
     if(/NE PAS TRADER|NE TRADER PAS|SETUP FAIBLE|ne pas (prendre|entrer)/i.test(text)){decision.noTrade=true;decision.type='neutral';decision.text='⚠ NE PAS TRADER';}
-
-    // Confiance
     const confMatch=text.match(/Confiance\s*[:\-]?\s*(\d{1,3})\s*%/i);
     if(confMatch)decision.confidence=confMatch[1]+'%';
-
-    // Score setup
     const scoreMatch=text.match(/SCORE\s*(?:SETUP)?\s*[:\-]?\s*(\d{1,2})\s*\/\s*10/i);
     if(scoreMatch)decision.score=parseInt(scoreMatch[1]);
     if(decision.score>0&&decision.score<=4)decision.noTrade=true;
-
-    // Entrée
     const entryMatch=text.match(/Entr[eé]e?\s*:\s*([^\n]+)/i);
     if(entryMatch)metrics.entry=entryMatch[1].trim().split(/\s/)[0].substring(0,16);
-    // SL
     const slMatch=text.match(/Stop\s*Loss\s*:\s*([^\n\u2014(]+)/i);
     if(slMatch)metrics.sl=slMatch[1].trim().split(/\s/)[0].substring(0,16);
-    // TP1
     const tpMatch=text.match(/Take\s*Profit\s*(?:1)?\s*:\s*([^\n\u2014(]+)/i);
     if(tpMatch)metrics.tp=tpMatch[1].trim().split(/\s/)[0].substring(0,16);
-    // Lots
     const lotsMatch=text.match(/Lots?\s*(?:recommand[eé]s?)?\s*:\s*([0-9.,]+)/i);
     if(lotsMatch)metrics.lots=lotsMatch[1].trim().substring(0,16);
-    // Break Even
     const beMatch=text.match(/Break\s*Even\s*:\s*([^\n]+)/i);
     if(beMatch)metrics.be=beMatch[1].trim();
-
     return{decision,metrics};
   }
 
@@ -382,7 +401,6 @@
         document.getElementById('metricTP').textContent=metrics.tp;
         document.getElementById('metricLots').textContent=metrics.lots;
 
-        // Score setup
         if(decision.score>0){
           document.getElementById('scoreBar').style.display='flex';
           const sv=document.getElementById('scoreValue');
@@ -393,19 +411,11 @@
           for(let i=1;i<=10;i++){const d=document.createElement('div');d.className='score-dot'+(i<=decision.score?(decision.score<=4?' warn':' on'):'');dots.appendChild(d);}
         }
 
-        // No trade warning
         document.getElementById('noTradeWarning').style.display=decision.noTrade?'block':'none';
 
-        // Break Even
-        if(metrics.be){
-          document.getElementById('beBlock').style.display='flex';
-          document.getElementById('beText').textContent=metrics.be;
-        } else {
-          document.getElementById('beBlock').style.display='flex';
-          document.getElementById('beText').textContent="Dès que TP1 atteint, déplacez votre SL au point d'entrée";
-        }
+        document.getElementById('beBlock').style.display='flex';
+        document.getElementById('beText').textContent=metrics.be||"Dès que TP1 atteint, déplacez votre SL au point d'entrée";
 
-        // Capital result block
         const cap=parseFloat(capital);
         if(cap&&cap>0){
           document.getElementById('capitalResult').style.display='block';
@@ -417,16 +427,20 @@
           document.getElementById('slSub').textContent='Max: $'+(cap*0.05).toFixed(0);
           document.getElementById('tpSub').textContent='Gain: $'+(cap*0.10).toFixed(0);
         }
+
         document.getElementById('analysisText').innerHTML=data.result.replace(/\n/g,'<br>');
         resultPanel.classList.add('visible');
         statusText.textContent='ANALYSE COMPLÈTE';
+
         if(data.analysesLeft!==null&&data.analysesLeft!==undefined){
           document.getElementById('analysesCounter').style.display='block';
           document.getElementById('analysesLeft').textContent=data.analysesLeft+' / 2';
         }
+
+        setTimeout(()=>resultPanel.scrollIntoView({behavior:'smooth',block:'start'}),150);
       }else{statusText.textContent='ERREUR';}
     }catch(e){statusText.textContent='ERREUR SERVEUR';}
-    btn.textContent='Analyser';btn.disabled=false;
+    btn.textContent="+ Lancer l'analyse";btn.disabled=false;
     loadingBar.classList.remove('active');loadingText.classList.remove('active');
   }
 </script>
