@@ -1,10 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const NedbStore = require('nedb-session-store')(session);
+// Session store: mémoire (pas de dépendance externe nécessaire)
 const Datastore = require('@seald-io/nedb');
 const bcrypt = require('bcryptjs');
-const fetch = require('node-fetch');
+// node-fetch non nécessaire (fetch natif Node 18+)
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
@@ -39,7 +39,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'j4keia-secret-2024',
   resave: false,
   saveUninitialized: false,
-  store: new NedbStore({ filename: path.join(__dirname, 'sessions.db') }),
+
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
