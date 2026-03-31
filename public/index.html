@@ -236,8 +236,8 @@
       const risk = (capital * 0.05).toFixed(2);
       const gain = (capital * 0.10).toFixed(2);
       const lots = (capital * 0.05 / 1000).toFixed(2);
-      document.getElementById('riskAmount').textContent = '$' + risk;
-      document.getElementById('gainAmount').textContent = '$' + gain;
+      document.getElementById('riskAmount').textContent = '€' + risk;
+      document.getElementById('gainAmount').textContent = '€' + gain;
       document.getElementById('lotsEstimate').textContent = lots + ' L';
     } else {
       document.getElementById('riskAmount').textContent = '—';
