@@ -116,6 +116,32 @@
     .analysis-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; padding: 0 16px; }
     .analysis-toggle.open .analysis-body { max-height: 800px; padding: 0 16px 16px; }
     .analysis-text { font-size: 12px; line-height: 1.8; color: rgba(255,255,255,0.4); }
+
+    /* Score Setup */
+    .score-bar { display:flex; justify-content:space-between; align-items:center; background:rgba(0,10,30,0.8); border:1px solid rgba(0,245,255,0.15); border-radius:4px; padding:12px 16px; margin-bottom:12px; }
+    .score-label { font-family:'Orbitron',monospace; font-size:9px; letter-spacing:3px; color:rgba(0,245,255,0.5); text-transform:uppercase; }
+    .score-right { display:flex; align-items:center; gap:12px; }
+    .score-dots { display:flex; gap:4px; }
+    .score-dot { width:10px; height:10px; border-radius:2px; background:rgba(255,255,255,0.1); }
+    .score-dot.on { background:var(--cyan); box-shadow:0 0 6px var(--cyan); }
+    .score-dot.warn { background:var(--red); box-shadow:0 0 6px var(--red); }
+    .score-value { font-family:'Orbitron',monospace; font-size:18px; font-weight:900; color:var(--cyan); }
+    .score-value.low { color:var(--red); }
+    /* No Trade Warning */
+    .no-trade-warning { width:100%; padding:16px; background:rgba(255,48,96,0.1); border:2px solid var(--red); border-radius:4px; color:var(--red); font-family:'Orbitron',monospace; font-size:14px; font-weight:900; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:12px; box-shadow:0 0 30px rgba(255,48,96,0.2); animation:pulseRed 1.5s ease-in-out infinite; }
+    @keyframes pulseRed { 0%,100%{box-shadow:0 0 20px rgba(255,48,96,0.2);} 50%{box-shadow:0 0 40px rgba(255,48,96,0.5);} }
+    /* Break Even */
+    .be-block { display:flex; align-items:center; gap:12px; background:rgba(0,255,136,0.05); border:1px solid rgba(0,255,136,0.2); border-radius:4px; padding:12px 16px; margin-bottom:12px; font-size:13px; color:rgba(0,255,136,0.8); }
+    .be-icon { font-size:18px; }
+    /* Capital Result */
+    .capital-result { background:rgba(0,10,30,0.9); border:1px solid rgba(0,245,255,0.2); border-radius:4px; padding:16px; margin-bottom:12px; }
+    .capital-result-header { font-family:'Orbitron',monospace; font-size:8px; letter-spacing:3px; color:rgba(0,245,255,0.5); text-transform:uppercase; margin-bottom:12px; }
+    .capital-result-main { font-family:'Orbitron',monospace; font-size:28px; font-weight:900; color:var(--red); margin-bottom:14px; }
+    .capital-result-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+    .capital-result-item { background:rgba(0,245,255,0.04); border:1px solid rgba(0,245,255,0.08); border-radius:2px; padding:10px; text-align:center; }
+    .capital-result-item.highlight { border-color:rgba(0,245,255,0.3); background:rgba(0,245,255,0.08); }
+    .cri-label { font-family:'Orbitron',monospace; font-size:7px; letter-spacing:2px; color:rgba(0,245,255,0.4); text-transform:uppercase; margin-bottom:6px; }
+    .cri-value { font-family:'Orbitron',monospace; font-size:14px; font-weight:700; color:#fff; }
     @keyframes fadeDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
   </style>
@@ -197,12 +223,41 @@
       <span id="decisionText">—</span>
       <span class="confidence" id="confidenceText"></span>
     </div>
+
+    <div class="score-bar" id="scoreBar" style="display:none">
+      <div class="score-label">◈ Score du Setup</div>
+      <div class="score-right">
+        <div class="score-dots" id="scoreDots"></div>
+        <div class="score-value" id="scoreValue">—</div>
+      </div>
+    </div>
+
+    <div class="no-trade-warning" id="noTradeWarning" style="display:none">
+      ⚠ NE PAS TRADER — Setup trop faible
+    </div>
+
     <div class="metrics-grid">
       <div class="metric-block entry"><div class="metric-label">Entrée</div><div class="metric-value" id="metricEntry">—</div><div class="metric-sub">Zone d'entrée</div></div>
       <div class="metric-block sl"><div class="metric-label">Stop Loss</div><div class="metric-value" id="metricSL">—</div><div class="metric-sub" id="slSub">Risque max</div></div>
-      <div class="metric-block tp"><div class="metric-label">Take Profit</div><div class="metric-value" id="metricTP">—</div><div class="metric-sub" id="tpSub">Objectif</div></div>
+      <div class="metric-block tp"><div class="metric-label">Take Profit 1</div><div class="metric-value" id="metricTP">—</div><div class="metric-sub" id="tpSub">Objectif</div></div>
       <div class="metric-block lots"><div class="metric-label">Lots MT5</div><div class="metric-value" id="metricLots">—</div><div class="metric-sub">Taille position</div></div>
     </div>
+
+    <div class="be-block" id="beBlock" style="display:none">
+      <span class="be-icon">🔒</span>
+      <span id="beText">Dès que TP1 atteint, déplacez votre SL au point d'entrée</span>
+    </div>
+
+    <div class="capital-result" id="capitalResult" style="display:none">
+      <div class="capital-result-header">◈ Gestion du capital — Risque adopté par l'IA</div>
+      <div class="capital-result-main" id="capitalResultMain">—</div>
+      <div class="capital-result-grid">
+        <div class="capital-result-item"><div class="cri-label">Risque 3%</div><div class="cri-value" id="crRisk3">—</div></div>
+        <div class="capital-result-item highlight"><div class="cri-label">Risque 5%</div><div class="cri-value" id="crRisk5">—</div></div>
+        <div class="capital-result-item"><div class="cri-label">Objectif 10%</div><div class="cri-value" id="crGain">—</div></div>
+      </div>
+    </div>
+
     <div class="analysis-toggle" id="analysisToggle">
       <button class="analysis-toggle-btn" onclick="toggleAnalysis()">
         <span class="analysis-toggle-label">◈ Analyse technique détaillée</span>
@@ -259,20 +314,40 @@
   function toggleAnalysis(){document.getElementById('analysisToggle').classList.toggle('open');}
 
   function parseResult(text){
-    const decision={type:'neutral',text:'NEUTRE',confidence:''};
-    const metrics={entry:'—',sl:'—',tp:'—',lots:'—'};
+    const decision={type:'neutral',text:'NEUTRE',confidence:'',score:0,noTrade:false};
+    const metrics={entry:'—',sl:'—',tp:'—',lots:'—',be:''};
+
+    // BUY/SELL
     if(/\bBUY\b/i.test(text)){decision.type='buy';decision.text='▲ BUY';}
     else if(/\bSELL\b/i.test(text)){decision.type='sell';decision.text='▼ SELL';}
-    const confMatch=text.match(/(\d{1,3})\s*%/);
+    // Ne pas trader
+    if(/NE PAS TRADER|NE TRADER PAS|SETUP FAIBLE|ne pas (prendre|entrer)/i.test(text)){decision.noTrade=true;decision.type='neutral';decision.text='⚠ NE PAS TRADER';}
+
+    // Confiance
+    const confMatch=text.match(/Confiance\s*[:\-]?\s*(\d{1,3})\s*%/i);
     if(confMatch)decision.confidence=confMatch[1]+'%';
+
+    // Score setup
+    const scoreMatch=text.match(/SCORE\s*(?:SETUP)?\s*[:\-]?\s*(\d{1,2})\s*\/\s*10/i);
+    if(scoreMatch)decision.score=parseInt(scoreMatch[1]);
+    if(decision.score>0&&decision.score<=4)decision.noTrade=true;
+
+    // Entrée
     const entryMatch=text.match(/Entr[eé]e?\s*:\s*([^\n]+)/i);
     if(entryMatch)metrics.entry=entryMatch[1].trim().split(/\s/)[0].substring(0,16);
+    // SL
     const slMatch=text.match(/Stop\s*Loss\s*:\s*([^\n\u2014(]+)/i);
     if(slMatch)metrics.sl=slMatch[1].trim().split(/\s/)[0].substring(0,16);
+    // TP1
     const tpMatch=text.match(/Take\s*Profit\s*(?:1)?\s*:\s*([^\n\u2014(]+)/i);
     if(tpMatch)metrics.tp=tpMatch[1].trim().split(/\s/)[0].substring(0,16);
+    // Lots
     const lotsMatch=text.match(/Lots?\s*(?:recommand[eé]s?)?\s*:\s*([0-9.,]+)/i);
     if(lotsMatch)metrics.lots=lotsMatch[1].trim().substring(0,16);
+    // Break Even
+    const beMatch=text.match(/Break\s*Even\s*:\s*([^\n]+)/i);
+    if(beMatch)metrics.be=beMatch[1].trim();
+
     return{decision,metrics};
   }
 
@@ -306,9 +381,41 @@
         document.getElementById('metricSL').textContent=metrics.sl;
         document.getElementById('metricTP').textContent=metrics.tp;
         document.getElementById('metricLots').textContent=metrics.lots;
-        if(capital && parseFloat(capital)>0){
-          document.getElementById('slSub').textContent='Max: $'+(parseFloat(capital)*0.05).toFixed(0);
-          document.getElementById('tpSub').textContent='Gain: $'+(parseFloat(capital)*0.10).toFixed(0);
+
+        // Score setup
+        if(decision.score>0){
+          document.getElementById('scoreBar').style.display='flex';
+          const sv=document.getElementById('scoreValue');
+          sv.textContent=decision.score+'/10';
+          sv.className='score-value'+(decision.score<=4?' low':'');
+          const dots=document.getElementById('scoreDots');
+          dots.innerHTML='';
+          for(let i=1;i<=10;i++){const d=document.createElement('div');d.className='score-dot'+(i<=decision.score?(decision.score<=4?' warn':' on'):'');dots.appendChild(d);}
+        }
+
+        // No trade warning
+        document.getElementById('noTradeWarning').style.display=decision.noTrade?'block':'none';
+
+        // Break Even
+        if(metrics.be){
+          document.getElementById('beBlock').style.display='flex';
+          document.getElementById('beText').textContent=metrics.be;
+        } else {
+          document.getElementById('beBlock').style.display='flex';
+          document.getElementById('beText').textContent="Dès que TP1 atteint, déplacez votre SL au point d'entrée";
+        }
+
+        // Capital result block
+        const cap=parseFloat(capital);
+        if(cap&&cap>0){
+          document.getElementById('capitalResult').style.display='block';
+          const risk=decision.score>=8?cap*0.05:cap*0.03;
+          document.getElementById('capitalResultMain').textContent='$'+risk.toFixed(2);
+          document.getElementById('crRisk3').textContent='$'+(cap*0.03).toFixed(2);
+          document.getElementById('crRisk5').textContent='$'+(cap*0.05).toFixed(2);
+          document.getElementById('crGain').textContent='$'+(cap*0.10).toFixed(2);
+          document.getElementById('slSub').textContent='Max: $'+(cap*0.05).toFixed(0);
+          document.getElementById('tpSub').textContent='Gain: $'+(cap*0.10).toFixed(0);
         }
         document.getElementById('analysisText').innerHTML=data.result.replace(/\n/g,'<br>');
         resultPanel.classList.add('visible');
