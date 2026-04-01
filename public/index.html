@@ -166,6 +166,18 @@
     .analysis-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; padding: 0 14px; }
     .analysis-toggle.open .analysis-body { max-height: 1000px; padding: 0 14px 14px; }
     .analysis-text { font-size: 12px; line-height: 1.8; color: rgba(255,255,255,0.4); }
+    /* Feedback */
+    .feedback-block { width: 100%; margin-bottom: 24px; }
+    .feedback-label { font-family: 'Orbitron', monospace; font-size: 7px; letter-spacing: 2px; color: rgba(0,245,255,0.4); text-transform: uppercase; text-align: center; margin-bottom: 10px; }
+    .feedback-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .fb-btn { font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; padding: 12px 6px; border-radius: 2px; border: 1px solid; background: transparent; cursor: pointer; transition: all 0.3s; clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%); -webkit-appearance: none; }
+    .fb-btn.tp { color: rgba(0,255,136,0.7); border-color: rgba(0,255,136,0.3); }
+    .fb-btn.tp:hover, .fb-btn.tp.active { background: rgba(0,255,136,0.15); color: var(--green); border-color: var(--green); box-shadow: 0 0 15px rgba(0,255,136,0.3); }
+    .fb-btn.sl { color: rgba(255,48,96,0.7); border-color: rgba(255,48,96,0.3); }
+    .fb-btn.sl:hover, .fb-btn.sl.active { background: rgba(255,48,96,0.15); color: var(--red); border-color: var(--red); box-shadow: 0 0 15px rgba(255,48,96,0.3); }
+    .fb-btn.pending { color: rgba(255,215,0,0.7); border-color: rgba(255,215,0,0.3); }
+    .fb-btn.pending:hover, .fb-btn.pending.active { background: rgba(255,215,0,0.1); color: var(--gold); border-color: var(--gold); box-shadow: 0 0 15px rgba(255,215,0,0.2); }
+    .feedback-msg { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 2px; text-align: center; margin-top: 8px; color: rgba(0,245,255,0.5); display: none; }
 
     @keyframes fadeDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
@@ -232,7 +244,7 @@
     </div>
     <div class="hud-bar">
       <div class="hud-item"><span class="hud-dot"></span>SYSTÈME <span>EN LIGNE</span></div>
-      <div class="hud-item">MODÈLE <span>j4ke-IA</span></div>
+      <div class="hud-item">MODÈLE <span>CLAUDE AI</span></div>
       <div class="hud-item">STATUT <span id="statusText">EN ATTENTE</span></div>
     </div>
   </div>
@@ -276,7 +288,7 @@
 
     <div class="be-block" id="beBlock" style="display:none">
       <span class="be-icon">🔒</span>
-      <span id="beText"> BE Dès que TP1 atteint, déplacez votre SL au point d'entrée</span>
+      <span id="beText">Dès que TP1 atteint, déplacez votre SL au point d'entrée</span>
     </div>
 
     <div class="capital-result" id="capitalResult" style="display:none">
@@ -296,6 +308,17 @@
         <span class="analysis-arrow">▾</span>
       </button>
       <div class="analysis-body"><div class="analysis-text" id="analysisText"></div></div>
+    </div>
+
+    <!-- Feedback SL / TP / EN ATTENTE -->
+    <div class="feedback-block" id="feedbackBlock" style="display:none">
+      <div class="feedback-label">◈ Résultat du trade</div>
+      <div class="feedback-btns">
+        <button class="fb-btn tp" onclick="sendFeedback('tp')">✓ TP atteint</button>
+        <button class="fb-btn pending" onclick="sendFeedback('pending')">⏳ En attente</button>
+        <button class="fb-btn sl" onclick="sendFeedback('sl')">✕ SL touché</button>
+      </div>
+      <div class="feedback-msg" id="feedbackMsg"></div>
     </div>
 
   </div>
@@ -370,6 +393,25 @@
     return{decision,metrics};
   }
 
+  let lastResult={};
+
+  async function sendFeedback(type){
+    const btns=document.querySelectorAll('.fb-btn');
+    btns.forEach(b=>b.classList.remove('active'));
+    document.querySelector('.fb-btn.'+type).classList.add('active');
+    const msg=document.getElementById('feedbackMsg');
+    msg.style.display='block';
+    msg.textContent='Envoi...';
+    try{
+      const res=await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:type,...lastResult})});
+      const data=await res.json();
+      if(data.success){
+        const labels={tp:'✓ TP enregistré',sl:'✕ SL enregistré',pending:'⏳ En attente enregistré'};
+        msg.textContent=labels[type]||'Enregistré';
+      } else { msg.textContent='Erreur'; }
+    }catch(e){msg.textContent='Erreur serveur';}
+  }
+
   async function analyzeChart(){
     const file=fileInput.files[0];
     if(!file){alert('Sélectionnez une image !');return;}
@@ -437,6 +479,11 @@
           document.getElementById('analysesLeft').textContent=data.analysesLeft+' / 2';
         }
 
+        // Feedback
+        lastResult={capital:capital,decision:decision.text,entry:metrics.entry,sl:metrics.sl,tp:metrics.tp};
+        document.getElementById('feedbackBlock').style.display='block';
+        document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('active'));
+        document.getElementById('feedbackMsg').style.display='none';
         setTimeout(()=>resultPanel.scrollIntoView({behavior:'smooth',block:'start'}),150);
       }else{statusText.textContent='ERREUR';}
     }catch(e){statusText.textContent='ERREUR SERVEUR';}
