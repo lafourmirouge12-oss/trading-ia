@@ -240,6 +240,8 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
           { type: 'text', text: `Tu es un trader institutionnel professionnel. Analyse ce graphique MT5 avec précision.
 
 ${capital > 0 ? `Capital du trader : $${capital}
+Broker : VTMarkets
+Levier : 500:1
 
 RÈGLE DU RISQUE ADAPTÉ :
 - Évalue la qualité du setup sur 10
@@ -247,18 +249,30 @@ RÈGLE DU RISQUE ADAPTÉ :
 - Score 5-7/10 : risque 3% = $${(capital*0.03).toFixed(2)}
 - Score 1-4/10 : NE PAS TRADER
 
-CALCUL DES LOTS OBLIGATOIRE :
-- Formule : Lots = Montant risqué / (SL en pips × valeur pip)
-- XAUUSD : valeur pip = $10 par lot standard
-- EURUSD/GBPUSD : valeur pip = $10 par lot standard
-- BTCUSD : valeur pip = $1 par lot standard` : ''}
+CALCUL DES LOTS OBLIGATOIRE ET PRÉCIS avec levier 500:1 :
 
-RÈGLES ABSOLUES DU RATIO RISQUE/RENDEMENT :
-- RR MINIMUM 1:2 obligatoire sur TP1 — si impossible NE PAS TRADER
-- TP1 doit rapporter au minimum 2x le montant du Stop Loss en pips
+Pour XAUUSD (Or) :
+- Taille contrat = 100 oz par lot standard
+- Valeur pip = $1 pour 0.01 lot / $10 pour 1 lot standard
+- Formule : Lots = Montant risqué / (SL en pips × $10)
+- Exemple : risque $30, SL 20 pips → Lots = 30 / (20 × 10) = 0.15 lots
+- Avec levier 500:1 et capital $${capital} : lots max possibles = ${(capital * 500 / (100 * 3000)).toFixed(2)} (basé sur prix or ~3000)
+
+Pour EURUSD/GBPUSD :
+- Valeur pip = $10 pour 1 lot standard
+- Formule : Lots = Montant risqué / (SL en pips × $10)
+- Exemple : risque $30, SL 20 pips → Lots = 30 / (20 × 10) = 0.15 lots
+
+Pour BTCUSD :
+- Valeur pip = $1 pour 0.01 lot
+- Formule : Lots = Montant risqué / (SL en $ × 0.01)
+
+RÈGLE IMPORTANTE : Les lots doivent être RÉALISTES pour un capital de $${capital} avec levier 500:1. Maximum 1.00 lot pour un capital sous $1000.` : ''}
+
+RÈGLES ABSOLUES :
+- RR MINIMUM 1:2 sur TP1 — si impossible NE PAS TRADER
 - TP2 minimum RR 1:3
 - TP3 minimum RR 1:4
-- Si le marché ne permet pas RR 1:2 → dire clairement NE PAS TRADER
 
 Réponds EXACTEMENT dans ce format sans markdown sans astérisques :
 
@@ -276,14 +290,14 @@ Break Even : Déplacer SL à l'entrée dès que TP1 atteint
 
 SETUP: [2-3 phrases sur RSI, tendance, niveaux clés]
 
-${capital > 0 ? `GESTION CAPITAL ($${capital}):
-Score : X/10 — Risque choisi : X% — Montant : $XX
-LOTS A TRADER : X.XX
-Levier : X:1` : ''}
+${capital > 0 ? `GESTION CAPITAL ($${capital}) — Levier 500:1 VTMarkets :
+Score : X/10 — Risque choisi : X% — Montant risqué : $XX
+LOTS A TRADER : X.XX lots
+Marge requise : $XX` : ''}
 
 INVALIDATION: [condition précise]
 
-IMPORTANT: Prix sans symboles. RR minimum 1:2 obligatoire. Si impossible dire NE PAS TRADER.` }
+IMPORTANT: Lots RÉALISTES uniquement. Max 1.00 lot pour capital sous $1000. RR minimum 1:2 obligatoire.` }
         ]
       }]
     });
