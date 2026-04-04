@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const NedbStore = require('nedb-session-store')(session);
+const MemoryStore = require('memorystore')(session);
 const Datastore = require('@seald-io/nedb');
 const bcrypt = require('bcryptjs');
 const fetch = require('node-fetch');
@@ -39,7 +39,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'j4keia-secret-2024',
   resave: false,
   saveUninitialized: false,
-  store: new NedbStore({ filename: path.join(__dirname, 'sessions.db') }),
+  store: new MemoryStore({ checkPeriod: 86400000 }),
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
