@@ -1,10 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-// Session store: mémoire (pas de dépendance externe nécessaire)
+const NedbStore = require('nedb-session-store')(session);
 const Datastore = require('@seald-io/nedb');
 const bcrypt = require('bcryptjs');
-// node-fetch non nécessaire (fetch natif Node 18+)
+const fetch = require('node-fetch');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
@@ -39,7 +39,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'j4keia-secret-2024',
   resave: false,
   saveUninitialized: false,
-
+  store: new NedbStore({ filename: path.join(__dirname, 'sessions.db') }),
   cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
@@ -241,13 +241,26 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
 
 ${capital > 0 ? `Capital du trader : $${capital}
 
-CALCUL DU RISQUE ADAPTÉ :
-- Si le setup est excellent (8-10/10) : risque 5% = $${(capital * 0.05).toFixed(2)}
-- Si le setup est bon (5-7/10) : risque 3% = $${(capital * 0.03).toFixed(2)}
-- Si le setup est faible (1-4/10) : NE PAS TRADER — dis-le clairement
-Calcule les lots en fonction du risque choisi et du Stop Loss.` : ''}
+RÈGLE DU RISQUE ADAPTÉ :
+- Évalue la qualité du setup sur 10
+- Score 8-10/10 : risque 5% = $${(capital*0.05).toFixed(2)}
+- Score 5-7/10 : risque 3% = $${(capital*0.03).toFixed(2)}
+- Score 1-4/10 : NE PAS TRADER
 
-Réponds EXACTEMENT dans ce format, sans markdown, sans astérisques :
+CALCUL DES LOTS OBLIGATOIRE :
+- Formule : Lots = Montant risqué / (SL en pips × valeur pip)
+- XAUUSD : valeur pip = $10 par lot standard
+- EURUSD/GBPUSD : valeur pip = $10 par lot standard
+- BTCUSD : valeur pip = $1 par lot standard` : ''}
+
+RÈGLES ABSOLUES DU RATIO RISQUE/RENDEMENT :
+- RR MINIMUM 1:2 obligatoire sur TP1 — si impossible NE PAS TRADER
+- TP1 doit rapporter au minimum 2x le montant du Stop Loss en pips
+- TP2 minimum RR 1:3
+- TP3 minimum RR 1:4
+- Si le marché ne permet pas RR 1:2 → dire clairement NE PAS TRADER
+
+Réponds EXACTEMENT dans ce format sans markdown sans astérisques :
 
 DÉCISION: BUY ou SELL — Confiance : XX%
 SCORE SETUP: X/10
@@ -256,21 +269,21 @@ TENDANCE: [une phrase directe]
 
 Entrée : [prix précis]
 Stop Loss : [prix précis] (XX pips)
-Take Profit 1 : [prix précis] (XX pips) — RR X:X
-Take Profit 2 : [prix précis] (XX pips) — RR X:X
-Take Profit 3 : [prix précis] (XX pips) — RR X:X
-Break Even : Déplacer SL au point d'entrée dès que TP1 atteint
+Take Profit 1 : [prix précis] (XX pips) — RR 1:2
+Take Profit 2 : [prix précis] (XX pips) — RR 1:3
+Take Profit 3 : [prix précis] (XX pips) — RR 1:4
+Break Even : Déplacer SL à l'entrée dès que TP1 atteint
 
-SETUP: [2-3 phrases sur RSI, tendance, indicateurs]
+SETUP: [2-3 phrases sur RSI, tendance, niveaux clés]
 
-${capital > 0 ? `CAPITAL ($${capital}):
-Score setup: X/10 → Risque recommandé: X% = $XX
-Lots recommandés: X.XX lots
-Levier conseillé: X:1` : ''}
+${capital > 0 ? `GESTION CAPITAL ($${capital}):
+Score : X/10 — Risque choisi : X% — Montant : $XX
+LOTS A TRADER : X.XX
+Levier : X:1` : ''}
 
 INVALIDATION: [condition précise]
 
-IMPORTANT: Prix sans symboles. Si setup faible dis clairement de ne pas trader.` }
+IMPORTANT: Prix sans symboles. RR minimum 1:2 obligatoire. Si impossible dire NE PAS TRADER.` }
         ]
       }]
     });
@@ -285,6 +298,7 @@ IMPORTANT: Prix sans symboles. Si setup faible dis clairement de ne pas trader.`
     res.json({ result: response.content[0].text, analysesLeft: newLeft, capital });
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    console.error('Erreur analyze:', err.message);
     res.status(500).json({ error: 'Erreur: ' + err.message });
   }
 });
