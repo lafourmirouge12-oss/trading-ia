@@ -230,6 +230,11 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
 
+    // Calcul serveur des limites de lots selon capital
+    const lotsMaxXAU = capital > 0 ? Math.min(0.50, Math.floor((capital * 0.05) / 10 * 100) / 100) : 0.05;
+    const lotsMaxForex = capital > 0 ? Math.min(0.50, Math.floor((capital * 0.05) / 10 * 100) / 100) : 0.05;
+    const lotsMaxCrypto = capital > 0 ? Math.min(0.50, Math.floor((capital * 0.05) / 100 * 100) / 100) : 0.01;
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1200,
@@ -251,39 +256,60 @@ RÈGLE DU RISQUE ADAPTÉ :
 - Score 5-7/10 : risque 3% = $${(capital*0.03).toFixed(2)}
 - Score 1-4/10 : NE PAS TRADER
 
-CALCULATEUR DE LOTS UNIVERSEL (levier 500:1) :
-FOREX (EURUSD, GBPUSD, USDJPY...) : Lots = Montant risqué / (SL en pips × 10)
-OR XAUUSD : Lots = Montant risqué / (SL en points × 0.1) — max 0.50 lots sous $1000
-PÉTROLE (XTIUSD/USOIL) : Lots = Montant risqué / (SL en points × 0.01)
-INDICES (US30, NAS100, SPX500) : Lots = Montant risqué / (SL en points × 1)
-CRYPTO (BTCUSD, ETHUSD) : Lots = Montant risqué / (SL en points × 1)
-RÈGLE : Lots toujours entre 0.01 et 1.00 pour capital sous $1000` : ''}
+CALCULATEUR DE LOTS SÉCURISÉ — CAPITAL $${capital} :
+
+RÈGLE ABSOLUE DE SÉCURITÉ :
+- Lots MAXIMUM autorisé : ${lotsMaxXAU} lots (calculé selon votre capital)
+- Ne JAMAIS dépasser cette limite quelque soit le SL
+- Si le calcul dépasse la limite → utiliser la limite maximale
+
+FORMULES PAR ACTIF :
+XAUUSD (Or) :
+- Lots = Montant risqué / (SL en points × 0.1)
+- MAXIMUM ABSOLU : ${lotsMaxXAU} lots pour votre capital
+- Exemple capital $300 risque 5%=$15, SL 150pts → 15/(150×0.1)=1.00 → plafonné à ${lotsMaxXAU} lots
+
+FOREX (EURUSD, GBPUSD, USDJPY...) :
+- Lots = Montant risqué / (SL en pips × 10)
+- MAXIMUM ABSOLU : ${lotsMaxForex} lots pour votre capital
+
+PÉTROLE (XTIUSD/USOIL) :
+- Lots = Montant risqué / (SL en points × 0.1)
+- MAXIMUM ABSOLU : ${lotsMaxForex} lots pour votre capital
+
+INDICES (US30, NAS100, SPX500) :
+- Lots = Montant risqué / (SL en points × 1)
+- MAXIMUM ABSOLU : 0.10 lots pour capital sous $500
+
+CRYPTO (BTCUSD, ETHUSD) :
+- Lots = Montant risqué / (SL en points × 1)
+- MAXIMUM ABSOLU : ${lotsMaxCrypto} lots pour votre capital` : ''}
 
 MÉTHODOLOGIE SMART MONEY — ANALYSE DANS CET ORDRE :
 
 1. STRUCTURE DU MARCHÉ :
 - Identifier Higher High (HH), Higher Low (HL), Lower High (LH), Lower Low (LL)
-- Détecter Break of Structure (BOS) = continuation de tendance
-- Détecter Change of Character (CHOCH) = retournement potentiel
+- Détecter Break of Structure (BOS) = continuation
+- Détecter Change of Character (CHOCH) = retournement
 - Tendance institutionnelle réelle
 
 2. ZONES INSTITUTIONNELLES :
 - Order Block (OB) haussier : dernière bougie bearish avant mouvement bullish fort
 - Order Block (OB) baissier : dernière bougie bullish avant mouvement bearish fort
-- Fair Value Gap (FVG) : déséquilibre entre bougie 1 et bougie 3 sur 3 bougies consécutives
-- Premium/Discount : prix au-dessus du 50% du range = premium (vendre), en-dessous = discount (acheter)
+- Fair Value Gap (FVG) : déséquilibre entre bougie 1 et bougie 3
+- Premium/Discount : au-dessus du 50% du range = premium (vendre), en-dessous = discount (acheter)
 
 3. LIQUIDITÉ :
-- Equal Highs/Lows : zones de stops évidents des retail traders
-- Liquidity Sweep : le prix a-t-il chassé des stops avant de partir ?
+- Equal Highs/Lows : zones de stops retail évidents
+- Liquidity Sweep : chasse aux stops avant vrai mouvement
 - Buy Side Liquidity (BSL) : stops des vendeurs au-dessus des highs
 - Sell Side Liquidity (SSL) : stops des acheteurs en-dessous des lows
 
-4. CONFLUENCE SMART MONEY :
-- OB + FVG + RSI extrême = setup A+ (score 9-10)
-- OB + FVG = setup fort (score 7-8)
-- OB seul ou FVG seul = setup moyen (score 5-6)
-- Aucune confluence = NE PAS TRADER (score 1-4)
+4. CONFLUENCE :
+- OB + FVG + RSI extrême = setup A+ (9-10/10)
+- OB + FVG = setup fort (7-8/10)
+- OB seul ou FVG seul = setup moyen (5-6/10)
+- Aucune confluence = NE PAS TRADER (1-4/10)
 
 RÈGLES RR ABSOLUES :
 - RR MINIMUM 1:2 obligatoire sur TP1
@@ -300,7 +326,7 @@ STRUCTURE: [HH/HL ou LH/LL — BOS ou CHOCH — tendance institutionnelle]
 
 SMART MONEY:
 Order Block : [zone de prix ex: 3280-3285 ou aucun]
-Fair Value Gap : [zone de prix ex: 3275-3278 ou aucun]
+Fair Value Gap : [zone de prix ou aucun]
 Liquidité : [BSL ou SSL chassée oui/non + explication]
 Zone : [Premium ou Discount]
 
@@ -312,16 +338,16 @@ Take Profit 3 : [prix précis] (XX pips) — RR 1:4
 Break Even : Déplacer SL à l'entrée dès que TP1 atteint
 
 RSI: [valeur précise + signal]
-CONFLUENCE: [résumé des confluences Smart Money détectées]
+CONFLUENCE: [résumé des confluences Smart Money]
 
 ${capital > 0 ? `GESTION CAPITAL ($${capital}) — Levier 500:1 VTMarkets :
 Score : X/10 — Risque choisi : X% — Montant risqué : $XX
-LOTS A TRADER : X.XX lots
+LOTS A TRADER : X.XX lots (maximum autorisé : ${lotsMaxXAU} lots)
 Marge requise : $XX` : ''}
 
 INVALIDATION: [niveau précis qui invalide le setup]
 
-IMPORTANT : Lots entre 0.01 et 1.00. Prix sans symboles. RR minimum 1:2 obligatoire. Si setup pas clair dire NE PAS TRADER.` }
+IMPORTANT : Respecter ABSOLUMENT la limite de lots. Prix sans symboles. RR minimum 1:2.` }
         ]
       }]
     });
