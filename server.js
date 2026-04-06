@@ -232,16 +232,18 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      max_tokens: 1200,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader institutionnel professionnel. Analyse ce graphique MT5 avec précision.
+          { type: 'text', text: `Tu es un trader Smart Money institutionnel avec 20 ans d'expérience. Tu analyses les marchés comme les grandes banques et hedge funds en utilisant les concepts ICT/Smart Money.
+
+INFORMATIONS COMPTE VTMARKETS :
+- Levier : 500:1 (fixe pour tous les clients)
+- Plateforme : MetaTrader 5
 
 ${capital > 0 ? `Capital du trader : $${capital}
-Broker : VTMarkets
-Levier : 500:1
 
 RÈGLE DU RISQUE ADAPTÉ :
 - Évalue la qualité du setup sur 10
@@ -249,55 +251,77 @@ RÈGLE DU RISQUE ADAPTÉ :
 - Score 5-7/10 : risque 3% = $${(capital*0.03).toFixed(2)}
 - Score 1-4/10 : NE PAS TRADER
 
-CALCUL DES LOTS OBLIGATOIRE ET PRÉCIS avec levier 500:1 :
+CALCULATEUR DE LOTS UNIVERSEL (levier 500:1) :
+FOREX (EURUSD, GBPUSD, USDJPY...) : Lots = Montant risqué / (SL en pips × 10)
+OR XAUUSD : Lots = Montant risqué / (SL en points × 0.1) — max 0.50 lots sous $1000
+PÉTROLE (XTIUSD/USOIL) : Lots = Montant risqué / (SL en points × 0.01)
+INDICES (US30, NAS100, SPX500) : Lots = Montant risqué / (SL en points × 1)
+CRYPTO (BTCUSD, ETHUSD) : Lots = Montant risqué / (SL en points × 1)
+RÈGLE : Lots toujours entre 0.01 et 1.00 pour capital sous $1000` : ''}
 
-Pour XAUUSD (Or) :
-- Taille contrat = 100 oz par lot standard
-- Valeur pip = $1 pour 0.01 lot / $10 pour 1 lot standard
-- Formule : Lots = Montant risqué / (SL en pips × $10)
-- Exemple : risque $30, SL 20 pips → Lots = 30 / (20 × 10) = 0.15 lots
-- Avec levier 500:1 et capital $${capital} : lots max possibles = ${(capital * 500 / (100 * 3000)).toFixed(2)} (basé sur prix or ~3000)
+MÉTHODOLOGIE SMART MONEY — ANALYSE DANS CET ORDRE :
 
-Pour EURUSD/GBPUSD :
-- Valeur pip = $10 pour 1 lot standard
-- Formule : Lots = Montant risqué / (SL en pips × $10)
-- Exemple : risque $30, SL 20 pips → Lots = 30 / (20 × 10) = 0.15 lots
+1. STRUCTURE DU MARCHÉ :
+- Identifier Higher High (HH), Higher Low (HL), Lower High (LH), Lower Low (LL)
+- Détecter Break of Structure (BOS) = continuation de tendance
+- Détecter Change of Character (CHOCH) = retournement potentiel
+- Tendance institutionnelle réelle
 
-Pour BTCUSD :
-- Valeur pip = $1 pour 0.01 lot
-- Formule : Lots = Montant risqué / (SL en $ × 0.01)
+2. ZONES INSTITUTIONNELLES :
+- Order Block (OB) haussier : dernière bougie bearish avant mouvement bullish fort
+- Order Block (OB) baissier : dernière bougie bullish avant mouvement bearish fort
+- Fair Value Gap (FVG) : déséquilibre entre bougie 1 et bougie 3 sur 3 bougies consécutives
+- Premium/Discount : prix au-dessus du 50% du range = premium (vendre), en-dessous = discount (acheter)
 
-RÈGLE IMPORTANTE : Les lots doivent être RÉALISTES pour un capital de $${capital} avec levier 500:1. Maximum 1.00 lot pour un capital sous $1000.` : ''}
+3. LIQUIDITÉ :
+- Equal Highs/Lows : zones de stops évidents des retail traders
+- Liquidity Sweep : le prix a-t-il chassé des stops avant de partir ?
+- Buy Side Liquidity (BSL) : stops des vendeurs au-dessus des highs
+- Sell Side Liquidity (SSL) : stops des acheteurs en-dessous des lows
 
-RÈGLES ABSOLUES :
-- RR MINIMUM 1:2 sur TP1 — si impossible NE PAS TRADER
+4. CONFLUENCE SMART MONEY :
+- OB + FVG + RSI extrême = setup A+ (score 9-10)
+- OB + FVG = setup fort (score 7-8)
+- OB seul ou FVG seul = setup moyen (score 5-6)
+- Aucune confluence = NE PAS TRADER (score 1-4)
+
+RÈGLES RR ABSOLUES :
+- RR MINIMUM 1:2 obligatoire sur TP1
 - TP2 minimum RR 1:3
 - TP3 minimum RR 1:4
+- Si RR impossible → NE PAS TRADER
 
 Réponds EXACTEMENT dans ce format sans markdown sans astérisques :
 
 DÉCISION: BUY ou SELL — Confiance : XX%
 SCORE SETUP: X/10
 
-TENDANCE: [une phrase directe]
+STRUCTURE: [HH/HL ou LH/LL — BOS ou CHOCH — tendance institutionnelle]
 
-Entrée : [prix précis]
-Stop Loss : [prix précis] (XX pips)
+SMART MONEY:
+Order Block : [zone de prix ex: 3280-3285 ou aucun]
+Fair Value Gap : [zone de prix ex: 3275-3278 ou aucun]
+Liquidité : [BSL ou SSL chassée oui/non + explication]
+Zone : [Premium ou Discount]
+
+Entrée : [prix précis dans OB ou FVG]
+Stop Loss : [prix précis sous/au-dessus OB] (XX pips)
 Take Profit 1 : [prix précis] (XX pips) — RR 1:2
 Take Profit 2 : [prix précis] (XX pips) — RR 1:3
 Take Profit 3 : [prix précis] (XX pips) — RR 1:4
 Break Even : Déplacer SL à l'entrée dès que TP1 atteint
 
-SETUP: [2-3 phrases sur RSI, tendance, niveaux clés]
+RSI: [valeur précise + signal]
+CONFLUENCE: [résumé des confluences Smart Money détectées]
 
 ${capital > 0 ? `GESTION CAPITAL ($${capital}) — Levier 500:1 VTMarkets :
 Score : X/10 — Risque choisi : X% — Montant risqué : $XX
 LOTS A TRADER : X.XX lots
 Marge requise : $XX` : ''}
 
-INVALIDATION: [condition précise]
+INVALIDATION: [niveau précis qui invalide le setup]
 
-IMPORTANT: Lots RÉALISTES uniquement. Max 1.00 lot pour capital sous $1000. RR minimum 1:2 obligatoire.` }
+IMPORTANT : Lots entre 0.01 et 1.00. Prix sans symboles. RR minimum 1:2 obligatoire. Si setup pas clair dire NE PAS TRADER.` }
         ]
       }]
     });
