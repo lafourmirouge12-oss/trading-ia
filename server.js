@@ -272,7 +272,8 @@ AUTRES : Lots = Montant risqué / (SL en points × 1) — plafonné à ${lotsMax
 RÈGLE ABSOLUE : Si le calcul dépasse la limite → utiliser la limite maximale autorisée.` : ''}
 
 Si tu n'es pas certain à plus de 70%, dis clairement NE PAS TRADER.
-Sur M1 M15 , sois très conservateur. Préfère ne pas trader plutôt que de donner un mauvais signal.
+ sois très conservateur. Préfère ne pas trader plutôt que de donner un mauvais signal.
+SOIS VRAIMENT PRECIS DANS TON ANALYSE DANS BIEN QUAND FAUT ACHETER OU VENDRE 
 
 MÉTHODOLOGIE SMART MONEY — ANALYSE DANS CET ORDRE :
 
