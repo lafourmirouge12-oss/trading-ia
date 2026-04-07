@@ -13,6 +13,7 @@
     "memorystore": "^1.6.7",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.6.9",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "web-push": "^3.6.7"
   }
 }
