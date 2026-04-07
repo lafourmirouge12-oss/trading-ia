@@ -271,6 +271,9 @@ AUTRES : Lots = Montant risqué / (SL en points × 1) — plafonné à ${lotsMax
 
 RÈGLE ABSOLUE : Si le calcul dépasse la limite → utiliser la limite maximale autorisée.` : ''}
 
+Si tu n'es pas certain à plus de 70%, dis clairement NE PAS TRADER.
+Sur M1 M15 , sois très conservateur. Préfère ne pas trader plutôt que de donner un mauvais signal.
+
 MÉTHODOLOGIE SMART MONEY — ANALYSE DANS CET ORDRE :
 
 1. STRUCTURE DU MARCHÉ :
@@ -304,13 +307,12 @@ RÈGLES RR ABSOLUES :
 
 Réponds EXACTEMENT dans ce format sans markdown sans astérisques :
 
-DÉCISION: BUY ou SELL — Confiance : XX%
-SCORE SETUP: X/10
+DÉCISION: BUY, SELL ou NE PAS TRADER — Confiance : XX%
 
 STRUCTURE: [HH/HL ou LH/LL — BOS ou CHOCH — tendance institutionnelle]
 
 SMART MONEY:
-Order Block : [zone de prix ou aucun]
+Order Block : [zone de prix ou< aucun]
 Fair Value Gap : [zone de prix ou aucun]
 Liquidité : [BSL ou SSL chassée oui/non + explication]
 Zone : [Premium ou Discount]
