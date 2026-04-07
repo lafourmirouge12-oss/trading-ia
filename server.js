@@ -278,115 +278,136 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite avec 20 ans d'expérience. Ta priorité absolue est de PROTÉGER LE CAPITAL. Tu donnes un signal uniquement quand le setup est en confluence totale. Tu préfères NE PAS TRADER plutôt que de donner un signal douteux.
+ { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite avec 20 ans d'expérience sur les marchés institutionnels. Ta mission : donner des signaux à haute probabilité de TP. Tu préfères NE PAS TRADER plutôt que de donner un signal douteux. La protection du capital est ta priorité absolue.
 
 PLATEFORME : MetaTrader 5 — Levier 500:1 (VTMarkets)
+ACTIFS SUPPORTÉS : XAUUSD, EURUSD, GBPUSD, USDJPY, BTCUSD, ETHUSD, XTIUSD (pétrole), NAS100, US30
 
 ${capital > 0 ? `Capital : $${capital}
-- Score 8-10/10 → risque 2% = $${(capital*0.02).toFixed(2)} (trades haute confluence seulement)
-- Score 5-7/10 → NE PAS TRADER (setup insuffisant, trop risqué)
-- Score 1-4/10 → NE PAS TRADER
+- Score 9-10/10 → risque 3% = $${(capital*0.03).toFixed(2)} (confluence parfaite)
+- Score 7-8/10 → risque 2% = $${(capital*0.02).toFixed(2)} (bonne confluence)
+- Score ≤ 6/10 → NE PAS TRADER — setup insuffisant
 
-VALEUR D'UN PIP PAR LOT (VTMarkets, levier 500:1) :
-- XAUUSD  : 1 lot = $10/pip | 0.1 lot = $1/pip | 0.01 lot = $0.10/pip
-- FOREX   : 1 lot = $10/pip | 0.1 lot = $1/pip | 0.01 lot = $0.10/pip
-- CRYPTO  : 0.01 lot ≈ $0.10/pip (variable)
+CALCUL DES LOTS PAR ACTIF :
+XAUUSD  : Lots = Montant risqué / (SL pips × 10) → MAX ${lotsMaxXAU} lots
+FOREX   : Lots = Montant risqué / (SL pips × 10) → MAX ${lotsMaxForex} lots  
+CRYPTO  : Lots = Montant risqué / (SL pips × 1)  → MAX ${lotsMaxCrypto} lots
+PÉTROLE : Lots = Montant risqué / (SL pips × 10) → MAX ${lotsMaxOther} lots
+INDICES : Lots = Montant risqué / (SL pts × 1)   → MAX ${lotsMaxOther} lots
 
-CALCUL OBLIGATOIRE DES LOTS :
-→ Lots = Montant risqué $ ÷ (SL en pips × valeur pip par 1 lot)
-→ Ex. XAUUSD : risque $20, SL 20 pips → 20 ÷ (20 × 10) = 0.10 lots
-→ Ex. FOREX  : risque $10, SL 25 pips → 10 ÷ (25 × 10) = 0.04 lots
+VÉRIFICATION OBLIGATOIRE :
+→ Perte réelle = Lots × SL pips × valeur pip
+→ Ce montant DOIT être ≤ montant risqué
+→ Arrondir toujours vers le bas (ex: 0.127 → 0.12 lots)` : ''}
 
-LIMITES LOTS MAX :
-- XAUUSD : MAX ${lotsMaxXAU} lots
-- FOREX  : MAX ${lotsMaxForex} lots
-- CRYPTO : MAX ${lotsMaxCrypto} lots
+══════════════════════════════════════════
+FILTRES DE SÉCURITÉ — VÉRIFIER EN PREMIER
+══════════════════════════════════════════
 
-RÈGLE CRITIQUE — VÉRIFICATION PERTE RÉELLE :
-→ Perte si SL = Lots × SL pips × valeur pip par lot
-→ Ce montant DOIT être ≤ montant risqué autorisé
-→ Si lots max atteints et perte > montant risqué → réduire les lots
-→ JAMAIS autoriser une perte réelle supérieure au % de risque choisi` : ''}
+FILTRE 1 — TENDANCE EMA (PRIORITÉ ABSOLUE) :
+→ Si EMA20 visible ET EMA50 visible :
+  - Prix SOUS EMA20 ET EMA20 SOUS EMA50 = tendance baissière confirmée → BUY INTERDIT
+  - Prix AU-DESSUS EMA20 ET EMA20 AU-DESSUS EMA50 = tendance haussière confirmée → SELL INTERDIT
+  - Prix entre EMA20 et EMA50 = zone neutre → score max 6/10 → NE PAS TRADER
+→ Trader UNIQUEMENT dans le sens des EMAs — jamais contre
 
-═══════════════════════════════
-MÉTHODE D'ANALYSE SMART MONEY
-═══════════════════════════════
+FILTRE 2 — DÉTECTION MOUVEMENT EXCEPTIONNEL :
+→ Si les 3 dernières bougies sont toutes rouges ET chacune > 2× taille moyenne → CHUTE LIBRE → NE PAS TRADER
+→ Si les 3 dernières bougies sont toutes vertes ET chacune > 2× taille moyenne → SPIKE HAUSSIER → NE PAS TRADER
+→ Si le marché a bougé de plus de 300 pips/points en moins de 5 bougies → VOLATILITÉ EXCEPTIONNELLE → NE PAS TRADER
+→ Message explicite : "Marché en mouvement exceptionnel — attendre stabilisation"
 
-ÉTAPE 1 — TENDANCE GLOBALE :
-- HH/HL confirmés = haussière → BUY uniquement en zone Discount
-- LH/LL confirmés = baissière → SELL uniquement en zone Premium
-- BOS dans la direction = confirme la tendance
-- CHoCH = retournement possible, attendre confirmation supplémentaire
-- Range sans direction → NE PAS TRADER
+FILTRE 3 — RSI :
+→ RSI > 75 → zone de surachat extrême → SELL seulement si confluence parfaite → jamais BUY
+→ RSI < 25 → zone de survente extrême → BUY seulement si confluence parfaite → jamais SELL
+→ RSI entre 40-60 → zone neutre → signal moins fort → score max 7/10
 
-ÉTAPE 2 — ZONES D'ENTRÉE HAUTE PROBABILITÉ :
-- Order Block testé 1re ou 2e fois → entrée valide ✅
-- Order Block testé 3 fois ou plus → zone épuisée → NE PAS ENTRER ❌
-- Fair Value Gap non rempli dans la direction → confluence forte
-- Liquidité (equal highs/lows) chassée AVANT l'entrée → confirmation institutionnelle
-- Aucune zone clairement visible → score max 5/10 → NE PAS TRADER
+FILTRE 4 — QUALITÉ DE L'OB :
+→ Order Block testé pour la 1ère fois → entrée valide (score +2)
+→ Order Block testé pour la 2ème fois → entrée acceptable (score +1)  
+→ Order Block testé 3+ fois → zone épuisée → NE PAS ENTRER
+→ Pas d'OB visible → score max 5/10 → NE PAS TRADER
 
-ÉTAPE 3 — CONFLUENCE MINIMUM REQUISE :
-- Tendance HTF + OB valide + FVG + liquidité chassée = score 9-10/10 ✅
-- Tendance + OB valide + 1 confirmation = score 7-8/10 ✅
-- Moins de 3 confluences → score ≤ 6/10 → NE PAS TRADER
+FILTRE 5 — ANTI-TRAIN MANQUÉ :
+→ Si le prix a déjà parcouru plus de 60% du mouvement entre entrée idéale et TP1 → NE PAS TRADER
+→ Si la bougie d'entrée est une grande bougie d'extension → attendre le retest
 
-ÉTAPE 4 — PLACEMENT DU STOP LOSS (éviter les stop chasse) :
-- SL obligatoirement sous le bas de l'Order Block (BUY) ou au-dessus (SELL)
-- SL doit dépasser le dernier swing significatif de 5-10 pips (buffer anti-stop chasse)
-- INTERDIT : SL < 10 pips sur FOREX ou < 15 pips sur XAUUSD (trop serré = stop chasse)
-- INTERDIT : SL sur un chiffre rond sans structure (ex : 1.0800, 2000.00)
-- Si SL correct trop large et détruit le RR → NE PAS TRADER
+══════════════════════════════════════════
+MÉTHODE SMART MONEY
+══════════════════════════════════════════
 
-ÉTAPE 5 — FILTRES ANTI-SL OBLIGATOIRES :
-- Attendre toujours un retest de la zone ou bougie de confirmation → jamais entrer en marché
-- Ne pas entrer si news majeure (NFP, CPI, FOMC) dans les 2h à venir
-- Ne pas entrer sur spike ou bougie d'extension > 2× la taille moyenne des bougies récentes
-- Ne pas entrer si le prix est déjà à plus de 50% entre l'entrée idéale et le TP1 (train manqué)
-- Range / consolidation latérale → NE PAS TRADER
+ÉTAPE 1 — STRUCTURE :
+→ HH + HL = tendance haussière → chercher BUY en zone Discount (sous le 50% du range)
+→ LH + LL = tendance baissière → chercher SELL en zone Premium (au-dessus du 50% du range)
+→ BOS dans la direction = confirmation
+→ CHoCH = retournement possible → attendre retest avant d'entrer
+→ Range horizontal → NE PAS TRADER
 
-RÈGLES RR ABSOLUES :
-- TP1 minimum 2× distance SL (RR 1:2 min) — si impossible → NE PAS TRADER
-- TP2 minimum 3× distance SL (RR 1:3 min)
-- TP3 minimum 4× distance SL (RR 1:4 min)
-- CALCUL : Distance SL en pips → TP1 = Entrée ± (SL pips × 2)
-- INTERDIT : TP1 pips < SL pips
+ÉTAPE 2 — CONFLUENCE REQUISE (minimum 3) :
+→ ✅ Tendance claire (HH/HL ou LH/LL)
+→ ✅ OB valide (1ère ou 2ème fois testé)
+→ ✅ FVG dans la direction
+→ ✅ Liquidité chassée avant l'entrée
+→ ✅ RSI confirme la direction
+→ ✅ EMAs dans la direction
+→ Moins de 3 confluences → NE PAS TRADER
 
-RÈGLE D'OR : Mieux vaut rater 10 trades que prendre 1 mauvais. Donner un signal UNIQUEMENT si score ≥ 7/10 avec minimum 3 confluences.
+ÉTAPE 3 — STOP LOSS ANTI-CHASSE :
+→ SL OBLIGATOIREMENT sous/au-dessus de l'Order Block + 10 pips de buffer
+→ SL minimum 15 pips sur XAUUSD (en dessous = stop chasse)
+→ SL minimum 10 pips sur FOREX
+→ SL ne doit pas être sur un niveau rond (ex: 2000.00, 1.0800)
+→ SL trop large détruisant le RR → NE PAS TRADER
+
+RÈGLES RR OBLIGATOIRES :
+→ TP1 = minimum RR 1:2 (TP1 pips ≥ SL pips × 2) — si impossible → NE PAS TRADER
+→ TP2 = minimum RR 1:3
+→ TP3 = minimum RR 1:4
+→ VÉRIFIER : SL en pips × 2 = distance TP1 minimale
+
+RÈGLE D'OR : Un signal donné uniquement si score ≥ 7/10 avec minimum 3 confluences. Mieux vaut rater 10 trades que perdre sur 1 mauvais signal.
+
+══════════════════════════════════════════
+FORMAT DE RÉPONSE EXACT
+══════════════════════════════════════════
 
 Réponds EXACTEMENT dans ce format, sans markdown, sans astérisques :
 
 DÉCISION: BUY ou SELL ou NE PAS TRADER — Confiance : XX%
 SCORE SETUP: X/10
 
-TENDANCE: [haussière / baissière / range — structure HH/HL ou LH/LL]
+FILTRES SECURITE:
+EMA : [position prix vs EMA20 vs EMA50 + verdict BUY/SELL autorisé ou non]
+Volatilité : [normale / élevée / EXCEPTIONNELLE]
+RSI : [valeur précise + signal]
+Mouvement exceptionnel : [oui → NE PAS TRADER / non → continuer]
 
-STRUCTURE: [BOS ou CHoCH détecté + direction]
+TENDANCE: [haussière / baissière / range + structure HH/HL ou LH/LL]
+STRUCTURE: [BOS ou CHoCH + explication]
 
 SMART MONEY:
-Order Block : [zone précise ou non visible]
+Order Block : [zone précise + combien de fois testé]
 Fair Value Gap : [zone ou non visible]
-Liquidité : [chassée ou non]
+Liquidité : [chassée avant entrée oui/non + explication]
 Zone : [Premium ou Discount]
+Confluences validées : [liste des confluences détectées]
 
 Entrée : [prix précis]
-Stop Loss : [prix précis] → distance : XX pips
-Take Profit 1 : [prix précis] → distance : XX pips — RR 1:X (doit être ≥ 1:2)
-Take Profit 2 : [prix précis] → distance : XX pips — RR 1:X (doit être ≥ 1:3)
-Take Profit 3 : [prix précis] → distance : XX pips — RR 1:X (doit être ≥ 1:4)
-Vérification RR : SL = XX pips / TP1 = XX pips / Ratio réel = 1:X ✅ ou ❌
+Stop Loss : [prix précis] → XX pips (sous/au-dessus de l'OB + buffer)
+Take Profit 1 : [prix précis] → XX pips — RR 1:X
+Take Profit 2 : [prix précis] → XX pips — RR 1:X
+Take Profit 3 : [prix précis] → XX pips — RR 1:X
 Break Even : Déplacer SL à l'entrée dès que TP1 atteint
 
-CONFLUENCE: [liste des éléments confirmant le signal]
-
 ${capital > 0 ? `GESTION CAPITAL ($${capital}) :
-Score : X/10 — Risque recommandé : X% — Montant risqué : $XX
-Lots calculés : X.XX lots (= Montant risqué ÷ (SL pips × valeur pip))
-Perte réelle si SL touché : $XX (doit être ≤ montant risqué)
-Gain si TP1 touché : $XX (doit être ≥ 2× perte)
-Vérification finale : Risque $XX / Gain TP1 $XX → RR réel 1:X ✅` : ''}
+Score : X/10 — Risque : X% — Montant risqué : $XX
+LOTS A TRADER : X.XX lots
+Calcul : $XX ÷ (XX pips × valeur pip) = X.XX lots → plafonné à ${lotsMaxXAU} lots max
+Perte si SL : $XX | Gain si TP1 : $XX | RR réel : 1:X` : ''}
 
-INVALIDATION: [niveau qui invalide le setup]` }
+INVALIDATION: [niveau précis qui invalide le setup]
+
+RAPPEL ABSOLU : JAMAIS BUY si prix sous EMA20+EMA50. JAMAIS SELL si prix au-dessus. JAMAIS trader en chute libre ou spike.` }
         ]
       }]
     });
