@@ -18,6 +18,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
+const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
 const activeSessions = {};
 
 async function sendEmail(to, subject, html) {
@@ -203,6 +204,39 @@ app.get('/me', checkAuth, async (req, res) => {
   res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount || 0, analysisMax, analysesLeft, subscribed: user.subscribed, plan: user.plan || 'free' });
 });
 
+// ─── HISTORIQUE ANALYSES ──────────────────────────────────────────
+app.get('/my-analyses', checkAuth, async (req, res) => {
+  try {
+    const analyses = await analysesDb.findAsync({ userId: req.session.userId }).sort({ createdAt: -1 }).limit(10);
+    res.json(analyses);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
+  try {
+    const { result } = req.body;
+    await analysesDb.updateAsync({ _id: req.params.id, userId: req.session.userId }, { $set: { feedbackResult: result, feedbackAt: new Date() } }, {});
+
+    // Sauvegarder aussi dans feedbacks
+    const analysis = await analysesDb.findOneAsync({ _id: req.params.id });
+    if (analysis) {
+      await db.insertAsync({
+        type: 'feedback',
+        userId: req.session.userId,
+        email: analysis.email,
+        result,
+        capital: analysis.capital,
+        decision: analysis.decision,
+        entry: analysis.entry,
+        sl: analysis.sl,
+        tp: analysis.tp,
+        createdAt: new Date()
+      });
+    }
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -230,7 +264,6 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
 
-    // Limites lots sécurisées selon capital
     const lotsMaxXAU    = capital <= 300  ? 0.02 : capital <= 500  ? 0.03 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : capital <= 5000 ? 0.20 : 0.50;
     const lotsMaxForex  = capital <= 300  ? 0.05 : capital <= 500  ? 0.10 : capital <= 1000 ? 0.20 : capital <= 2000 ? 0.50 : 1.00;
     const lotsMaxCrypto = capital <= 300  ? 0.01 : capital <= 500  ? 0.02 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : 0.20;
@@ -243,111 +276,145 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money institutionnel avec 20 ans d'expérience. Tu analyses les marchés comme les grandes banques et hedge funds en utilisant les concepts ICT/Smart Money.
+          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite avec 20 ans d'expérience. Ta PRIORITÉ ABSOLUE est de PROTÉGER le capital du trader. Tu analyses comme les meilleures banques au monde.
 
 INFORMATIONS COMPTE VTMARKETS :
-- Levier : 500:1 (fixe pour tous les clients)
+- Levier : 500:1
 - Plateforme : MetaTrader 5
 
 ${capital > 0 ? `Capital du trader : $${capital}
 
 RÈGLE DU RISQUE ADAPTÉ :
-- Évalue la qualité du setup sur 10
 - Score 8-10/10 : risque 5% = $${(capital*0.05).toFixed(2)}
 - Score 5-7/10 : risque 3% = $${(capital*0.03).toFixed(2)}
 - Score 1-4/10 : NE PAS TRADER
 
-LIMITES DE LOTS OBLIGATOIRES SELON CAPITAL $${capital} :
-- XAUUSD (Or)        : MAXIMUM ${lotsMaxXAU} lots — NE JAMAIS DÉPASSER
-- FOREX (EUR/GBP...) : MAXIMUM ${lotsMaxForex} lots — NE JAMAIS DÉPASSER
-- CRYPTO (BTC/ETH)   : MAXIMUM ${lotsMaxCrypto} lots — NE JAMAIS DÉPASSER
-- INDICES/PÉTROLE    : MAXIMUM ${lotsMaxOther} lots — NE JAMAIS DÉPASSER
+LIMITES DE LOTS OBLIGATOIRES :
+- XAUUSD : MAXIMUM ${lotsMaxXAU} lots
+- FOREX   : MAXIMUM ${lotsMaxForex} lots
+- CRYPTO  : MAXIMUM ${lotsMaxCrypto} lots
+- AUTRES  : MAXIMUM ${lotsMaxOther} lots
 
-FORMULES DE CALCUL DES LOTS :
+FORMULES :
 XAUUSD : Lots = Montant risqué / (SL en points × 0.1) — plafonné à ${lotsMaxXAU} lots
 FOREX  : Lots = Montant risqué / (SL en pips × 10) — plafonné à ${lotsMaxForex} lots
-CRYPTO : Lots = Montant risqué / (SL en points × 1) — plafonné à ${lotsMaxCrypto} lots
-AUTRES : Lots = Montant risqué / (SL en points × 1) — plafonné à ${lotsMaxOther} lots
+CRYPTO : Lots = Montant risqué / (SL en points × 1) — plafonné à ${lotsMaxCrypto} lots` : ''}
 
-RÈGLE ABSOLUE : Si le calcul dépasse la limite → utiliser la limite maximale autorisée.` : ''}
+═══════════════════════════════════════
+RÈGLES DE SÉCURITÉ ABSOLUES
+═══════════════════════════════════════
 
-Si tu n'es pas certain à plus de 70%, dis clairement NE PAS TRADER.
- sois très conservateur. Préfère ne pas trader plutôt que de donner un mauvais signal.
-SOIS VRAIMENT PRECIS DANS TON ANALYSE DANS BIEN QUAND FAUT ACHETER OU VENDRE 
+RÈGLE 1 — INTERDICTION DE TRADER CONTRE LA TENDANCE :
+- Si EMA 20 < EMA 50 ET prix < EMA 20 → INTERDICTION ABSOLUE de BUY
+- Si EMA 20 > EMA 50 ET prix > EMA 20 → INTERDICTION ABSOLUE de SELL
+- Toujours trader DANS le sens des EMAs
 
-MÉTHODOLOGIE SMART MONEY — ANALYSE DANS CET ORDRE :
+RÈGLE 2 — DÉTECTION DE CHUTE LIBRE / SPIKE :
+- Si 3+ bougies consécutives grandes dans le même sens → MARCHÉ EN MOUVEMENT EXCEPTIONNEL → NE PAS TRADER
+- Si le marché a bougé de plus de 200 pips en 3 bougies → NE PAS TRADER
+- En cas de volatilité extrême → NE PAS TRADER
 
-1. STRUCTURE DU MARCHÉ :
-- Identifier HH, HL, LH, LL
-- Détecter BOS (continuation) ou CHOCH (retournement)
-- Tendance institutionnelle réelle
+RÈGLE 3 — RSI :
+- RSI > 70 → jamais de BUY
+- RSI < 30 → jamais de SELL
+- RSI entre 45-55 → neutre → score max 5/10
 
-2. ZONES INSTITUTIONNELLES :
-- Order Block (OB) haussier : dernière bougie bearish avant fort mouvement bullish
-- Order Block (OB) baissier : dernière bougie bullish avant fort mouvement bearish
-- Fair Value Gap (FVG) : déséquilibre entre bougie 1 et bougie 3
-- Premium/Discount : au-dessus du 50% du range = premium (vendre), en-dessous = discount (acheter)
+RÈGLE 4 — CONFLUENCE OBLIGATOIRE :
+- Minimum 2 confluences Smart Money sinon NE PAS TRADER
+- Sans Order Block visible → NE PAS TRADER
 
-3. LIQUIDITÉ :
-- Equal Highs/Lows : stops retail évidents
-- Liquidity Sweep : chasse aux stops avant vrai mouvement
-- BSL : stops des vendeurs au-dessus des highs
-- SSL : stops des acheteurs en-dessous des lows
+RÈGLE 5 — RR :
+- RR minimum 1:2 sur TP1 sinon NE PAS TRADER
+- TP2 minimum RR 1:3 — TP3 minimum RR 1:4
 
-4. CONFLUENCE :
-- OB + FVG + RSI extrême = setup A+ (9-10/10)
-- OB + FVG = setup fort (7-8/10)
-- OB seul ou FVG seul = setup moyen (5-6/10)
-- Aucune confluence = NE PAS TRADER (1-4/10)
+═══════════════════════════════════════
+MÉTHODOLOGIE SMART MONEY
+═══════════════════════════════════════
 
-RÈGLES RR ABSOLUES :
-- RR MINIMUM 1:2 sur TP1
-- TP2 minimum RR 1:3
-- TP3 minimum RR 1:4
-- Si RR impossible → NE PAS TRADER
+1. SÉCURITÉ : EMAs position + volatilité + RSI
+2. STRUCTURE : HH/HL/LH/LL + BOS ou CHOCH
+3. ZONES : Order Block + FVG + Premium/Discount
+4. LIQUIDITÉ : BSL/SSL chassée
+5. CONFLUENCE : score final
 
 Réponds EXACTEMENT dans ce format sans markdown sans astérisques :
 
-DÉCISION: BUY, SELL ou NE PAS TRADER — Confiance : XX%
+DÉCISION: BUY ou SELL ou NE PAS TRADER — Confiance : XX%
+SCORE SETUP: X/10
 
-STRUCTURE: [HH/HL ou LH/LL — BOS ou CHOCH — tendance institutionnelle]
+ANALYSE SÉCURITÉ:
+EMAs : [position EMA20 vs EMA50 vs prix]
+Volatilité : [normale / élevée / extrême]
+RSI : [valeur + signal]
+Verdict : [SAFE / DANGEREUX]
+
+STRUCTURE: [HH/HL ou LH/LL — BOS ou CHOCH]
 
 SMART MONEY:
-Order Block : [zone de prix ou< aucun]
-Fair Value Gap : [zone de prix ou aucun]
-Liquidité : [BSL ou SSL chassée oui/non + explication]
+Order Block : [zone ou aucun]
+Fair Value Gap : [zone ou aucun]
+Liquidité : [BSL/SSL chassée ou non]
 Zone : [Premium ou Discount]
 
-Entrée : [prix précis dans OB ou FVG]
-Stop Loss : [prix précis sous/au-dessus OB] (XX pips)
+Entrée : [prix précis]
+Stop Loss : [prix précis] (XX pips)
 Take Profit 1 : [prix précis] (XX pips) — RR 1:2
 Take Profit 2 : [prix précis] (XX pips) — RR 1:3
 Take Profit 3 : [prix précis] (XX pips) — RR 1:4
 Break Even : Déplacer SL à l'entrée dès que TP1 atteint
 
-RSI: [valeur précise + signal]
-CONFLUENCE: [résumé des confluences Smart Money]
+CONFLUENCE: [résumé]
 
-${capital > 0 ? `GESTION CAPITAL ($${capital}) — Levier 500:1 VTMarkets :
-Score : X/10 — Risque choisi : X% — Montant risqué : $XX
-LOTS A TRADER : X.XX lots (maximum autorisé : ${lotsMaxXAU} lots sur or / ${lotsMaxForex} lots sur forex)
-Marge requise : $XX` : ''}
+${capital > 0 ? `GESTION CAPITAL ($${capital}) — Levier 500:1 :
+Score : X/10 — Risque : X% — Montant : $XX
+LOTS A TRADER : X.XX lots
+Marge : $XX` : ''}
 
-INVALIDATION: [niveau précis qui invalide le setup]
+INVALIDATION: [niveau précis]
 
-IMPORTANT : Respecter ABSOLUMENT les limites de lots. Prix sans symboles. RR minimum 1:2.` }
+JAMAIS BUY si prix sous EMAs — JAMAIS SELL si prix au-dessus EMAs — JAMAIS trader en chute libre` }
         ]
       }]
     });
 
     fs.unlinkSync(req.file.path);
+
+    const resultText = response.content[0].text;
+
+    // Extraire les données clés de l'analyse
+    const entryMatch = resultText.match(/Entr[eé][e]?\s*:\s*([^\n]+)/i);
+    const slMatch = resultText.match(/Stop Loss\s*:\s*([^\n(]+)/i);
+    const tpMatch = resultText.match(/Take Profit 1\s*:\s*([^\n(]+)/i);
+    const decisionMatch = resultText.match(/DÉCISION\s*:\s*([^\n]+)/i);
+
+    const entry = entryMatch ? entryMatch[1].replace(/\*+/g,'').trim().substring(0,20) : '—';
+    const sl = slMatch ? slMatch[1].replace(/\*+/g,'').trim().substring(0,20) : '—';
+    const tp = tpMatch ? tpMatch[1].replace(/\*+/g,'').trim().substring(0,20) : '—';
+    const decision = decisionMatch ? decisionMatch[1].trim().substring(0,30) : '—';
+
+    // Sauvegarder l'analyse en base
+    const savedAnalysis = await analysesDb.insertAsync({
+      userId: req.session.userId,
+      email: user.email,
+      result: resultText,
+      capital,
+      decision,
+      entry,
+      sl,
+      tp,
+      feedbackResult: null,
+      createdAt: new Date()
+    });
+
     if (user.role !== 'admin') {
       await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
     }
+
     const analysisMax = user.role === 'admin' ? 999999 : (user.analysisMax || 0);
     const newCount = user.role === 'admin' ? 0 : (user.analysisCount || 0) + 1;
     const newLeft = user.role === 'admin' ? 999999 : Math.max(0, analysisMax - newCount);
-    res.json({ result: response.content[0].text, analysesLeft: newLeft, capital });
+
+    res.json({ result: resultText, analysesLeft: newLeft, capital, analysisId: savedAnalysis._id });
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     console.error('Erreur analyze:', err.message);
