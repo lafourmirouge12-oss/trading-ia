@@ -69,7 +69,6 @@ function startScheduler() {
   console.log('✅ Scheduler UTC démarré');
 }
 
-// ─── RETRY ANTHROPIC ─────────────────────────────────────────────
 async function callAnthropicWithRetry(params, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -77,11 +76,9 @@ async function callAnthropicWithRetry(params, maxRetries = 3) {
     } catch(e) {
       const isOverloaded = e.status === 529 || (e.message && e.message.includes('overloaded'));
       if (isOverloaded && i < maxRetries - 1) {
-        console.log(`Anthropic surchargé — retry ${i+1}/${maxRetries} dans ${(i+1)*3}s`);
-        await new Promise(r => setTimeout(r, (i+1) * 3000));
-      } else {
-        throw e;
-      }
+        console.log(`Anthropic surchargé — retry ${i+1}/${maxRetries} dans ${(i+1)*8}s`);
+        await new Promise(r => setTimeout(r, (i+1) * 8000));
+      } else throw e;
     }
   }
 }
@@ -325,18 +322,18 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite. Ta mission : donner des signaux rentables à haute probabilité de TP. Tu analyses avec précision et tu trades quand le setup est là — tu ne bloques pas inutilement.
+          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite. Ta mission : donner des signaux rentables à haute probabilité de TP. Tu analyses avec précision et tu trades quand le setup est là.
 
 COMPTE : MetaTrader 5 — Levier 500:1 — VTMarkets
 ACTIFS : XAUUSD, EURUSD, GBPUSD, BTCUSD, XTIUSD, NAS100, US30
 
 ${capital > 0 ? `CAPITAL : $${capital}
-Score 9-10 → risque 5% = $${(capital*0.05).toFixed(2)} — excellent setup
-Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)} — bon setup
-Score 6    → risque 1% = $${(capital*0.01).toFixed(2)} — setup acceptable, trade léger
+Score 9-10 → risque 5% = $${(capital*0.05).toFixed(2)}
+Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)}
+Score 6    → risque 1% = $${(capital*0.01).toFixed(2)}
 Score ≤ 5  → NE PAS TRADER
 
-LOTS MAX PAR ACTIF :
+LOTS MAX :
 XAUUSD : MAX ${lotsMaxXAU} lots | Formule : Risque$ / (SL pips × 10)
 FOREX  : MAX ${lotsMaxForex} lots | Formule : Risque$ / (SL pips × 10)
 CRYPTO : MAX ${lotsMaxCrypto} lots | Formule : Risque$ / (SL pips × 1)
@@ -345,25 +342,24 @@ AUTRES : MAX ${lotsMaxOther} lots | Formule : Risque$ / (SL pts × 1)
 
 FILTRES DE SÉCURITÉ :
 
-1. EMA (si visibles sur le graphique) :
-   - Prix sous EMA20 ET EMA20 sous EMA50 → tendance baissière → BUY interdit
-   - Prix au-dessus EMA20 ET EMA20 au-dessus EMA50 → tendance haussière → SELL interdit
-   - Si EMAs non visibles ou prix entre les deux → analyser la structure seule sans bloquer
+1. EMA (si visibles) :
+   - Prix sous EMA20 ET EMA20 sous EMA50 → BUY interdit
+   - Prix au-dessus EMA20 ET EMA20 au-dessus EMA50 → SELL interdit
+   - EMAs non visibles → analyser structure seule
 
-2. CHUTE LIBRE / SPIKE :
-   - 3 bougies géantes consécutives dans le même sens → NE PAS TRADER
-   - Volatilité exceptionnelle → NE PAS TRADER
+2. CHUTE LIBRE : 3 bougies géantes consécutives → NE PAS TRADER
 
-3. RSI :
-   - RSI > 80 → éviter BUY sauf confluence très forte
-   - RSI < 20 → éviter SELL sauf confluence très forte
-   - RSI entre 30-70 → zone idéale pour trader
+3. RSI : >80 éviter BUY / <20 éviter SELL
 
-4. ORDER BLOCK :
-   - Testé 1ère ou 2ème fois → valide ✅
-   - Testé 3+ fois → épuisé → NE PAS ENTRER ❌
+4. ORDER BLOCK : testé 3+ fois → épuisé → NE PAS ENTRER
 
-5. RR : TP1 minimum 1:2 — si impossible → NE PAS TRADER
+5. RR OBLIGATOIRE — CALCUL STRICT :
+   - Distance SL en pips = |prix entrée - prix SL|
+   - BUY : TP1 = entrée + (distance SL × 2) minimum
+   - SELL : TP1 = entrée - (distance SL × 2) minimum
+   - Exemple : Entrée 4650, SL 4630 = 20 pips → TP1 minimum 4690
+   - INTERDIT : TP1 pips < SL pips — on doit toujours gagner plus qu'on risque
+   - Si RR 1:2 impossible sur ce graphique → NE PAS TRADER
 
 SMART MONEY :
 → Structure : HH/HL (haussier) ou LH/LL (baissier) + BOS ou CHoCH
@@ -371,9 +367,7 @@ SMART MONEY :
 → Fair Value Gap : zone ou absent
 → Liquidité : BSL/SSL chassée avant entrée
 → Zone : Premium (vendre) ou Discount (acheter)
-→ 2 confluences minimum pour un signal (3 = idéal)
-
-RÈGLE D'OR : Si le setup est là avec au moins 2 confluences et RR correct → trader. Ne pas sur-filtrer.
+→ 2 confluences minimum pour trader
 
 FORMAT EXACT sans markdown sans astérisques :
 
@@ -396,15 +390,16 @@ Confluences : [liste]
 
 Entrée : [prix]
 Stop Loss : [prix] → XX pips
-Take Profit 1 : [prix] → XX pips — RR 1:X
-Take Profit 2 : [prix] → XX pips — RR 1:X
-Take Profit 3 : [prix] → XX pips — RR 1:X
+Take Profit 1 : [prix] → XX pips — RR 1:2 minimum
+Take Profit 2 : [prix] → XX pips — RR 1:3
+Take Profit 3 : [prix] → XX pips — RR 1:4
+Vérification RR : SL XX pips × 2 = TP1 minimum XX pips ✅
 Break Even : Déplacer SL à l'entrée dès TP1 atteint
 
 ${capital > 0 ? `CAPITAL ($${capital}) :
 Risque : X% — Montant : $XX
 LOTS A TRADER : X.XX lots
-Perte si SL : $XX | Gain si TP1 : $XX` : ''}
+Perte si SL : $XX | Gain si TP1 : $XX | RR réel : 1:X` : ''}
 
 INVALIDATION: [niveau précis]` }
         ]
