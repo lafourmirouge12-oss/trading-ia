@@ -333,35 +333,38 @@ Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)}
 Score 6    → risque 1% = $${(capital*0.01).toFixed(2)}
 Score ≤ 5  → NE PAS TRADER
 
-LOTS — CALCUL OBLIGATOIRE :
-XAUUSD : 1 lot = 100 oz → valeur pip = $1 par pip par 0.01 lot → Formule : Lots = Risque$ / (SL pips × 1.0) → MAX ABSOLU ${lotsMaxXAU} lots
-FOREX  : 1 lot = 100 000 unités → valeur pip ≈ $10 → Formule : Lots = Risque$ / (SL pips × 10) → MAX ABSOLU ${lotsMaxForex} lots
-CRYPTO : Formule : Lots = Risque$ / (SL pts × 1) → MAX ABSOLU ${lotsMaxCrypto} lots
-AUTRES : Formule : Lots = Risque$ / (SL pts × 1) → MAX ABSOLU ${lotsMaxOther} lots
-→ TOUJOURS arrondir vers le bas à 0.01 près
-→ Si le calcul donne plus que le MAX ABSOLU → utiliser le MAX ABSOLU
-→ JAMAIS afficher plus de ${lotsMaxXAU} lots pour XAUUSD` : ''}
+LOTS MAX :
+XAUUSD : MAX ${lotsMaxXAU} lots | Formule : Risque$ / (SL pips × 10)
+FOREX  : MAX ${lotsMaxForex} lots | Formule : Risque$ / (SL pips × 10)
+CRYPTO : MAX ${lotsMaxCrypto} lots | Formule : Risque$ / (SL pips × 1)
+AUTRES : MAX ${lotsMaxOther} lots | Formule : Risque$ / (SL pts × 1)
+→ Arrondir vers le bas. Vérifier : Lots × SL pips × pip value ≤ Risque$` : ''}
 
 FILTRES DE SÉCURITÉ :
 
 1. EMA (si visibles) :
    - Prix sous EMA20 ET EMA20 sous EMA50 → BUY interdit
    - Prix au-dessus EMA20 ET EMA20 au-dessus EMA50 → SELL interdit
-   - EMAs non visibles → analyser structure seule
+   - EMAs non visibles → analyser structure seule sans bloquer
 
-2. CHUTE LIBRE : 3 bougies géantes consécutives → NE PAS TRADER
+2. CHUTE LIBRE / SPIKE :
+   - 3 bougies géantes consécutives dans le même sens → NE PAS TRADER
+   - Volatilité exceptionnelle visible → NE PAS TRADER
 
-3. RSI : >80 éviter BUY / <20 éviter SELL
+3. RSI (indicateur uniquement — ne bloque pas le signal) :
+   - RSI > 90 → surachat extrême absolu → mentionner uniquement
+   - RSI < 10 → survente extrême absolue → mentionner uniquement
+   - Le RSI est informatif — il n'empêche pas de trader
 
-4. ORDER BLOCK : testé 3+ fois → épuisé → NE PAS ENTRER
+4. ORDER BLOCK :
+   - Testé 1ère ou 2ème fois → valide ✅
+   - Testé 3+ fois → épuisé → NE PAS ENTRER ❌
 
-5. RR OBLIGATOIRE — CALCUL STRICT :
-   - Distance SL en pips = |prix entrée - prix SL|
+5. RR OBLIGATOIRE :
    - BUY : TP1 = entrée + (distance SL × 2) minimum
    - SELL : TP1 = entrée - (distance SL × 2) minimum
-   - Exemple : Entrée 4650, SL 4630 = 20 pips → TP1 minimum 4690
-   - INTERDIT : TP1 pips < SL pips — on doit toujours gagner plus qu'on risque
-   - Si RR 1:2 impossible sur ce graphique → NE PAS TRADER
+   - INTERDIT : TP1 pips < SL pips
+   - Si RR 1:2 impossible → NE PAS TRADER
 
 SMART MONEY :
 → Structure : HH/HL (haussier) ou LH/LL (baissier) + BOS ou CHoCH
@@ -371,6 +374,8 @@ SMART MONEY :
 → Zone : Premium (vendre) ou Discount (acheter)
 → 2 confluences minimum pour trader
 
+RÈGLE D'OR : Si le setup est là avec 2 confluences et RR 1:2 → trader. Ne pas sur-filtrer.
+
 FORMAT EXACT sans markdown sans astérisques :
 
 DÉCISION: BUY ou SELL ou NE PAS TRADER — Confiance : XX%
@@ -378,7 +383,7 @@ SCORE SETUP: X/10
 
 FILTRES:
 EMA : [analyse ou non visibles]
-RSI : [valeur + signal]
+RSI : [valeur + info uniquement]
 Volatilité : [normale / élevée / EXCEPTIONNELLE]
 Verdict : [SAFE / DANGEREUX]
 
@@ -392,15 +397,14 @@ Confluences : [liste]
 
 Entrée : [prix]
 Stop Loss : [prix] → XX pips
-Take Profit 1 : [prix] → XX pips — RR 1:2 minimum
+Take Profit 1 : [prix] → XX pips — RR 1:2
 Take Profit 2 : [prix] → XX pips — RR 1:3
 Take Profit 3 : [prix] → XX pips — RR 1:4
-Vérification RR : SL XX pips × 2 = TP1 minimum XX pips ✅
 Break Even : Déplacer SL à l'entrée dès TP1 atteint
 
 ${capital > 0 ? `CAPITAL ($${capital}) :
 Risque : X% — Montant : $XX
-LOTS A TRADER : X.XX lots (MAX ${lotsMaxXAU} pour XAU, MAX ${lotsMaxForex} pour Forex)
+LOTS A TRADER : X.XX lots
 Perte si SL : $XX | Gain si TP1 : $XX | RR réel : 1:X` : ''}
 
 INVALIDATION: [niveau précis]` }
