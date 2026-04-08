@@ -333,12 +333,14 @@ Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)}
 Score 6    → risque 1% = $${(capital*0.01).toFixed(2)}
 Score ≤ 5  → NE PAS TRADER
 
-LOTS MAX :
-XAUUSD : MAX ${lotsMaxXAU} lots | Formule : Risque$ / (SL pips × 10)
-FOREX  : MAX ${lotsMaxForex} lots | Formule : Risque$ / (SL pips × 10)
-CRYPTO : MAX ${lotsMaxCrypto} lots | Formule : Risque$ / (SL pips × 1)
-AUTRES : MAX ${lotsMaxOther} lots | Formule : Risque$ / (SL pts × 1)
-→ Arrondir vers le bas. Vérifier : Lots × SL pips × pip value ≤ Risque$` : ''}
+LOTS — CALCUL OBLIGATOIRE :
+XAUUSD : 1 lot = 100 oz → valeur pip = $1 par pip par 0.01 lot → Formule : Lots = Risque$ / (SL pips × 1.0) → MAX ABSOLU ${lotsMaxXAU} lots
+FOREX  : 1 lot = 100 000 unités → valeur pip ≈ $10 → Formule : Lots = Risque$ / (SL pips × 10) → MAX ABSOLU ${lotsMaxForex} lots
+CRYPTO : Formule : Lots = Risque$ / (SL pts × 1) → MAX ABSOLU ${lotsMaxCrypto} lots
+AUTRES : Formule : Lots = Risque$ / (SL pts × 1) → MAX ABSOLU ${lotsMaxOther} lots
+→ TOUJOURS arrondir vers le bas à 0.01 près
+→ Si le calcul donne plus que le MAX ABSOLU → utiliser le MAX ABSOLU
+→ JAMAIS afficher plus de ${lotsMaxXAU} lots pour XAUUSD` : ''}
 
 FILTRES DE SÉCURITÉ :
 
@@ -398,7 +400,7 @@ Break Even : Déplacer SL à l'entrée dès TP1 atteint
 
 ${capital > 0 ? `CAPITAL ($${capital}) :
 Risque : X% — Montant : $XX
-LOTS A TRADER : X.XX lots
+LOTS A TRADER : X.XX lots (MAX ${lotsMaxXAU} pour XAU, MAX ${lotsMaxForex} pour Forex)
 Perte si SL : $XX | Gain si TP1 : $XX | RR réel : 1:X` : ''}
 
 INVALIDATION: [niveau précis]` }
