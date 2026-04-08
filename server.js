@@ -57,16 +57,16 @@ async function sendPushToAll(title, body) {
 function startScheduler() {
   setInterval(() => {
     const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
-    if (h === 9  && m === 0) sendPushToAll('🇬🇧 Session Londres ouverte', '✅ C\'est le moment d\'analyser — H1 recommandé');
-    if (h === 15 && m === 0) sendPushToAll('⚡ MEILLEUR MOMENT', '🔥 Overlap Londres + New York — Lancez J4keIA maintenant !');
-    if (h === 16 && m === 0) sendPushToAll('💰 Overlap en cours', '⚡ Maximum de volume sur XAUUSD — Analysez maintenant');
-    if (h === 17 && m === 30) sendPushToAll('⏰ Fin overlap', '🔔 Session Londres se ferme — Dernière chance avant 22h');
-    if (h === 19 && m === 0) sendPushToAll('🇺🇸 Session New York', '📊 Bonne volatilité jusqu\'à 22h — Analysez vos graphiques');
-    if (h === 22 && m === 0) sendPushToAll('🌙 Sessions fermées', '❌ Arrêtez de trader — Marché dangereux jusqu\'à 9h demain');
+    const h = now.getUTCHours();
+    const m = now.getUTCMinutes();
+    if (h === 7  && m === 0) sendPushToAll('🇬🇧 Session Londres ouverte', '✅ C\'est le moment d\'analyser vos graphiques — H1 recommandé');
+    if (h === 13 && m === 0) sendPushToAll('⚡ MEILLEUR MOMENT', '🔥 Overlap Londres + New York — Lancez J4keIA maintenant !');
+    if (h === 14 && m === 0) sendPushToAll('💰 Overlap en cours', '⚡ Maximum de volume sur XAUUSD — Analysez maintenant');
+    if (h === 15 && m === 30) sendPushToAll('⏰ Fin overlap', '🔔 Session Londres se ferme — Dernière chance avant 20h');
+    if (h === 17 && m === 0) sendPushToAll('🇺🇸 Session New York', '📊 Bonne volatilité jusqu\'à 20h — Analysez vos graphiques');
+    if (h === 20 && m === 0) sendPushToAll('🌙 Sessions fermées', '❌ Arrêtez de trader — Marché dangereux jusqu\'à 7h UTC');
   }, 60000);
-  console.log('✅ Scheduler notifications démarré');
+  console.log('✅ Scheduler UTC démarré');
 }
 
 app.use(express.urlencoded({ extended: true }));
@@ -103,7 +103,6 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── PUSH NOTIFICATIONS ───────────────────────────────────────────
 app.get('/vapid-public-key', (req, res) => {
   res.json({ key: process.env.VAPID_PUBLIC_KEY || 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBkYjlx4u2-e9BZRLmA' });
 });
@@ -116,7 +115,6 @@ app.post('/push/subscribe', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// ─── SETUP ADMIN ──────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -149,7 +147,6 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── AUTH ─────────────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -251,7 +248,6 @@ app.get('/me', checkAuth, async (req, res) => {
   res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount || 0, analysisMax, analysesLeft, subscribed: user.subscribed, plan: user.plan || 'free' });
 });
 
-// ─── HISTORIQUE ───────────────────────────────────────────────────
 app.get('/my-analyses', checkAuth, async (req, res) => {
   try {
     const analyses = await analysesDb.findAsync({ userId: req.session.userId }).sort({ createdAt: -1 }).limit(10);
@@ -275,7 +271,6 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// ─── ANALYSE IA ───────────────────────────────────────────────────
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -313,38 +308,55 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite. Priorité absolue : signaux à haute probabilité de TP. Tu ne trades que si le setup est solide. Sinon tu dis NE PAS TRADER.
+          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite. Ta mission : donner des signaux rentables à haute probabilité de TP. Tu analyses avec précision et tu trades quand le setup est là — tu ne bloques pas inutilement.
 
 COMPTE : MetaTrader 5 — Levier 500:1 — VTMarkets
 ACTIFS : XAUUSD, EURUSD, GBPUSD, BTCUSD, XTIUSD, NAS100, US30
 
 ${capital > 0 ? `CAPITAL : $${capital}
-Score 9-10 → risque 5% = $${(capital*0.05).toFixed(2)}
-Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)}
-Score ≤ 6  → NE PAS TRADER
+Score 9-10 → risque 5% = $${(capital*0.05).toFixed(2)} — excellent setup
+Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)} — bon setup
+Score 6    → risque 1% = $${(capital*0.01).toFixed(2)} — setup acceptable, trade léger
+Score ≤ 5  → NE PAS TRADER
 
 LOTS MAX PAR ACTIF :
 XAUUSD : MAX ${lotsMaxXAU} lots | Formule : Risque$ / (SL pips × 10)
 FOREX  : MAX ${lotsMaxForex} lots | Formule : Risque$ / (SL pips × 10)
 CRYPTO : MAX ${lotsMaxCrypto} lots | Formule : Risque$ / (SL pips × 1)
 AUTRES : MAX ${lotsMaxOther} lots | Formule : Risque$ / (SL pts × 1)
-→ Toujours arrondir vers le bas. Vérifier : Lots × SL pips × pip value ≤ Risque$` : ''}
+→ Arrondir vers le bas. Vérifier : Lots × SL pips × pip value ≤ Risque$` : ''}
 
-FILTRES OBLIGATOIRES :
-1. EMA : Prix sous EMA20+EMA50 → BUY INTERDIT. Prix au-dessus → SELL INTERDIT.
-2. CHUTE LIBRE : 3 bougies géantes consécutives → NE PAS TRADER
-3. RSI : >75 jamais BUY / <25 jamais SELL
-4. ORDER BLOCK : testé 3+ fois → épuisé → NE PAS ENTRER
-5. TRAIN MANQUÉ : prix >60% vers TP1 → NE PAS TRADER
-6. RR : TP1 minimum 1:2 sinon NE PAS TRADER
+FILTRES DE SÉCURITÉ :
 
-SMART MONEY :
+1. EMA (si visibles sur le graphique) :
+   - Prix sous EMA20 ET EMA20 sous EMA50 → tendance baissière → BUY interdit
+   - Prix au-dessus EMA20 ET EMA20 au-dessus EMA50 → tendance haussière → SELL interdit
+   - Si EMAs non visibles ou prix entre les deux → analyser la structure seule sans bloquer
+
+2. CHUTE LIBRE / SPIKE :
+   - 3 bougies géantes consécutives dans le même sens → NE PAS TRADER
+   - Volatilité exceptionnelle → NE PAS TRADER
+
+3. RSI :
+   - RSI > 80 → éviter BUY sauf confluence très forte
+   - RSI < 20 → éviter SELL sauf confluence très forte
+   - RSI entre 30-70 → zone idéale pour trader
+
+4. ORDER BLOCK :
+   - Testé 1ère ou 2ème fois → valide ✅
+   - Testé 3+ fois → épuisé → NE PAS ENTRER ❌
+
+5. RR : TP1 minimum 1:2 — si impossible → NE PAS TRADER
+
+SMART MONEY — analyse dans l'ordre :
 → Structure : HH/HL (haussier) ou LH/LL (baissier) + BOS ou CHoCH
 → Order Block : zone précise + nombre de fois testé
 → Fair Value Gap : zone ou absent
 → Liquidité : BSL/SSL chassée avant entrée
 → Zone : Premium (vendre) ou Discount (acheter)
-→ Minimum 3 confluences pour donner un signal
+→ 2 confluences minimum pour un signal (3 = idéal)
+
+RÈGLE D'OR : Si le setup est là avec au moins 2 confluences et RR correct → trader. Ne pas sur-filtrer. Un bon signal doit être pris.
 
 FORMAT EXACT sans markdown sans astérisques :
 
@@ -352,7 +364,7 @@ DÉCISION: BUY ou SELL ou NE PAS TRADER — Confiance : XX%
 SCORE SETUP: X/10
 
 FILTRES:
-EMA : [prix vs EMA20 vs EMA50 — verdict]
+EMA : [analyse ou non visibles]
 RSI : [valeur + signal]
 Volatilité : [normale / élevée / EXCEPTIONNELLE]
 Verdict : [SAFE / DANGEREUX]
@@ -385,9 +397,9 @@ INVALIDATION: [niveau précis]` }
     fs.unlinkSync(req.file.path);
     const resultText = response.content[0].text;
 
-    const entry = (resultText.match(/Entr[eé][e]?\s*:\s*([^\n→]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
-    const sl    = (resultText.match(/Stop Loss\s*:\s*([^\n→(]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
-    const tp    = (resultText.match(/Take Profit 1\s*:\s*([^\n→(]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
+    const entry    = (resultText.match(/Entr[eé][e]?\s*:\s*([^\n→]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
+    const sl       = (resultText.match(/Stop Loss\s*:\s*([^\n→(]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
+    const tp       = (resultText.match(/Take Profit 1\s*:\s*([^\n→(]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
     const decision = (resultText.match(/DÉCISION\s*:\s*([^\n]+)/i)||[])[1]?.trim().substring(0,30) || '—';
 
     const savedAnalysis = await analysesDb.insertAsync({
@@ -401,9 +413,7 @@ INVALIDATION: [niveau précis]` }
     }
 
     const analysisMax = user.role === 'admin' ? 999999 : (user.analysisMax || 0);
-    const newCount = user.role === 'admin' ? 0 : (user.analysisCount || 0) + 1;
-    const newLeft = user.role === 'admin' ? 999999 : Math.max(0, analysisMax - newCount);
-
+    const newLeft = user.role === 'admin' ? 999999 : Math.max(0, analysisMax - ((user.analysisCount || 0) + 1));
     res.json({ result: resultText, analysesLeft: newLeft, capital, analysisId: savedAnalysis._id });
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -412,7 +422,6 @@ INVALIDATION: [niveau précis]` }
   }
 });
 
-// ─── FEEDBACK ─────────────────────────────────────────────────────
 app.post('/feedback', checkAuth, async (req, res) => {
   try {
     const { result, capital, decision, entry, sl, tp } = req.body;
@@ -423,7 +432,6 @@ app.post('/feedback', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// ─── ADMIN ────────────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
