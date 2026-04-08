@@ -69,6 +69,23 @@ function startScheduler() {
   console.log('✅ Scheduler UTC démarré');
 }
 
+// ─── RETRY ANTHROPIC ─────────────────────────────────────────────
+async function callAnthropicWithRetry(params, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await client.messages.create(params);
+    } catch(e) {
+      const isOverloaded = e.status === 529 || (e.message && e.message.includes('overloaded'));
+      if (isOverloaded && i < maxRetries - 1) {
+        console.log(`Anthropic surchargé — retry ${i+1}/${maxRetries} dans ${(i+1)*3}s`);
+        await new Promise(r => setTimeout(r, (i+1) * 3000));
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(session({
@@ -301,7 +318,7 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     const lotsMaxCrypto = capital <= 300 ? 0.01 : capital <= 500 ? 0.02 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : 0.20;
     const lotsMaxOther  = capital <= 300 ? 0.05 : capital <= 500 ? 0.10 : capital <= 1000 ? 0.20 : 0.50;
 
-    const response = await client.messages.create({
+    const response = await callAnthropicWithRetry({
       model: 'claude-sonnet-4-6',
       max_tokens: 1200,
       messages: [{
@@ -348,7 +365,7 @@ FILTRES DE SÉCURITÉ :
 
 5. RR : TP1 minimum 1:2 — si impossible → NE PAS TRADER
 
-SMART MONEY — analyse dans l'ordre :
+SMART MONEY :
 → Structure : HH/HL (haussier) ou LH/LL (baissier) + BOS ou CHoCH
 → Order Block : zone précise + nombre de fois testé
 → Fair Value Gap : zone ou absent
@@ -356,7 +373,7 @@ SMART MONEY — analyse dans l'ordre :
 → Zone : Premium (vendre) ou Discount (acheter)
 → 2 confluences minimum pour un signal (3 = idéal)
 
-RÈGLE D'OR : Si le setup est là avec au moins 2 confluences et RR correct → trader. Ne pas sur-filtrer. Un bon signal doit être pris.
+RÈGLE D'OR : Si le setup est là avec au moins 2 confluences et RR correct → trader. Ne pas sur-filtrer.
 
 FORMAT EXACT sans markdown sans astérisques :
 
