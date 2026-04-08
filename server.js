@@ -59,14 +59,13 @@ function startScheduler() {
     const now = new Date();
     const h = now.getUTCHours();
     const m = now.getUTCMinutes();
-    if (h === 7  && m === 0) sendPushToAll('🇬🇧 Session Londres ouverte', '✅ C\'est le moment d\'analyser vos graphiques — H1 recommandé');
-    if (h === 13 && m === 0) sendPushToAll('⚡ MEILLEUR MOMENT', '🔥 Overlap Londres + New York — Lancez J4keIA maintenant !');
-    if (h === 14 && m === 0) sendPushToAll('💰 Overlap en cours', '⚡ Maximum de volume sur XAUUSD — Analysez maintenant');
-    if (h === 15 && m === 30) sendPushToAll('⏰ Fin overlap', '🔔 Session Londres se ferme — Dernière chance avant 20h');
-    if (h === 17 && m === 0) sendPushToAll('🇺🇸 Session New York', '📊 Bonne volatilité jusqu\'à 20h — Analysez vos graphiques');
-    if (h === 20 && m === 0) sendPushToAll('🌙 Sessions fermées', '❌ Arrêtez de trader — Marché dangereux jusqu\'à 7h UTC');
+    if (h === 7  && m === 0) sendPushToAll('🇬🇧 Session Londres ouverte', '✅ C\'est le moment d\'analyser — H1 recommandé');
+    if (h === 13 && m === 0) sendPushToAll('⚡ MEILLEUR MOMENT', '🔥 Overlap Londres + New York — Lancez J4keIA !');
+    if (h === 15 && m === 30) sendPushToAll('⏰ Fin overlap', '🔔 Dernière chance avant 20h');
+    if (h === 17 && m === 0) sendPushToAll('🇺🇸 Session New York', '📊 Bonne volatilité jusqu\'à 20h');
+    if (h === 20 && m === 0) sendPushToAll('🌙 Sessions fermées', '❌ Arrêtez de trader jusqu\'à 7h UTC');
   }, 60000);
-  console.log('✅ Scheduler UTC démarré');
+  console.log('✅ Scheduler démarré');
 }
 
 async function callAnthropicWithRetry(params, maxRetries = 3) {
@@ -76,11 +75,32 @@ async function callAnthropicWithRetry(params, maxRetries = 3) {
     } catch(e) {
       const isOverloaded = e.status === 529 || (e.message && e.message.includes('overloaded'));
       if (isOverloaded && i < maxRetries - 1) {
-        console.log(`Anthropic surchargé — retry ${i+1}/${maxRetries} dans ${(i+1)*8}s`);
+        console.log(`Retry ${i+1}/${maxRetries} dans ${(i+1)*8}s`);
         await new Promise(r => setTimeout(r, (i+1) * 8000));
       } else throw e;
     }
   }
+}
+
+function calculerLots(capital, risquePct, slPips, actif) {
+  if (!capital || !slPips || slPips <= 0) return 0.01;
+  const montant = capital * (risquePct / 100);
+  const actifUp = (actif || '').toUpperCase();
+  let pipValue = 10;
+  if (actifUp.includes('BTC') || actifUp.includes('ETH')) pipValue = 1;
+  if (actifUp.includes('NAS') || actifUp.includes('US30') || actifUp.includes('SPX')) pipValue = 1;
+
+  let lotsMax;
+  if (actifUp.includes('XAU')) {
+    lotsMax = capital <= 300 ? 0.02 : capital <= 500 ? 0.03 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : 0.20;
+  } else if (actifUp.includes('BTC') || actifUp.includes('ETH')) {
+    lotsMax = capital <= 300 ? 0.01 : capital <= 500 ? 0.02 : capital <= 1000 ? 0.05 : 0.10;
+  } else {
+    lotsMax = capital <= 300 ? 0.05 : capital <= 500 ? 0.10 : capital <= 1000 ? 0.20 : 0.50;
+  }
+
+  const lots = Math.min(montant / (slPips * pipValue), lotsMax);
+  return Math.max(0.01, Math.floor(lots * 100) / 100);
 }
 
 app.use(express.urlencoded({ extended: true }));
@@ -187,7 +207,6 @@ app.post('/register', async (req, res) => {
         </div>`);
       res.json({ success: 'Compte créé ! Vérifiez votre email.' });
     } catch(e) {
-      console.log('Email non envoyé:', e.message);
       res.json({ success: 'Compte créé ! (Email non envoyé, contactez le support)' });
     }
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
@@ -214,7 +233,6 @@ app.post('/resend-email', async (req, res) => {
       <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
         <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4keIA</h1>
         <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:24px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
-        <p style="color:rgba(255,255,255,0.3);font-size:11px;">Lien valide 24h.</p>
       </div>`);
     res.json({ success: 'Email renvoyé !' });
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
@@ -310,129 +328,108 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     const base64Image = fs.readFileSync(req.file.path).toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
 
-    const lotsMaxXAU    = capital <= 300 ? 0.02 : capital <= 500 ? 0.03 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : capital <= 5000 ? 0.20 : 0.50;
-    const lotsMaxForex  = capital <= 300 ? 0.05 : capital <= 500 ? 0.10 : capital <= 1000 ? 0.20 : capital <= 2000 ? 0.50 : 1.00;
-    const lotsMaxCrypto = capital <= 300 ? 0.01 : capital <= 500 ? 0.02 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : 0.20;
-    const lotsMaxOther  = capital <= 300 ? 0.05 : capital <= 500 ? 0.10 : capital <= 1000 ? 0.20 : 0.50;
-
     const response = await callAnthropicWithRetry({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1200,
+      max_tokens: 1000,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money institutionnel d'élite. Zéro erreur tolérée. Tu donnes des signaux précis, cohérents et rentables.
+          { type: 'text', text: `Tu es un trader Smart Money institutionnel. Analyse ce graphique MT5.
 
 COMPTE : MetaTrader 5 — Levier 500:1 — VTMarkets
-ACTIFS : XAUUSD, EURUSD, GBPUSD, BTCUSD, XTIUSD, NAS100, US30
-
 ${capital > 0 ? `CAPITAL : $${capital}
 Score 9-10 → risque 5% = $${(capital*0.05).toFixed(2)}
 Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)}
 Score 6    → risque 1% = $${(capital*0.01).toFixed(2)}
-Score ≤ 5  → NE PAS TRADER
+Score ≤ 5  → NE PAS TRADER` : ''}
 
-LOTS MAX :
-XAUUSD : MAX ${lotsMaxXAU} lots | Formule : Risque$ / (SL pips × 10)
-FOREX  : MAX ${lotsMaxForex} lots | Formule : Risque$ / (SL pips × 10)
-CRYPTO : MAX ${lotsMaxCrypto} lots | Formule : Risque$ / (SL pips × 1)
-AUTRES : MAX ${lotsMaxOther} lots | Formule : Risque$ / (SL pts × 1)
-→ Arrondir vers le bas` : ''}
+RÈGLE COHÉRENCE — ABSOLUE :
+BUY  → SL < ENTREE < TP1 < TP2 < TP3 (SL en dessous, TPs au dessus)
+SELL → TP3 < TP2 < TP1 < ENTREE < SL (SL au dessus, TPs en dessous)
+Vérifier AVANT de répondre. Si incohérence → NE PAS TRADER.
 
-RÈGLE 1 — COHÉRENCE DIRECTION/NIVEAUX (CRITIQUE) :
-→ Si DÉCISION = BUY :
-   - Stop Loss DOIT être SOUS le prix d'entrée
-   - Take Profit DOIT être AU-DESSUS du prix d'entrée
-   - Exemple BUY : Entrée 4800 / SL 4780 / TP 4840 ✅
-   - INTERDIT : Entrée 4800 / SL 4820 / TP 4760 ❌ (c'est un SELL)
+RÈGLE RR — ABSOLUE :
+TP1 doit être à minimum 2x la distance du SL depuis l'entrée.
+Si RR 1:2 impossible → NE PAS TRADER.
 
-→ Si DÉCISION = SELL :
-   - Stop Loss DOIT être AU-DESSUS du prix d'entrée
-   - Take Profit DOIT être SOUS le prix d'entrée
-   - Exemple SELL : Entrée 4800 / SL 4820 / TP 4760 ✅
-   - INTERDIT : Entrée 4800 / SL 4780 / TP 4840 ❌ (c'est un BUY)
+FILTRES :
+- EMA visibles : prix sous EMA20+EMA50 → BUY interdit. Prix au-dessus → SELL interdit.
+- 3 bougies géantes consécutives même sens → NE PAS TRADER
+- Order Block testé 3+ fois → NE PAS ENTRER
+- Minimum 2 confluences Smart Money pour trader
 
-→ Avant de répondre : vérifier que direction et niveaux sont cohérents
-→ Si incohérence détectée → corriger ou NE PAS TRADER
+Réponds UNIQUEMENT dans ce format exact, une valeur par ligne :
 
-RÈGLE 2 — RR MINIMUM 1:2 :
-→ BUY : distance TP1 = (entrée - SL) × 2 minimum au-dessus de l'entrée
-→ SELL : distance TP1 = (SL - entrée) × 2 minimum en dessous de l'entrée
-→ Exemple : SL = 20 pips → TP1 minimum = 40 pips
-→ INTERDIT : TP1 pips < SL pips
-→ Si RR 1:2 impossible → NE PAS TRADER
-
-RÈGLE 3 — EMA (si visibles) :
-→ Prix sous EMA20 ET EMA20 sous EMA50 → BUY interdit
-→ Prix au-dessus EMA20 ET EMA20 au-dessus EMA50 → SELL interdit
-→ EMAs non visibles → analyser structure seule
-
-RÈGLE 4 — CHUTE LIBRE / SPIKE :
-→ 3 bougies géantes consécutives même direction → NE PAS TRADER
-
-RÈGLE 5 — ORDER BLOCK :
-→ Testé 3+ fois → épuisé → NE PAS ENTRER
-
-SMART MONEY :
-→ Structure : HH/HL (haussier) → chercher BUY | LH/LL (baissier) → chercher SELL
-→ Order Block + FVG + liquidité chassée = confluence forte
-→ 2 confluences minimum pour trader
-
-FORMAT EXACT — sans markdown — sans astérisques :
-
-DÉCISION: BUY ou SELL ou NE PAS TRADER — Confiance : XX%
-SCORE SETUP: X/10
-
-VÉRIFICATION COHÉRENCE:
-Direction : [BUY ou SELL]
-SL sera : [AU-DESSUS ou EN-DESSOUS de l'entrée — cohérent avec direction]
-TP sera : [AU-DESSUS ou EN-DESSOUS de l'entrée — cohérent avec direction]
-Verdict : [COHÉRENT ✅ ou INCOHÉRENT ❌]
-
-FILTRES:
-EMA : [analyse ou non visibles]
-RSI : [valeur — informatif uniquement]
-Volatilité : [normale / élevée / EXCEPTIONNELLE]
-
-STRUCTURE: [HH/HL ou LH/LL — BOS ou CHoCH]
-SMART MONEY:
-Order Block : [zone + fois testé]
-FVG : [zone ou absent]
-Liquidité : [chassée ou non]
-Zone : [Premium ou Discount]
-Confluences : [liste]
-
-Entrée : [prix]
-Stop Loss : [prix] → XX pips [EN-DESSOUS pour BUY / AU-DESSUS pour SELL]
-Take Profit 1 : [prix] → XX pips [AU-DESSUS pour BUY / EN-DESSOUS pour SELL] — RR 1:2
-Take Profit 2 : [prix] → XX pips — RR 1:3
-Take Profit 3 : [prix] → XX pips — RR 1:4
-Break Even : Déplacer SL à l'entrée dès TP1 atteint
-
-${capital > 0 ? `CAPITAL ($${capital}) :
-Risque : X% — Montant : $XX
-LOTS A TRADER : X.XX lots
-Perte si SL : $XX | Gain si TP1 : $XX | RR réel : 1:X` : ''}
-
-INVALIDATION: [niveau précis]
-
-RAPPEL FINAL : BUY = SL sous entrée + TP au-dessus. SELL = SL au-dessus + TP en dessous. Toujours.` }
+DECISION: [BUY ou SELL ou NE PAS TRADER]
+CONFIANCE: [XX%]
+SCORE: [X/10]
+ENTREE: [prix]
+SL: [prix]
+TP1: [prix]
+TP2: [prix]
+TP3: [prix]
+SL_PIPS: [nombre]
+TP1_PIPS: [nombre]
+ACTIF: [nom actif]
+TENDANCE: [description courte]
+OB: [zone ou aucun]
+FVG: [zone ou aucun]
+LIQUIDITE: [description]
+CONFLUENCES: [liste]
+RISQUE_PCT: [3 ou 5 ou 1]
+INVALIDATION: [niveau]` }
         ]
       }]
     });
 
     fs.unlinkSync(req.file.path);
-    const resultText = response.content[0].text;
+    const txt = response.content[0].text;
 
-    const entry    = (resultText.match(/Entr[eé][e]?\s*:\s*([^\n→]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
-    const sl       = (resultText.match(/Stop Loss\s*:\s*([^\n→(]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
-    const tp       = (resultText.match(/Take Profit 1\s*:\s*([^\n→(]+)/i)||[])[1]?.replace(/\*+/g,'').trim().substring(0,20) || '—';
-    const decision = (resultText.match(/DÉCISION\s*:\s*([^\n]+)/i)||[])[1]?.trim().substring(0,30) || '—';
+    const get = (key) => {
+      const m = txt.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
+      return m ? m[1].trim() : '';
+    };
+
+    const decision = get('DECISION') || 'NE PAS TRADER';
+    const confiance = get('CONFIANCE') || '0%';
+    const score = parseInt(get('SCORE')) || 0;
+    const entree = parseFloat(get('ENTREE')) || 0;
+    const sl = parseFloat(get('SL')) || 0;
+    const tp1 = parseFloat(get('TP1')) || 0;
+    const tp2 = parseFloat(get('TP2')) || 0;
+    const tp3 = parseFloat(get('TP3')) || 0;
+    const slPips = parseFloat(get('SL_PIPS')) || 20;
+    const tp1Pips = parseFloat(get('TP1_PIPS')) || 0;
+    const actif = get('ACTIF') || 'XAUUSD';
+    const tendance = get('TENDANCE');
+    const ob = get('OB');
+    const fvg = get('FVG');
+    const liquidite = get('LIQUIDITE');
+    const confluences = get('CONFLUENCES');
+    const risquePct = parseFloat(get('RISQUE_PCT')) || 3;
+    const invalidation = get('INVALIDATION');
+
+    // Calcul lots 100% côté serveur
+    const lots = (capital > 0 && decision !== 'NE PAS TRADER') ? calculerLots(capital, risquePct, slPips, actif) : null;
+    const montantRisque = capital > 0 ? (capital * risquePct / 100).toFixed(2) : '0';
+
+    // Vérification cohérence serveur
+    let coherent = true;
+    if (decision === 'BUY' && entree > 0 && sl > 0 && tp1 > 0) {
+      if (sl >= entree || tp1 <= entree) coherent = false;
+    }
+    if (decision === 'SELL' && entree > 0 && sl > 0 && tp1 > 0) {
+      if (sl <= entree || tp1 >= entree) coherent = false;
+    }
+
+    // Si incohérent côté serveur → forcer NE PAS TRADER
+    const decisionFinale = coherent ? decision : 'NE PAS TRADER';
 
     const savedAnalysis = await analysesDb.insertAsync({
       userId: req.session.userId, email: user.email,
-      result: resultText, capital, decision, entry, sl, tp,
+      result: txt, capital, decision: decisionFinale,
+      entry: entree.toString(), sl: sl.toString(), tp: tp1.toString(),
       feedbackResult: null, createdAt: new Date()
     });
 
@@ -442,7 +439,34 @@ RAPPEL FINAL : BUY = SL sous entrée + TP au-dessus. SELL = SL au-dessus + TP en
 
     const analysisMax = user.role === 'admin' ? 999999 : (user.analysisMax || 0);
     const newLeft = user.role === 'admin' ? 999999 : Math.max(0, analysisMax - ((user.analysisCount || 0) + 1));
-    res.json({ result: resultText, analysesLeft: newLeft, capital, analysisId: savedAnalysis._id });
+
+    res.json({
+      analysisId: savedAnalysis._id,
+      analysesLeft: newLeft,
+      capital,
+      decision: decisionFinale,
+      confiance,
+      score,
+      entree,
+      sl,
+      tp1,
+      tp2,
+      tp3,
+      slPips,
+      tp1Pips,
+      lots,
+      montantRisque,
+      risquePct,
+      actif,
+      tendance,
+      ob,
+      fvg,
+      liquidite,
+      confluences,
+      invalidation,
+      coherent
+    });
+
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     console.error('Erreur analyze:', err.message);
