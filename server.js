@@ -241,47 +241,72 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
     }
     if (!req.file) return res.status(400).json({ error: 'Aucune image reçue' });
 
-    const capital = req.body.capital || null;
+    const capital = parseFloat(req.body.capital) || 0;
     const imageData = fs.readFileSync(req.file.path);
     const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
 
-    const promptCapital = capital
-      ? `\nRISK MANAGEMENT (capital $${capital}):\n- Risque 1% : $${(parseFloat(capital)*0.01).toFixed(2)}\n- Risque 2% : $${(parseFloat(capital)*0.02).toFixed(2)}\n- Risque 3% : $${(parseFloat(capital)*0.03).toFixed(2)}`
-      : '';
-
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      max_tokens: 1500,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader professionnel avec 15 ans d'expérience.${capital ? ` Le trader dispose d'un capital de $${capital}.` : ''} Analyse ce graphique et réponds en français avec exactement ce format :
+          { type: 'text', text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
 
-DÉCISION: BUY ou SELL — Confiance XX%
+Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks:
 
-TENDANCE: [2-3 phrases max, direct et cash]
+{
+  "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
+  "confiance": "XX%",
+  "score": <nombre entier de 0 à 10>,
+  "tendance": "<description courte de la tendance>",
+  "entree": "<prix d'entrée>",
+  "sl": "<stop loss>",
+  "slPips": <nombre de pips>,
+  "tp1": "<take profit 1 RR 1:2>",
+  "tp1Pips": <pips tp1>,
+  "tp2": "<take profit 2 RR 1:3>",
+  "tp3": "<take profit 3 RR 1:4>",
+  "ob": "<order block détecté>",
+  "fvg": "<fair value gap détecté>",
+  "liquidite": "<zones de liquidité>",
+  "confluences": "<confluences Smart Money>",
+  "invalidation": "<niveau d'invalidation du setup>",
+  "lots": ${capital ? `<taille de position en lots calculée sur capital $${capital} avec risque adapté au score>` : 'null'},
+  "risquePct": ${capital ? '<pourcentage de risque: 1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
+  "montantRisque": ${capital ? `<montant en dollars risqué calculé sur $${capital}>` : 'null'},
+  "capital": ${capital || 0}
+}
 
-ENTRÉE: [prix précis ou zone ex: 4500 - 4520]
-
-STOP LOSS: [prix précis ex: 4450]
-
-TAKE PROFIT: [prix précis ex: 4650]
-
-SETUP: [2-3 phrases sur les indicateurs, bref et concret]
-${promptCapital}
-
-IMPORTANT: Sois direct comme un vrai trader. Pas de blabla. Phrases courtes. Donne des chiffres précis.` }
+Règles importantes:
+- score 8-10 = setup excellent, risque 3%
+- score 6-7 = setup moyen, risque 2%
+- score 0-5 = setup faible, NE PAS TRADER, risque 1%
+- Les lots doivent être calculés précisément selon le capital et le risque
+- Si NE PAS TRADER, mettre score bas et expliquer dans confluences` }
         ]
       }]
     });
 
     fs.unlinkSync(req.file.path);
+
+    let parsed;
+    try {
+      const text = response.content[0].text.trim();
+      const clean = text.replace(/```json|```/g, '').trim();
+      parsed = JSON.parse(clean);
+    } catch(e) {
+      return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
+    }
+
     if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
     const newCount = user.role === 'admin' ? 0 : user.analysisCount + 1;
-    const analysesLeft = (user.role === 'admin' || user.subscribed) ? null : Math.max(0, 2 - newCount);
-    res.json({ result: response.content[0].text, analysesLeft });
+    const analysesLeft = (user.role === 'admin' || user.subscribed) ? undefined : Math.max(0, 2 - newCount);
+
+    res.json({ ...parsed, analysesLeft, analysisId: uuidv4() });
+
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: 'Erreur: ' + err.message });
