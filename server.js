@@ -46,7 +46,6 @@ function checkAuth(req, res, next) {
   if (!req.session || !req.session.userId) return res.redirect('/login.html');
   next();
 }
-
 function checkAdmin(req, res, next) {
   if (!req.session || !req.session.userId || req.session.userRole !== 'admin') {
     return res.status(403).json({ error: 'Accès refusé' });
@@ -73,7 +72,7 @@ app.get('/setup-admin', async (req, res) => {
     ];
     for (const a of admins) {
       const hash = await bcrypt.hash(a.password, 10);
-      await db.insertAsync({ email: a.email, password: hash, role: 'admin', isVerified: true, analysisCount: 0, subscribed: true, banned: false, createdAt: new Date() });
+      await db.insertAsync({ email: a.email, password: hash, role: 'admin', isVerified: true, analysisCount: 0, analysisMax: 999999, subscribed: true, banned: false, paymentStatus: 'paid', plan: 'admin', createdAt: new Date() });
     }
     res.send(`<div style="background:#020510;color:#00f5ff;font-family:monospace;padding:40px;">
       <h2>✅ Admins créés !</h2>
@@ -111,8 +110,9 @@ app.post('/register', async (req, res) => {
       email: email.toLowerCase(), password: hash,
       role: 'user', isVerified: false,
       verifyToken: token, analysisCount: 0,
-      subscribed: false, banned: false,
-      createdAt: new Date()
+      analysisMax: 2, subscribed: false,
+      banned: false, paymentStatus: 'pending',
+      plan: 'free', createdAt: new Date()
     });
     const verifyUrl = BASE_URL + '/verify/' + token;
     try {
@@ -216,7 +216,7 @@ app.get('/me', checkAuth, async (req, res) => {
       return res.status(401).json({ error: 'session_conflict' });
     }
   }
-  res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount, subscribed: user.subscribed });
+  res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount, analysisMax: user.analysisMax, subscribed: user.subscribed });
 });
 
 // ─── ANALYSE ──────────────────────────────────────────────────────
@@ -234,10 +234,11 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         req.session.destroy();
         return res.status(401).json({ error: 'session_conflict' });
       }
-    }
-    if (user.role !== 'admin' && !user.subscribed && user.analysisCount >= 2) {
-      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-      return res.json({ limitReached: true, redirect: '/abonnement.html' });
+      const max = user.analysisMax || 2;
+      if (user.analysisCount >= max) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.json({ limitReached: true, redirect: '/abonnement.html' });
+      }
     }
     if (!req.file) return res.status(400).json({ error: 'Aucune image reçue' });
 
@@ -262,10 +263,10 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
   "confiance": "XX%",
   "score": <nombre entier de 0 à 10>,
   "tendance": "<description courte de la tendance>",
-  "entree": "<prix d'entrée>",
-  "sl": "<stop loss>",
-  "slPips": <nombre de pips>,
-  "tp1": "<take profit 1 RR 1:2>",
+  "entree": "<prix d'entrée précis>",
+  "sl": "<stop loss précis>",
+  "slPips": <nombre de pips du SL>,
+  "tp1": "<take profit 1 minimum RR 1:2>",
   "tp1Pips": <pips tp1>,
   "tp2": "<take profit 2 RR 1:3>",
   "tp3": "<take profit 3 RR 1:4>",
@@ -274,18 +275,19 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
   "liquidite": "<zones de liquidité>",
   "confluences": "<confluences Smart Money>",
   "invalidation": "<niveau d'invalidation du setup>",
-  "lots": ${capital ? `<taille de position en lots calculée sur capital $${capital} avec risque adapté au score>` : 'null'},
-  "risquePct": ${capital ? '<pourcentage de risque: 1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
-  "montantRisque": ${capital ? `<montant en dollars risqué calculé sur $${capital}>` : 'null'},
+  "lots": ${capital ? `<taille de position en lots sur $${capital} avec risque adapté au score>` : 'null'},
+  "risquePct": ${capital ? '<1% si score<6, 2% si score 6-7, 3% si score>=8>' : 'null'},
+  "montantRisque": ${capital ? `<montant risqué en dollars sur $${capital}>` : 'null'},
   "capital": ${capital || 0}
 }
 
-Règles importantes:
-- score 8-10 = setup excellent, risque 3%
-- score 6-7 = setup moyen, risque 2%
-- score 0-5 = setup faible, NE PAS TRADER, risque 1%
-- Les lots doivent être calculés précisément selon le capital et le risque
-- Si NE PAS TRADER, mettre score bas et expliquer dans confluences` }
+RÈGLES ABSOLUES:
+- Le Take Profit MINIMUM est toujours RR 1:2 (si SL = 20 pips, TP1 = minimum 40 pips)
+- RR 1:3 pour TP2 et RR 1:4 pour TP3
+- score 8-10 = setup excellent
+- score 6-7 = setup moyen
+- score 0-5 = NE PAS TRADER
+- Sois direct, chiffres précis, pas de blabla` }
         ]
       }]
     });
@@ -303,7 +305,8 @@ Règles importantes:
 
     if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
     const newCount = user.role === 'admin' ? 0 : user.analysisCount + 1;
-    const analysesLeft = (user.role === 'admin' || user.subscribed) ? undefined : Math.max(0, 2 - newCount);
+    const max = user.analysisMax || 2;
+    const analysesLeft = user.role === 'admin' ? undefined : Math.max(0, max - newCount);
 
     res.json({ ...parsed, analysesLeft, analysisId: uuidv4() });
 
@@ -319,9 +322,16 @@ app.get('/admin/users', checkAdmin, async (req, res) => {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
     res.json(users.map(u => ({
       _id: u._id, email: u.email, role: u.role,
-      isVerified: u.isVerified, analysisCount: u.analysisCount,
-      subscribed: u.subscribed, banned: u.banned || false,
-      createdAt: u.createdAt, online: !!activeSessions[u._id]
+      isVerified: u.isVerified,
+      analysisCount: u.analysisCount || 0,
+      analysisMax: u.analysisMax || 2,
+      subscribed: u.subscribed,
+      banned: u.banned || false,
+      paymentStatus: u.paymentStatus || 'pending',
+      paymentNote: u.paymentNote || '',
+      plan: u.plan || 'free',
+      createdAt: u.createdAt,
+      online: !!activeSessions[u._id]
     })));
   } catch(e) { res.json({ error: e.message }); }
 });
@@ -332,10 +342,67 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
     res.json({
       total: users.length,
       verified: users.filter(u => u.isVerified).length,
-      subscribed: users.filter(u => u.subscribed).length,
+      paid: users.filter(u => u.paymentStatus === 'paid').length,
+      pending: users.filter(u => u.paymentStatus === 'pending').length,
       banned: users.filter(u => u.banned).length,
       online: Object.keys(activeSessions).length
     });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/add-one/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const newMax = (user.analysisMax || 2) + 1;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
+    res.json({ success: true, analysisMax: newMax });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const newMax = Math.max(0, (user.analysisMax || 2) - 1);
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
+    res.json({ success: true, analysisMax: newMax });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
+  try {
+    const n = parseInt(req.body.amount) || 10;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const newMax = (user.analysisMax || 2) + n;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
+    res.json({ success: true, analysisMax: newMax });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
+  try {
+    const n = parseInt(req.body.amount) || 10;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const newMax = Math.max(0, (user.analysisMax || 2) - n);
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
+    res.json({ success: true, analysisMax: newMax });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
+  try {
+    const { status, plan, note } = req.body;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const subscribed = status === 'paid';
+    const analysisMax = subscribed ? 999999 : 2;
+    await db.updateAsync({ _id: req.params.id }, {
+      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax }
+    }, {});
+    res.json({ success: true });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -352,17 +419,8 @@ app.post('/admin/ban/:id', checkAdmin, async (req, res) => {
 
 app.post('/admin/restrict/:id', checkAdmin, async (req, res) => {
   try {
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisCount: 99, subscribed: false } }, {});
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: 0, subscribed: false } }, {});
     res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
-  try {
-    const user = await db.findOneAsync({ _id: req.params.id });
-    if (!user) return res.json({ error: 'Introuvable' });
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisCount: 0 } }, {});
-    res.json({ success: true, newCount: 0 });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -370,16 +428,6 @@ app.post('/admin/kick/:id', checkAdmin, async (req, res) => {
   try {
     delete activeSessions[req.params.id];
     res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/admin/subscribe/:id', checkAdmin, async (req, res) => {
-  try {
-    const user = await db.findOneAsync({ _id: req.params.id });
-    if (!user) return res.json({ error: 'Introuvable' });
-    const newSub = !user.subscribed;
-    await db.updateAsync({ _id: req.params.id }, { $set: { subscribed: newSub } }, {});
-    res.json({ success: true, subscribed: newSub });
   } catch(e) { res.json({ error: e.message }); }
 });
 
