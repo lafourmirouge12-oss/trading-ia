@@ -249,10 +249,10 @@ app.post('/login', async (req, res) => {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.json({ error: 'Email ou mot de passe incorrect' });
     if (user.role !== 'admin') {
-      const sessionId = uuidv4();
-      activeSessions[user._id] = sessionId;
-      req.session.sessionId = sessionId;
-    }
+  const sessionId = uuidv4();
+  activeSessions[user._id] = sessionId;
+  req.session.sessionId = sessionId;
+}
     req.session.userId = user._id;
     req.session.userRole = user.role;
     req.session.save();
@@ -269,15 +269,17 @@ app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
   if (user.role !== 'admin') {
-    if (activeSessions[user._id] && activeSessions[user._id] !== req.session.sessionId) {
+    if (user.banned) { req.session.destroy(); return res.status(403).json({ error: 'banned' }); }
+    // Si pas de session active enregistrée, on l'enregistre (après restart Render)
+    if (!activeSessions[user._id]) {
+      activeSessions[user._id] = req.session.sessionId || uuidv4();
+      req.session.sessionId = activeSessions[user._id];
+    } else if (activeSessions[user._id] !== req.session.sessionId) {
       req.session.destroy();
       return res.status(401).json({ error: 'session_conflict' });
     }
-    if (user.banned) { req.session.destroy(); return res.status(403).json({ error: 'banned' }); }
   }
-  const analysisMax = user.role === 'admin' ? 999999 : (user.analysisMax || 0);
-  const analysesLeft = user.role === 'admin' ? 999999 : Math.max(0, analysisMax - (user.analysisCount || 0));
-  res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount || 0, analysisMax, analysesLeft, subscribed: user.subscribed, plan: user.plan || 'free' });
+  res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount, subscribed: user.subscribed });
 });
 
 app.get('/my-analyses', checkAuth, async (req, res) => {
