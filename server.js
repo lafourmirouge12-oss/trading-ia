@@ -1,10 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const MemoryStore = require('memorystore')(session);
 const Datastore = require('@seald-io/nedb');
 const bcrypt = require('bcryptjs');
-const fetch = require('node-fetch');
+const nodemailer = require('nodemailer');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
@@ -17,100 +16,26 @@ const upload = multer({ dest: 'uploads/' });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
+const transporter = nodemailer.createTransport({
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.BREVO_USER,
+    pass: process.env.BREVO_PASS
+  }
+});
+
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
-const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
-const pushDb = new Datastore({ filename: path.join(__dirname, 'push.db'), autoload: true });
 const activeSessions = {};
-
-async function sendEmail(to, subject, html) {
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'api-key': process.env.BREVO_API_KEY },
-    body: JSON.stringify({
-      sender: { name: 'J4keIA', email: 'tradingsupport68@gmail.com' },
-      to: [{ email: to }], subject, htmlContent: html
-    })
-  });
-  if (!response.ok) throw new Error('Brevo: ' + await response.text());
-  return response.json();
-}
-
-async function sendPushToAll(title, body) {
-  try {
-    const webpush = require('web-push');
-    webpush.setVapidDetails(
-      'mailto:tradingsupport68@gmail.com',
-      process.env.VAPID_PUBLIC_KEY || 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBkYjlx4u2-e9BZRLmA',
-      process.env.VAPID_PRIVATE_KEY || 'UUxI4O8-FbRouAevSmBQ6co62groRr2q8G0G14J5yoE'
-    );
-    const allSubs = await pushDb.findAsync({});
-    for (const sub of allSubs) {
-      try {
-        await webpush.sendNotification(sub.subscription, JSON.stringify({ title, body, icon: '/icon.png' }));
-      } catch(e) {
-        if (e.statusCode === 410) await pushDb.removeAsync({ _id: sub._id }, {});
-      }
-    }
-  } catch(e) { console.log('Push error:', e.message); }
-}
-
-function startScheduler() {
-  setInterval(() => {
-    const now = new Date();
-    const h = now.getUTCHours();
-    const m = now.getUTCMinutes();
-    if (h === 7  && m === 0) sendPushToAll('🇬🇧 Session Londres ouverte', '✅ C\'est le moment d\'analyser — H1 recommandé');
-    if (h === 13 && m === 0) sendPushToAll('⚡ MEILLEUR MOMENT', '🔥 Overlap Londres + New York — Lancez J4keIA !');
-    if (h === 15 && m === 30) sendPushToAll('⏰ Fin overlap', '🔔 Dernière chance avant 20h');
-    if (h === 17 && m === 0) sendPushToAll('🇺🇸 Session New York', '📊 Bonne volatilité jusqu\'à 20h');
-    if (h === 20 && m === 0) sendPushToAll('🌙 Sessions fermées', '❌ Arrêtez de trader jusqu\'à 7h UTC');
-  }, 60000);
-  console.log('✅ Scheduler démarré');
-}
-
-async function callAnthropicWithRetry(params, maxRetries = 3) {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await client.messages.create(params);
-    } catch(e) {
-      const isOverloaded = e.status === 529 || (e.message && e.message.includes('overloaded'));
-      if (isOverloaded && i < maxRetries - 1) {
-        console.log(`Retry ${i+1}/${maxRetries} dans ${(i+1)*8}s`);
-        await new Promise(r => setTimeout(r, (i+1) * 8000));
-      } else throw e;
-    }
-  }
-}
-
-function calculerLots(capital, risquePct, slPips, actif) {
-  if (!capital || !slPips || slPips <= 0) return 0.01;
-  const montant = capital * (risquePct / 100);
-  const actifUp = (actif || '').toUpperCase();
-  let pipValue = 10;
-  if (actifUp.includes('BTC') || actifUp.includes('ETH')) pipValue = 1;
-  if (actifUp.includes('NAS') || actifUp.includes('US30') || actifUp.includes('SPX')) pipValue = 1;
-
-  let lotsMax;
-  if (actifUp.includes('XAU')) {
-    lotsMax = capital <= 300 ? 0.02 : capital <= 500 ? 0.03 : capital <= 1000 ? 0.05 : capital <= 2000 ? 0.10 : 0.20;
-  } else if (actifUp.includes('BTC') || actifUp.includes('ETH')) {
-    lotsMax = capital <= 300 ? 0.01 : capital <= 500 ? 0.02 : capital <= 1000 ? 0.05 : 0.10;
-  } else {
-    lotsMax = capital <= 300 ? 0.05 : capital <= 500 ? 0.10 : capital <= 1000 ? 0.20 : 0.50;
-  }
-
-  const lots = Math.min(montant / (slPips * pipValue), lotsMax);
-  return Math.max(0.01, Math.floor(lots * 100) / 100);
-}
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'j4keia-secret-2024',
+  secret: process.env.SESSION_SECRET || 'ai-mazza-secret-2024',
   resave: false,
   saveUninitialized: false,
-  store: new MemoryStore({ checkPeriod: 86400000 }),
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' }
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
 }));
 
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
@@ -121,6 +46,7 @@ function checkAuth(req, res, next) {
   if (!req.session || !req.session.userId) return res.redirect('/login.html');
   next();
 }
+
 function checkAdmin(req, res, next) {
   if (!req.session || !req.session.userId || req.session.userRole !== 'admin') {
     return res.status(403).json({ error: 'Accès refusé' });
@@ -137,18 +63,7 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/vapid-public-key', (req, res) => {
-  res.json({ key: process.env.VAPID_PUBLIC_KEY || 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBkYjlx4u2-e9BZRLmA' });
-});
-
-app.post('/push/subscribe', checkAuth, async (req, res) => {
-  try {
-    await pushDb.removeAsync({ userId: req.session.userId }, { multi: true });
-    await pushDb.insertAsync({ userId: req.session.userId, subscription: req.body, createdAt: new Date() });
-    res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
+// ─── SETUP ADMINS ─────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -158,7 +73,7 @@ app.get('/setup-admin', async (req, res) => {
     ];
     for (const a of admins) {
       const hash = await bcrypt.hash(a.password, 10);
-      await db.insertAsync({ email: a.email, password: hash, role: 'admin', isVerified: true, analysisCount: 0, analysisMax: 999999, subscribed: true, plan: 'elite', banned: false, createdAt: new Date() });
+      await db.insertAsync({ email: a.email, password: hash, role: 'admin', isVerified: true, analysisCount: 0, subscribed: true, banned: false, createdAt: new Date() });
     }
     res.send(`<div style="background:#020510;color:#00f5ff;font-family:monospace;padding:40px;">
       <h2>✅ Admins créés !</h2>
@@ -169,6 +84,7 @@ app.get('/setup-admin', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
+// ─── VÉRIFICATION MANUELLE ────────────────────────────────────────
 app.get('/verify-manual/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase();
@@ -181,6 +97,7 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
+// ─── INSCRIPTION ──────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -191,27 +108,37 @@ app.post('/register', async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const token = uuidv4();
     await db.insertAsync({
-      email: email.toLowerCase(), password: hash, role: 'user', isVerified: false,
-      verifyToken: token, analysisCount: 0, analysisMax: 0, subscribed: false,
-      plan: 'free', banned: false, paymentStatus: 'pending', paymentNote: '', createdAt: new Date()
+      email: email.toLowerCase(), password: hash,
+      role: 'user', isVerified: false,
+      verifyToken: token, analysisCount: 0,
+      subscribed: false, banned: false,
+      createdAt: new Date()
     });
     const verifyUrl = BASE_URL + '/verify/' + token;
     try {
-      await sendEmail(email, '✅ Confirmez votre compte J4keIA', `
-        <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
-          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4keIA</h1>
-          <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
-          <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour accéder à la plateforme.</p>
-          <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
-          <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
-        </div>`);
-      res.json({ success: 'Compte créé ! Vérifiez votre email.' });
+      await transporter.sendMail({
+        from: '"AI-Mazza" <' + process.env.BREVO_USER + '>',
+        to: email,
+        subject: '✅ Confirmez votre compte AI-Mazza',
+        html: `
+          <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+            <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
+            <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+            <p style="color:rgba(255,255,255,0.8);margin-bottom:8px;">Bienvenue !</p>
+            <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour activer vos <strong style="color:#00f5ff;">2 analyses gratuites</strong>.</p>
+            <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
+            <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
+          </div>`
+      });
+      res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
     } catch(e) {
+      console.log('Email non envoyé:', e.message);
       res.json({ success: 'Compte créé ! (Email non envoyé, contactez le support)' });
     }
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
 });
 
+// ─── VÉRIFICATION EMAIL ───────────────────────────────────────────
 app.get('/verify/:token', async (req, res) => {
   try {
     const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
@@ -220,24 +147,34 @@ app.get('/verify/:token', async (req, res) => {
   } catch(e) { res.redirect('/login.html?error=1'); }
 });
 
+// ─── RENVOI EMAIL ─────────────────────────────────────────────────
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
   try {
     const user = await db.findOneAsync({ email: email.toLowerCase() });
     if (!user) return res.json({ error: 'Email introuvable' });
-    if (user.isVerified) return res.json({ error: 'Compte déjà vérifié !' });
+    if (user.isVerified) return res.json({ error: 'Compte déjà vérifié, connectez-vous !' });
     const token = uuidv4();
     await db.updateAsync({ email: email.toLowerCase() }, { $set: { verifyToken: token } }, {});
     const verifyUrl = BASE_URL + '/verify/' + token;
-    await sendEmail(email, '✅ Nouveau lien — J4keIA', `
-      <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
-        <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">J4keIA</h1>
-        <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:24px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
-      </div>`);
-    res.json({ success: 'Email renvoyé !' });
-  } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
+    await transporter.sendMail({
+      from: '"AI-Mazza" <' + process.env.BREVO_USER + '>',
+      to: email,
+      subject: '✅ Nouveau lien de confirmation — AI-Mazza',
+      html: `
+        <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
+          <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+          <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Voici votre nouveau lien de confirmation :</p>
+          <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
+          <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
+        </div>`
+    });
+    res.json({ success: 'Email renvoyé ! Vérifiez votre boîte mail.' });
+  } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
 });
 
+// ─── CONNEXION ────────────────────────────────────────────────────
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -249,28 +186,28 @@ app.post('/login', async (req, res) => {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.json({ error: 'Email ou mot de passe incorrect' });
     if (user.role !== 'admin') {
-  const sessionId = uuidv4();
-  activeSessions[user._id] = sessionId;
-  req.session.sessionId = sessionId;
-}
+      const sessionId = uuidv4();
+      activeSessions[user._id] = sessionId;
+      req.session.sessionId = sessionId;
+    }
     req.session.userId = user._id;
     req.session.userRole = user.role;
-    req.session.save();
     res.json({ success: true, redirect: user.role === 'admin' ? '/admin.html' : '/' });
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
 
+// ─── DÉCONNEXION ──────────────────────────────────────────────────
 app.get('/logout', (req, res) => {
   if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
   req.session.destroy(() => res.redirect('/login.html'));
 });
 
+// ─── INFOS USER ───────────────────────────────────────────────────
 app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
   if (user.role !== 'admin') {
     if (user.banned) { req.session.destroy(); return res.status(403).json({ error: 'banned' }); }
-    // Si pas de session active enregistrée, on l'enregistre (après restart Render)
     if (!activeSessions[user._id]) {
       activeSessions[user._id] = req.session.sessionId || uuidv4();
       req.session.sessionId = activeSessions[user._id];
@@ -282,29 +219,7 @@ app.get('/me', checkAuth, async (req, res) => {
   res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount, subscribed: user.subscribed });
 });
 
-app.get('/my-analyses', checkAuth, async (req, res) => {
-  try {
-    const analyses = await analysesDb.findAsync({ userId: req.session.userId }).sort({ createdAt: -1 }).limit(10);
-    res.json(analyses);
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
-  try {
-    const { result } = req.body;
-    await analysesDb.updateAsync({ _id: req.params.id, userId: req.session.userId }, { $set: { feedbackResult: result, feedbackAt: new Date() } }, {});
-    const analysis = await analysesDb.findOneAsync({ _id: req.params.id });
-    if (analysis) {
-      await db.insertAsync({
-        type: 'feedback', userId: req.session.userId, email: analysis.email,
-        result, capital: analysis.capital, decision: analysis.decision,
-        entry: analysis.entry, sl: analysis.sl, tp: analysis.tp, createdAt: new Date()
-      });
-    }
-    res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
+// ─── ANALYSE ──────────────────────────────────────────────────────
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -319,183 +234,69 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         req.session.destroy();
         return res.status(401).json({ error: 'session_conflict' });
       }
-      if ((user.analysisCount || 0) >= (user.analysisMax || 0)) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        return res.json({ limitReached: true, redirect: '/abonnement.html' });
-      }
+    }
+    if (user.role !== 'admin' && !user.subscribed && user.analysisCount >= 2) {
+      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.json({ limitReached: true, redirect: '/abonnement.html' });
     }
     if (!req.file) return res.status(400).json({ error: 'Aucune image reçue' });
 
-    const capital = parseFloat(req.body.capital) || 0;
-    const base64Image = fs.readFileSync(req.file.path).toString('base64');
+    const capital = req.body.capital || null;
+    const imageData = fs.readFileSync(req.file.path);
+    const base64Image = imageData.toString('base64');
     const mimeType = req.file.mimetype || 'image/png';
 
-    const response = await callAnthropicWithRetry({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+    const promptCapital = capital
+      ? `\nRISK MANAGEMENT (capital $${capital}):\n- Risque 1% : $${(parseFloat(capital)*0.01).toFixed(2)}\n- Risque 2% : $${(parseFloat(capital)*0.02).toFixed(2)}\n- Risque 3% : $${(parseFloat(capital)*0.03).toFixed(2)}`
+      : '';
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money institutionnel. Analyse ce graphique MT5.
+          { type: 'text', text: `Tu es un trader professionnel avec 15 ans d'expérience.${capital ? ` Le trader dispose d'un capital de $${capital}.` : ''} Analyse ce graphique et réponds en français avec exactement ce format :
 
-COMPTE : MetaTrader 5 — Levier 500:1 — VTMarkets
-${capital > 0 ? `CAPITAL : $${capital}
-Score 9-10 → risque 5% = $${(capital*0.05).toFixed(2)}
-Score 7-8  → risque 3% = $${(capital*0.03).toFixed(2)}
-Score 6    → risque 1% = $${(capital*0.01).toFixed(2)}
-Score ≤ 5  → NE PAS TRADER` : ''}
+DÉCISION: BUY ou SELL — Confiance XX%
 
-RÈGLE COHÉRENCE — ABSOLUE :
-BUY  → SL < ENTREE < TP1 < TP2 < TP3 (SL en dessous, TPs au dessus)
-SELL → TP3 < TP2 < TP1 < ENTREE < SL (SL au dessus, TPs en dessous)
-Vérifier AVANT de répondre. Si incohérence → NE PAS TRADER.
+TENDANCE: [2-3 phrases max, direct et cash]
 
-RÈGLE RR — ABSOLUE :
-TP1 doit être à minimum 2x la distance du SL depuis l'entrée.
-Si RR 1:2 impossible → NE PAS TRADER.
+ENTRÉE: [prix précis ou zone ex: 4500 - 4520]
 
-FILTRES :
-- EMA visibles : prix sous EMA20+EMA50 → BUY interdit. Prix au-dessus → SELL interdit.
-- 3 bougies géantes consécutives même sens → NE PAS TRADER
-- Order Block testé 3+ fois → NE PAS ENTRER
-- Minimum 2 confluences Smart Money pour trader
+STOP LOSS: [prix précis ex: 4450]
 
-Réponds UNIQUEMENT dans ce format exact, une valeur par ligne :
+TAKE PROFIT: [prix précis ex: 4650]
 
-DECISION: [BUY ou SELL ou NE PAS TRADER]
-CONFIANCE: [XX%]
-SCORE: [X/10]
-ENTREE: [prix]
-SL: [prix]
-TP1: [prix]
-TP2: [prix]
-TP3: [prix]
-SL_PIPS: [nombre]
-TP1_PIPS: [nombre]
-ACTIF: [nom actif]
-TENDANCE: [description courte]
-OB: [zone ou aucun]
-FVG: [zone ou aucun]
-LIQUIDITE: [description]
-CONFLUENCES: [liste]
-RISQUE_PCT: [3 ou 5 ou 1]
-INVALIDATION: [niveau]` }
+SETUP: [2-3 phrases sur les indicateurs, bref et concret]
+${promptCapital}
+
+IMPORTANT: Sois direct comme un vrai trader. Pas de blabla. Phrases courtes. Donne des chiffres précis.` }
         ]
       }]
     });
 
     fs.unlinkSync(req.file.path);
-    const txt = response.content[0].text;
-
-    const get = (key) => {
-      const m = txt.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
-      return m ? m[1].trim() : '';
-    };
-
-    const decision = get('DECISION') || 'NE PAS TRADER';
-    const confiance = get('CONFIANCE') || '0%';
-    const score = parseInt(get('SCORE')) || 0;
-    const entree = parseFloat(get('ENTREE')) || 0;
-    const sl = parseFloat(get('SL')) || 0;
-    const tp1 = parseFloat(get('TP1')) || 0;
-    const tp2 = parseFloat(get('TP2')) || 0;
-    const tp3 = parseFloat(get('TP3')) || 0;
-    const slPips = parseFloat(get('SL_PIPS')) || 20;
-    const tp1Pips = parseFloat(get('TP1_PIPS')) || 0;
-    const actif = get('ACTIF') || 'XAUUSD';
-    const tendance = get('TENDANCE');
-    const ob = get('OB');
-    const fvg = get('FVG');
-    const liquidite = get('LIQUIDITE');
-    const confluences = get('CONFLUENCES');
-    const risquePct = parseFloat(get('RISQUE_PCT')) || 3;
-    const invalidation = get('INVALIDATION');
-
-    // Calcul lots 100% côté serveur
-    const lots = (capital > 0 && decision !== 'NE PAS TRADER') ? calculerLots(capital, risquePct, slPips, actif) : null;
-    const montantRisque = capital > 0 ? (capital * risquePct / 100).toFixed(2) : '0';
-
-    // Vérification cohérence serveur
-    let coherent = true;
-    if (decision === 'BUY' && entree > 0 && sl > 0 && tp1 > 0) {
-      if (sl >= entree || tp1 <= entree) coherent = false;
-    }
-    if (decision === 'SELL' && entree > 0 && sl > 0 && tp1 > 0) {
-      if (sl <= entree || tp1 >= entree) coherent = false;
-    }
-
-    // Si incohérent côté serveur → forcer NE PAS TRADER
-    const decisionFinale = coherent ? decision : 'NE PAS TRADER';
-
-    const savedAnalysis = await analysesDb.insertAsync({
-      userId: req.session.userId, email: user.email,
-      result: txt, capital, decision: decisionFinale,
-      entry: entree.toString(), sl: sl.toString(), tp: tp1.toString(),
-      feedbackResult: null, createdAt: new Date()
-    });
-
-    if (user.role !== 'admin') {
-      await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
-    }
-
-    const analysisMax = user.role === 'admin' ? 999999 : (user.analysisMax || 0);
-    const newLeft = user.role === 'admin' ? 999999 : Math.max(0, analysisMax - ((user.analysisCount || 0) + 1));
-
-    res.json({
-      analysisId: savedAnalysis._id,
-      analysesLeft: newLeft,
-      capital,
-      decision: decisionFinale,
-      confiance,
-      score,
-      entree,
-      sl,
-      tp1,
-      tp2,
-      tp3,
-      slPips,
-      tp1Pips,
-      lots,
-      montantRisque,
-      risquePct,
-      actif,
-      tendance,
-      ob,
-      fvg,
-      liquidite,
-      confluences,
-      invalidation,
-      coherent
-    });
-
+    if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
+    const newCount = user.role === 'admin' ? 0 : user.analysisCount + 1;
+    const analysesLeft = (user.role === 'admin' || user.subscribed) ? null : Math.max(0, 2 - newCount);
+    res.json({ result: response.content[0].text, analysesLeft });
   } catch (err) {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    console.error('Erreur analyze:', err.message);
     res.status(500).json({ error: 'Erreur: ' + err.message });
   }
 });
 
-app.post('/feedback', checkAuth, async (req, res) => {
-  try {
-    const { result, capital, decision, entry, sl, tp } = req.body;
-    const user = await db.findOneAsync({ _id: req.session.userId });
-    if (!user) return res.json({ error: 'Non connecté' });
-    await db.insertAsync({ type: 'feedback', userId: req.session.userId, email: user.email, result, capital, decision, entry, sl, tp, createdAt: new Date() });
-    res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
     res.json(users.map(u => ({
-      _id: u._id, email: u.email, isVerified: u.isVerified,
-      analysisCount: u.analysisCount || 0, analysisMax: u.analysisMax || 0,
-      subscribed: u.subscribed || false, plan: u.plan || 'free',
-      banned: u.banned || false, createdAt: u.createdAt,
-      online: !!activeSessions[u._id],
-      paymentStatus: u.paymentStatus || 'pending', paymentNote: u.paymentNote || ''
+      _id: u._id, email: u.email, role: u.role,
+      isVerified: u.isVerified, analysisCount: u.analysisCount,
+      subscribed: u.subscribed, banned: u.banned || false,
+      createdAt: u.createdAt, online: !!activeSessions[u._id]
     })));
   } catch(e) { res.json({ error: e.message }); }
 });
@@ -508,20 +309,8 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
       verified: users.filter(u => u.isVerified).length,
       subscribed: users.filter(u => u.subscribed).length,
       banned: users.filter(u => u.banned).length,
-      online: Object.keys(activeSessions).length,
-      paid: users.filter(u => u.paymentStatus === 'paid').length,
-      pending: users.filter(u => u.paymentStatus !== 'paid').length
+      online: Object.keys(activeSessions).length
     });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.get('/admin/feedback', checkAdmin, async (req, res) => {
-  try {
-    const feedbacks = await db.findAsync({ type: 'feedback' });
-    const tp = feedbacks.filter(f => f.result === 'tp').length;
-    const sl = feedbacks.filter(f => f.result === 'sl').length;
-    const winrate = (tp + sl) > 0 ? ((tp / (tp + sl)) * 100).toFixed(1) : 0;
-    res.json({ total: feedbacks.length, tp, sl, pending: feedbacks.filter(f => f.result === 'pending').length, winrate });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -538,56 +327,25 @@ app.post('/admin/ban/:id', checkAdmin, async (req, res) => {
 
 app.post('/admin/restrict/:id', checkAdmin, async (req, res) => {
   try {
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisCount: 0, analysisMax: 0, subscribed: false } }, {});
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisCount: 99, subscribed: false } }, {});
     res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/admin/add-one/:id', checkAdmin, async (req, res) => {
-  try {
-    const user = await db.findOneAsync({ _id: req.params.id });
-    if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = (user.analysisMax || 0) + 1;
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
-  try {
-    const user = await db.findOneAsync({ _id: req.params.id });
-    if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = Math.max(0, (user.analysisMax || 0) - 1);
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
 });
 
 app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
   try {
-    const n = parseInt(req.body.amount) || 10;
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = (user.analysisMax || 0) + n;
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
-  try {
-    const n = parseInt(req.body.amount) || 10;
-    const user = await db.findOneAsync({ _id: req.params.id });
-    if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = Math.max(0, (user.analysisMax || 0) - n);
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisCount: 0 } }, {});
+    res.json({ success: true, newCount: 0 });
   } catch(e) { res.json({ error: e.message }); }
 });
 
 app.post('/admin/kick/:id', checkAdmin, async (req, res) => {
-  try { delete activeSessions[req.params.id]; res.json({ success: true }); }
-  catch(e) { res.json({ error: e.message }); }
+  try {
+    delete activeSessions[req.params.id];
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
 });
 
 app.post('/admin/subscribe/:id', checkAdmin, async (req, res) => {
@@ -600,29 +358,8 @@ app.post('/admin/subscribe/:id', checkAdmin, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
-  try {
-    const { status, plan, note } = req.body;
-    const updateData = { paymentStatus: status, paymentNote: note || '' };
-    if (status === 'paid') {
-      updateData.subscribed = true;
-      updateData.plan = plan || 'starter';
-      updateData.paymentDate = new Date();
-      updateData.analysisMax = { starter: 30, pro: 150, elite: 999999 }[plan] || 30;
-      updateData.analysisCount = 0;
-    } else if (status === 'unpaid') {
-      updateData.subscribed = false;
-      updateData.plan = 'free';
-      updateData.analysisMax = 0;
-      delete activeSessions[req.params.id];
-    }
-    await db.updateAsync({ _id: req.params.id }, { $set: updateData }, {});
-    res.json({ success: true });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
 if (!fs.existsSync(path.join(__dirname, 'uploads'))) fs.mkdirSync(path.join(__dirname, 'uploads'));
+
 app.listen(port, () => {
-  console.log('✅ Serveur J4keIA lancé sur http://localhost:' + port);
-  startScheduler();
+  console.log('✅ Serveur lancé sur http://localhost:' + port);
 });
