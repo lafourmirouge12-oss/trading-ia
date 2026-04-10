@@ -117,7 +117,7 @@ app.post('/register', async (req, res) => {
     const verifyUrl = BASE_URL + '/verify/' + token;
     try {
       await transporter.sendMail({
-        from: '"AI-Mazza" <' + process.env.BREVO_USER + '>',
+        from: '"AI-Mazza" <' + process.env.BREVO_SENDER + '>',
         to: email,
         subject: '✅ Confirmez votre compte AI-Mazza',
         html: `
@@ -158,7 +158,7 @@ app.post('/resend-email', async (req, res) => {
     await db.updateAsync({ email: email.toLowerCase() }, { $set: { verifyToken: token } }, {});
     const verifyUrl = BASE_URL + '/verify/' + token;
     await transporter.sendMail({
-      from: '"AI-Mazza" <' + process.env.BREVO_USER + '>',
+      from: '"AI-Mazza" <' + process.env.BREVO_SENDER + '>',
       to: email,
       subject: '✅ Nouveau lien de confirmation — AI-Mazza',
       html: `
