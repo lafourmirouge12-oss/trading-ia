@@ -53,6 +53,26 @@ function checkAdmin(req, res, next) {
   next();
 }
 
+// Fonction pour calculer si un user peut analyser
+function canAnalyze(user) {
+  if (user.role === 'admin') return true;
+  if (user.subscribed) return true;
+  // analysisMax défini explicitement
+  if (typeof user.analysisMax === 'number') {
+    return user.analysisCount < user.analysisMax;
+  }
+  // Ancien compte sans analysisMax — limite par défaut 2
+  return user.analysisCount < 2;
+}
+
+function analysesRestantes(user) {
+  if (user.role === 'admin' || user.subscribed) return undefined;
+  if (typeof user.analysisMax === 'number') {
+    return Math.max(0, user.analysisMax - (user.analysisCount || 0));
+  }
+  return Math.max(0, 2 - (user.analysisCount || 0));
+}
+
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
@@ -234,8 +254,8 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         req.session.destroy();
         return res.status(401).json({ error: 'session_conflict' });
       }
-      const max = user.analysisMax || 2;
-      if (user.analysisCount >= max) {
+      // VÉRIFICATION LIMITE — robuste pour anciens et nouveaux comptes
+      if (!canAnalyze(user)) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         return res.json({ limitReached: true, redirect: '/abonnement.html' });
       }
@@ -304,9 +324,7 @@ RÈGLES ABSOLUES:
     }
 
     if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
-    const newCount = user.role === 'admin' ? 0 : user.analysisCount + 1;
-    const max = user.analysisMax || 2;
-    const analysesLeft = user.role === 'admin' ? undefined : Math.max(0, max - newCount);
+    const analysesLeft = analysesRestantes(user);
 
     res.json({ ...parsed, analysesLeft, analysisId: uuidv4() });
 
@@ -324,7 +342,7 @@ app.get('/admin/users', checkAdmin, async (req, res) => {
       _id: u._id, email: u.email, role: u.role,
       isVerified: u.isVerified,
       analysisCount: u.analysisCount || 0,
-      analysisMax: u.analysisMax || 2,
+      analysisMax: typeof u.analysisMax === 'number' ? u.analysisMax : 2,
       subscribed: u.subscribed,
       banned: u.banned || false,
       paymentStatus: u.paymentStatus || 'pending',
@@ -354,7 +372,8 @@ app.post('/admin/add-one/:id', checkAdmin, async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = (user.analysisMax || 2) + 1;
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    const newMax = current + 1;
     await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
     res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
@@ -364,7 +383,8 @@ app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = Math.max(0, (user.analysisMax || 2) - 1);
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    const newMax = Math.max(0, current - 1);
     await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
     res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
@@ -375,7 +395,8 @@ app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
     const n = parseInt(req.body.amount) || 10;
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = (user.analysisMax || 2) + n;
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    const newMax = current + n;
     await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
     res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
@@ -386,7 +407,8 @@ app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
     const n = parseInt(req.body.amount) || 10;
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
-    const newMax = Math.max(0, (user.analysisMax || 2) - n);
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    const newMax = Math.max(0, current - n);
     await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
     res.json({ success: true, analysisMax: newMax });
   } catch(e) { res.json({ error: e.message }); }
