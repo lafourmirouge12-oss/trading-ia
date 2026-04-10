@@ -2,7 +2,9 @@
   "name": "trading-ia",
   "version": "1.0.0",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.0",
     "@seald-io/nedb": "^4.1.2",
@@ -13,6 +15,7 @@
     "memorystore": "^1.6.7",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.6.9",
+    "nodemailer": "^8.0.5",
     "uuid": "^9.0.0",
     "web-push": "^3.6.7"
   }
