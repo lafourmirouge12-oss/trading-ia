@@ -53,15 +53,12 @@ function checkAdmin(req, res, next) {
   next();
 }
 
-// Fonction pour calculer si un user peut analyser
 function canAnalyze(user) {
   if (user.role === 'admin') return true;
   if (user.subscribed) return true;
-  // analysisMax défini explicitement
   if (typeof user.analysisMax === 'number') {
     return user.analysisCount < user.analysisMax;
   }
-  // Ancien compte sans analysisMax — limite par défaut 2
   return user.analysisCount < 2;
 }
 
@@ -254,7 +251,6 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         req.session.destroy();
         return res.status(401).json({ error: 'session_conflict' });
       }
-      // VÉRIFICATION LIMITE — robuste pour anciens et nouveaux comptes
       if (!canAnalyze(user)) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         return res.json({ limitReached: true, redirect: '/abonnement.html' });
@@ -295,9 +291,9 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
   "liquidite": "<zones de liquidité>",
   "confluences": "<confluences Smart Money>",
   "invalidation": "<niveau d'invalidation du setup>",
-  "lots": ${capital ? `<taille de position en lots sur $${capital} avec risque adapté au score>` : 'null'},
-  "risquePct": ${capital ? '<1% si score<6, 2% si score 6-7, 3% si score>=8>' : 'null'},
-  "montantRisque": ${capital ? `<montant risqué en dollars sur $${capital}>` : 'null'},
+  "lots": ${capital ? `<calcule la taille de position: montant_risque = $${capital} × risquePct / 100. Pour XAU/USD: lots = montant_risque / (slPips × 1). Pour Forex majeur: lots = montant_risque / (slPips × 10). Arrondis à 2 décimales. Maximum 1.00 lot si capital < $1000>` : 'null'},
+  "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
+  "montantRisque": ${capital ? `<montant risqué: $${capital} × risquePct / 100, arrondi à 2 décimales>` : 'null'},
   "capital": ${capital || 0}
 }
 
