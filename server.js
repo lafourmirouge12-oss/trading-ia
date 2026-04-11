@@ -56,18 +56,47 @@ function checkAdmin(req, res, next) {
 function canAnalyze(user) {
   if (user.role === 'admin') return true;
   if (user.subscribed) return true;
-  if (typeof user.analysisMax === 'number') {
-    return user.analysisCount < user.analysisMax;
-  }
+  if (typeof user.analysisMax === 'number') return user.analysisCount < user.analysisMax;
   return user.analysisCount < 2;
 }
 
 function analysesRestantes(user) {
   if (user.role === 'admin' || user.subscribed) return undefined;
-  if (typeof user.analysisMax === 'number') {
-    return Math.max(0, user.analysisMax - (user.analysisCount || 0));
-  }
+  if (typeof user.analysisMax === 'number') return Math.max(0, user.analysisMax - (user.analysisCount || 0));
   return Math.max(0, 2 - (user.analysisCount || 0));
+}
+
+// ─── CALCUL LOTS CÔTÉ SERVEUR ─────────────────────────────────────
+function calculerLots(capital, risquePct, slPips, instrument) {
+  if (!capital || !slPips || slPips <= 0) return null;
+  const montantRisque = capital * risquePct / 100;
+  const inst = (instrument || '').toUpperCase();
+
+  let valeurPipParLot;
+
+  if (inst.includes('XAU') || inst.includes('GOLD')) {
+    // XAU/USD : 1 lot = 100 onces, pip = $0.01, valeur pip = $1 par lot
+    valeurPipParLot = 1;
+  } else if (inst.includes('JPY')) {
+    // Paires JPY : valeur pip = $9.09 par lot standard
+    valeurPipParLot = 9.09;
+  } else if (inst.includes('XAG') || inst.includes('SILVER')) {
+    // XAG/USD : valeur pip = $0.50 par lot
+    valeurPipParLot = 0.5;
+  } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
+    // Nasdaq : valeur pip = $1 par lot
+    valeurPipParLot = 1;
+  } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
+    // S&P500 : valeur pip = $1 par lot
+    valeurPipParLot = 1;
+  } else {
+    // Forex majeur par défaut : valeur pip = $10 par lot standard
+    valeurPipParLot = 10;
+  }
+
+  const lots = montantRisque / (slPips * valeurPipParLot);
+  // Arrondi à 2 décimales, minimum 0.01
+  return Math.max(0.01, Math.round(lots * 100) / 100);
 }
 
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
@@ -291,9 +320,9 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
   "liquidite": "<zones de liquidité>",
   "confluences": "<confluences Smart Money>",
   "invalidation": "<niveau d'invalidation du setup>",
-  "lots": ${capital ? `<calcule la taille de position: montant_risque = $${capital} × risquePct / 100. Pour XAU/USD: lots = montant_risque / (slPips × 1). Pour Forex majeur: lots = montant_risque / (slPips × 10). Arrondis à 2 décimales. Maximum 1.00 lot si capital < $1000>` : 'null'},
+  "instrument": "<nom exact de l'instrument ex: XAUUSD, EURUSD, GBPUSD, NAS100>",
   "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
-  "montantRisque": ${capital ? `<montant risqué: $${capital} × risquePct / 100, arrondi à 2 décimales>` : 'null'},
+  "montantRisque": ${capital ? `<montant risqué en dollars: $${capital} × risquePct / 100, arrondi à 2 décimales>` : 'null'},
   "capital": ${capital || 0}
 }
 
@@ -317,6 +346,12 @@ RÈGLES ABSOLUES:
       parsed = JSON.parse(clean);
     } catch(e) {
       return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
+    }
+
+    // ─── CALCUL LOTS CÔTÉ SERVEUR ──────────────────────────────
+    if (capital && parsed.slPips && parsed.risquePct) {
+      parsed.lots = calculerLots(capital, parsed.risquePct, parsed.slPips, parsed.instrument || '');
+      parsed.montantRisque = (capital * parsed.risquePct / 100).toFixed(2);
     }
 
     if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
@@ -369,9 +404,8 @@ app.post('/admin/add-one/:id', checkAdmin, async (req, res) => {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
     const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
-    const newMax = current + 1;
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: current + 1 } }, {});
+    res.json({ success: true, analysisMax: current + 1 });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -380,9 +414,8 @@ app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
     const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
-    const newMax = Math.max(0, current - 1);
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: Math.max(0, current - 1) } }, {});
+    res.json({ success: true, analysisMax: Math.max(0, current - 1) });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -392,9 +425,8 @@ app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
     const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
-    const newMax = current + n;
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: current + n } }, {});
+    res.json({ success: true, analysisMax: current + n });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -404,9 +436,8 @@ app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
     const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
-    const newMax = Math.max(0, current - n);
-    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: newMax } }, {});
-    res.json({ success: true, analysisMax: newMax });
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: Math.max(0, current - n) } }, {});
+    res.json({ success: true, analysisMax: Math.max(0, current - n) });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -416,9 +447,8 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
     const subscribed = status === 'paid';
-    const analysisMax = subscribed ? 999999 : 2;
     await db.updateAsync({ _id: req.params.id }, {
-      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax }
+      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax: subscribed ? 999999 : 2 }
     }, {});
     res.json({ success: true });
   } catch(e) { res.json({ error: e.message }); }
