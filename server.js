@@ -66,36 +66,25 @@ function analysesRestantes(user) {
   return Math.max(0, 2 - (user.analysisCount || 0));
 }
 
-// ─── CALCUL LOTS CÔTÉ SERVEUR ─────────────────────────────────────
 function calculerLots(capital, risquePct, slPips, instrument) {
   if (!capital || !slPips || slPips <= 0) return null;
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
-
   let valeurPipParLot;
-
   if (inst.includes('XAU') || inst.includes('GOLD')) {
-    // XAU/USD : 1 lot = 100 onces, pip = $0.01, valeur pip = $1 par lot
     valeurPipParLot = 1;
   } else if (inst.includes('JPY')) {
-    // Paires JPY : valeur pip = $9.09 par lot standard
     valeurPipParLot = 9.09;
   } else if (inst.includes('XAG') || inst.includes('SILVER')) {
-    // XAG/USD : valeur pip = $0.50 par lot
     valeurPipParLot = 0.5;
   } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
-    // Nasdaq : valeur pip = $1 par lot
     valeurPipParLot = 1;
   } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
-    // S&P500 : valeur pip = $1 par lot
     valeurPipParLot = 1;
   } else {
-    // Forex majeur par défaut : valeur pip = $10 par lot standard
     valeurPipParLot = 10;
   }
-
   const lots = montantRisque / (slPips * valeurPipParLot);
-  // Arrondi à 2 décimales, minimum 0.01
   return Math.max(0.01, Math.round(lots * 100) / 100);
 }
 
@@ -108,7 +97,6 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── SETUP ADMINS ─────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -129,7 +117,6 @@ app.get('/setup-admin', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── VÉRIFICATION MANUELLE ────────────────────────────────────────
 app.get('/verify-manual/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase();
@@ -142,7 +129,6 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── INSCRIPTION ──────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -184,7 +170,6 @@ app.post('/register', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
 });
 
-// ─── VÉRIFICATION EMAIL ───────────────────────────────────────────
 app.get('/verify/:token', async (req, res) => {
   try {
     const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
@@ -193,7 +178,6 @@ app.get('/verify/:token', async (req, res) => {
   } catch(e) { res.redirect('/login.html?error=1'); }
 });
 
-// ─── RENVOI EMAIL ─────────────────────────────────────────────────
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
   try {
@@ -220,7 +204,6 @@ app.post('/resend-email', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
 });
 
-// ─── CONNEXION ────────────────────────────────────────────────────
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -242,13 +225,11 @@ app.post('/login', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
 
-// ─── DÉCONNEXION ──────────────────────────────────────────────────
 app.get('/logout', (req, res) => {
   if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
   req.session.destroy(() => res.redirect('/login.html'));
 });
 
-// ─── INFOS USER ───────────────────────────────────────────────────
 app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
@@ -265,7 +246,6 @@ app.get('/me', checkAuth, async (req, res) => {
   res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount, analysisMax: user.analysisMax, subscribed: user.subscribed });
 });
 
-// ─── ANALYSE ──────────────────────────────────────────────────────
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -343,12 +323,13 @@ RÈGLES ABSOLUES:
     try {
       const text = response.content[0].text.trim();
       const clean = text.replace(/```json|```/g, '').trim();
-      parsed = JSON.parse(clean);
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Pas de JSON trouvé');
+      parsed = JSON.parse(jsonMatch[0]);
     } catch(e) {
       return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
-    // ─── CALCUL LOTS CÔTÉ SERVEUR ──────────────────────────────
     if (capital && parsed.slPips && parsed.risquePct) {
       parsed.lots = calculerLots(capital, parsed.risquePct, parsed.slPips, parsed.instrument || '');
       parsed.montantRisque = (capital * parsed.risquePct / 100).toFixed(2);
@@ -365,7 +346,6 @@ RÈGLES ABSOLUES:
   }
 });
 
-// ─── ADMIN ROUTES ─────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
