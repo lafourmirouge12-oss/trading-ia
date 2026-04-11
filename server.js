@@ -72,7 +72,7 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   const inst = (instrument || '').toUpperCase();
   let valeurPipParLot;
   if (inst.includes('XAU') || inst.includes('GOLD')) {
-    valeurPipParLot = 1;
+    valeurPipParLot = 10;
   } else if (inst.includes('JPY')) {
     valeurPipParLot = 9.09;
   } else if (inst.includes('XAG') || inst.includes('SILVER')) {
