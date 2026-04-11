@@ -71,12 +71,11 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
   let valeurPipParLot;
-  if (inst.includes('XAU') || inst.includes('GOLD')) {
-    valeurPipParLot = 10;
+
+  if (inst.includes('XAG') || inst.includes('SILVER')) {
+    valeurPipParLot = 50;
   } else if (inst.includes('JPY')) {
     valeurPipParLot = 9.09;
-  } else if (inst.includes('XAG') || inst.includes('SILVER')) {
-    valeurPipParLot = 0.5;
   } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
     valeurPipParLot = 1;
   } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
@@ -84,6 +83,7 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   } else {
     valeurPipParLot = 10;
   }
+
   const lots = montantRisque / (slPips * valeurPipParLot);
   return Math.max(0.01, Math.round(lots * 100) / 100);
 }
@@ -290,11 +290,13 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
   "tendance": "<description courte de la tendance>",
   "entree": "<prix d'entrée précis>",
   "sl": "<stop loss précis>",
-  "slPips": <nombre de pips du SL>,
-  "tp1": "<take profit 1 minimum RR 1:2>",
-  "tp1Pips": <pips tp1>,
-  "tp2": "<take profit 2 RR 1:3>",
-  "tp3": "<take profit 3 RR 1:4>",
+  "slPips": <distance en pips entre entrée et SL>,
+  "tp1": "<take profit 1>",
+  "tp1Pips": <slPips × 2>,
+  "tp2": "<take profit 2>",
+  "tp2Pips": <slPips × 3>,
+  "tp3": "<take profit 3>",
+  "tp3Pips": <slPips × 4>,
   "ob": "<order block détecté>",
   "fvg": "<fair value gap détecté>",
   "liquidite": "<zones de liquidité>",
@@ -302,13 +304,14 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
   "invalidation": "<niveau d'invalidation du setup>",
   "instrument": "<nom exact de l'instrument ex: XAUUSD, EURUSD, GBPUSD, NAS100>",
   "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
-  "montantRisque": ${capital ? `<montant risqué en dollars: $${capital} × risquePct / 100, arrondi à 2 décimales>` : 'null'},
+  "montantRisque": ${capital ? `<$${capital} × risquePct / 100>` : 'null'},
   "capital": ${capital || 0}
 }
 
 RÈGLES ABSOLUES:
-- Le Take Profit MINIMUM est toujours RR 1:2 (si SL = 20 pips, TP1 = minimum 40 pips)
-- RR 1:3 pour TP2 et RR 1:4 pour TP3
+- TP1 = entrée + (slPips × 2) pour BUY, entrée - (slPips × 2) pour SELL — RR minimum 1:2
+- TP2 = entrée + (slPips × 3) — RR 1:3
+- TP3 = entrée + (slPips × 4) — RR 1:4
 - score 8-10 = setup excellent
 - score 6-7 = setup moyen
 - score 0-5 = NE PAS TRADER
@@ -330,6 +333,24 @@ RÈGLES ABSOLUES:
       return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
+    // ─── FORCER RR CÔTÉ SERVEUR ───────────────────────────────
+    if (parsed.entree && parsed.sl) {
+      const entree = parseFloat(parsed.entree);
+      const sl = parseFloat(parsed.sl);
+      if (entree && sl) {
+        const distanceSL = Math.abs(entree - sl);
+        const isBuy = parsed.decision === 'BUY';
+        parsed.tp1 = isBuy ? (entree + distanceSL * 2).toFixed(2) : (entree - distanceSL * 2).toFixed(2);
+        parsed.tp2 = isBuy ? (entree + distanceSL * 3).toFixed(2) : (entree - distanceSL * 3).toFixed(2);
+        parsed.tp3 = isBuy ? (entree + distanceSL * 4).toFixed(2) : (entree - distanceSL * 4).toFixed(2);
+        parsed.tp1Pips = Math.round(distanceSL * 2 * 10) / 10;
+        parsed.tp2Pips = Math.round(distanceSL * 3 * 10) / 10;
+        parsed.tp3Pips = Math.round(distanceSL * 4 * 10) / 10;
+        parsed.slPips = Math.round(distanceSL * 10) / 10;
+      }
+    }
+
+    // ─── CALCUL LOTS CÔTÉ SERVEUR ─────────────────────────────
     if (capital && parsed.slPips && parsed.risquePct) {
       parsed.lots = calculerLots(capital, parsed.risquePct, parsed.slPips, parsed.instrument || '');
       parsed.montantRisque = (capital * parsed.risquePct / 100).toFixed(2);
