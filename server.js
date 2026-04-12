@@ -53,7 +53,6 @@ function checkAdmin(req, res, next) {
   next();
 }
 
-// ─── VÉRIF PAIEMENT EN RETARD ────────────────────────────────────
 function isPaiementEnRetard(user) {
   if (user.role === 'admin') return false;
   if (!user.subscribed) return false;
@@ -75,7 +74,6 @@ function analysesRestantes(user) {
   return Math.max(0, 2 - (user.analysisCount || 0));
 }
 
-// ─── CALCUL LOTS CÔTÉ SERVEUR ─────────────────────────────────────
 function calculerLots(capital, risquePct, slPips, instrument) {
   if (!capital || !slPips || slPips <= 0) return null;
   const montantRisque = capital * risquePct / 100;
@@ -105,7 +103,6 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── SETUP ADMINS ─────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -126,7 +123,6 @@ app.get('/setup-admin', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── VÉRIFICATION MANUELLE ────────────────────────────────────────
 app.get('/verify-manual/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase();
@@ -139,7 +135,6 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── INSCRIPTION ──────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -163,15 +158,14 @@ app.post('/register', async (req, res) => {
         from: '"AI-Mazza" <' + process.env.BREVO_SENDER + '>',
         to: email,
         subject: '✅ Confirmez votre compte AI-Mazza',
-        html: `
-          <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
-            <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
-            <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
-            <p style="color:rgba(255,255,255,0.8);margin-bottom:8px;">Bienvenue !</p>
-            <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour activer vos <strong style="color:#00f5ff;">2 analyses gratuites</strong>.</p>
-            <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
-            <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
-          </div>`
+        html: `<div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
+          <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+          <p style="color:rgba(255,255,255,0.8);margin-bottom:8px;">Bienvenue !</p>
+          <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour activer vos <strong style="color:#00f5ff;">2 analyses gratuites</strong>.</p>
+          <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
+          <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
+        </div>`
       });
       res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
     } catch(e) {
@@ -181,7 +175,6 @@ app.post('/register', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
 });
 
-// ─── VÉRIFICATION EMAIL ───────────────────────────────────────────
 app.get('/verify/:token', async (req, res) => {
   try {
     const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
@@ -190,7 +183,6 @@ app.get('/verify/:token', async (req, res) => {
   } catch(e) { res.redirect('/login.html?error=1'); }
 });
 
-// ─── RENVOI EMAIL ─────────────────────────────────────────────────
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
   try {
@@ -204,20 +196,17 @@ app.post('/resend-email', async (req, res) => {
       from: '"AI-Mazza" <' + process.env.BREVO_SENDER + '>',
       to: email,
       subject: '✅ Nouveau lien de confirmation — AI-Mazza',
-      html: `
-        <div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
-          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
-          <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
-          <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Voici votre nouveau lien de confirmation :</p>
-          <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
-          <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
-        </div>`
+      html: `<div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+        <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
+        <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+        <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
+        <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
+      </div>`
     });
     res.json({ success: 'Email renvoyé ! Vérifiez votre boîte mail.' });
   } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
 });
 
-// ─── CONNEXION ────────────────────────────────────────────────────
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -239,13 +228,11 @@ app.post('/login', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
 
-// ─── DÉCONNEXION ──────────────────────────────────────────────────
 app.get('/logout', (req, res) => {
   if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
   req.session.destroy(() => res.redirect('/login.html'));
 });
 
-// ─── INFOS USER ───────────────────────────────────────────────────
 app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
@@ -260,8 +247,7 @@ app.get('/me', checkAuth, async (req, res) => {
     }
   }
   res.json({
-    email: user.email,
-    role: user.role,
+    email: user.email, role: user.role,
     analysisCount: user.analysisCount,
     analysisMax: user.analysisMax,
     subscribed: user.subscribed,
@@ -270,7 +256,6 @@ app.get('/me', checkAuth, async (req, res) => {
   });
 });
 
-// ─── ANALYSE ──────────────────────────────────────────────────────
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -287,7 +272,7 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
       }
       if (isPaiementEnRetard(user)) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-        return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme pour accéder aux analyses.' });
+        return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme.' });
       }
       if (!canAnalyze(user)) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -338,9 +323,9 @@ Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans text
 }
 
 RÈGLES ABSOLUES:
-- TP1 = entrée + (slPips × 2) pour BUY, entrée - (slPips × 2) pour SELL — RR minimum 1:2
-- TP2 = entrée + (slPips × 3) — RR 1:3
-- TP3 = entrée + (slPips × 4) — RR 1:4
+- Pour BUY: SL en dessous de l'entrée, TP au dessus de l'entrée
+- Pour SELL: SL au dessus de l'entrée, TP en dessous de l'entrée
+- TP1 = RR minimum 1:2, TP2 = RR 1:3, TP3 = RR 1:4
 - score 8-10 = setup excellent
 - score 6-7 = setup moyen
 - score 0-5 = NE PAS TRADER
@@ -362,20 +347,28 @@ RÈGLES ABSOLUES:
       return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
-    // ─── FORCER RR CÔTÉ SERVEUR ───────────────────────────────
+    // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR ─────────────────
     if (parsed.entree && parsed.sl) {
       const entree = parseFloat(parsed.entree);
       const sl = parseFloat(parsed.sl);
       if (entree && sl) {
-        const distanceSL = Math.abs(entree - sl);
         const isBuy = parsed.decision === 'BUY';
-        parsed.tp1 = isBuy ? (entree + distanceSL * 2).toFixed(2) : (entree - distanceSL * 2).toFixed(2);
-        parsed.tp2 = isBuy ? (entree + distanceSL * 3).toFixed(2) : (entree - distanceSL * 3).toFixed(2);
-        parsed.tp3 = isBuy ? (entree + distanceSL * 4).toFixed(2) : (entree - distanceSL * 4).toFixed(2);
-        parsed.tp1Pips = Math.round(distanceSL * 2 * 10) / 10;
-        parsed.tp2Pips = Math.round(distanceSL * 3 * 10) / 10;
-        parsed.tp3Pips = Math.round(distanceSL * 4 * 10) / 10;
-        parsed.slPips = Math.round(distanceSL * 10) / 10;
+        const distanceSL = Math.abs(entree - sl);
+
+        // Corriger SL si mauvais côté
+        if (isBuy && sl > entree) parsed.sl = (entree - distanceSL).toFixed(2);
+        if (!isBuy && sl < entree) parsed.sl = (entree + distanceSL).toFixed(2);
+
+        const dist = distanceSL;
+
+        // Calculer TP dans la bonne direction
+        parsed.tp1 = isBuy ? (entree + dist * 2).toFixed(2) : (entree - dist * 2).toFixed(2);
+        parsed.tp2 = isBuy ? (entree + dist * 3).toFixed(2) : (entree - dist * 3).toFixed(2);
+        parsed.tp3 = isBuy ? (entree + dist * 4).toFixed(2) : (entree - dist * 4).toFixed(2);
+        parsed.tp1Pips = Math.round(dist * 2 * 10) / 10;
+        parsed.tp2Pips = Math.round(dist * 3 * 10) / 10;
+        parsed.tp3Pips = Math.round(dist * 4 * 10) / 10;
+        parsed.slPips = Math.round(dist * 10) / 10;
       }
     }
 
@@ -396,10 +389,7 @@ RÈGLES ABSOLUES:
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// ─── ADMIN ROUTES ──────────────────────────────────────
-// ═══════════════════════════════════════════════════════
-
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
@@ -436,14 +426,12 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// Paiement — Starter=30, Premium=150, Elite=300
 app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
   try {
     const { status, plan, note } = req.body;
     const user = await db.findOneAsync({ _id: req.params.id });
     if (!user) return res.json({ error: 'Introuvable' });
     const subscribed = status === 'paid';
-
     let analysisMax = 2;
     if (subscribed) {
       if (plan === 'starter') analysisMax = 30;
@@ -451,7 +439,6 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
       else if (plan === 'elite') analysisMax = 300;
       else analysisMax = 30;
     }
-
     let paidUntil = null;
     if (subscribed) {
       const now = new Date();
@@ -462,17 +449,8 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
       nextSunday.setHours(23, 59, 59, 999);
       paidUntil = nextSunday.toISOString();
     }
-
     await db.updateAsync({ _id: req.params.id }, {
-      $set: {
-        paymentStatus: status,
-        plan: subscribed ? plan : 'free',
-        paymentNote: note || '',
-        subscribed,
-        analysisMax,
-        analysisCount: 0,
-        paidUntil
-      }
+      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax, analysisCount: 0, paidUntil }
     }, {});
     res.json({ success: true, paidUntil, analysisMax });
   } catch(e) { res.json({ error: e.message }); }
