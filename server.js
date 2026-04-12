@@ -348,27 +348,30 @@ RÈGLES ABSOLUES:
     }
 
     // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR ─────────────────
-    if (parsed.entree && parsed.sl) {
+    if (parsed.entree && parsed.sl && parsed.decision !== 'NE PAS TRADER') {
       const entree = parseFloat(parsed.entree);
       const sl = parseFloat(parsed.sl);
+      const isBuy = parsed.decision === 'BUY';
+
       if (entree && sl) {
-        const isBuy = parsed.decision === 'BUY';
-        const distanceSL = Math.abs(entree - sl);
+        const dist = Math.abs(entree - sl);
 
-        // Corriger SL si mauvais côté
-        if (isBuy && sl > entree) parsed.sl = (entree - distanceSL).toFixed(2);
-        if (!isBuy && sl < entree) parsed.sl = (entree + distanceSL).toFixed(2);
+        // FORCER SL du bon côté TOUJOURS
+        const slCorrige = isBuy ? entree - dist : entree + dist;
 
-        const dist = distanceSL;
+        // FORCER TP dans la bonne direction TOUJOURS
+        const tp1 = isBuy ? entree + dist * 2 : entree - dist * 2;
+        const tp2 = isBuy ? entree + dist * 3 : entree - dist * 3;
+        const tp3 = isBuy ? entree + dist * 4 : entree - dist * 4;
 
-        // Calculer TP dans la bonne direction
-        parsed.tp1 = isBuy ? (entree + dist * 2).toFixed(2) : (entree - dist * 2).toFixed(2);
-        parsed.tp2 = isBuy ? (entree + dist * 3).toFixed(2) : (entree - dist * 3).toFixed(2);
-        parsed.tp3 = isBuy ? (entree + dist * 4).toFixed(2) : (entree - dist * 4).toFixed(2);
+        parsed.sl = slCorrige.toFixed(2);
+        parsed.tp1 = tp1.toFixed(2);
+        parsed.tp2 = tp2.toFixed(2);
+        parsed.tp3 = tp3.toFixed(2);
+        parsed.slPips = Math.round(dist * 10) / 10;
         parsed.tp1Pips = Math.round(dist * 2 * 10) / 10;
         parsed.tp2Pips = Math.round(dist * 3 * 10) / 10;
         parsed.tp3Pips = Math.round(dist * 4 * 10) / 10;
-        parsed.slPips = Math.round(dist * 10) / 10;
       }
     }
 
@@ -389,7 +392,6 @@ RÈGLES ABSOLUES:
   }
 });
 
-// ─── ADMIN ROUTES ─────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
