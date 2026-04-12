@@ -53,8 +53,17 @@ function checkAdmin(req, res, next) {
   next();
 }
 
+// ─── VÉRIF PAIEMENT EN RETARD ────────────────────────────────────
+function isPaiementEnRetard(user) {
+  if (user.role === 'admin') return false;
+  if (!user.subscribed) return false;
+  if (!user.paidUntil) return true;
+  return new Date() > new Date(user.paidUntil);
+}
+
 function canAnalyze(user) {
   if (user.role === 'admin') return true;
+  if (isPaiementEnRetard(user)) return false;
   if (user.subscribed) return true;
   if (typeof user.analysisMax === 'number') return user.analysisCount < user.analysisMax;
   return user.analysisCount < 2;
@@ -66,12 +75,12 @@ function analysesRestantes(user) {
   return Math.max(0, 2 - (user.analysisCount || 0));
 }
 
+// ─── CALCUL LOTS CÔTÉ SERVEUR ─────────────────────────────────────
 function calculerLots(capital, risquePct, slPips, instrument) {
   if (!capital || !slPips || slPips <= 0) return null;
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
   let valeurPipParLot;
-
   if (inst.includes('XAG') || inst.includes('SILVER')) {
     valeurPipParLot = 50;
   } else if (inst.includes('JPY')) {
@@ -83,7 +92,6 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   } else {
     valeurPipParLot = 10;
   }
-
   const lots = montantRisque / (slPips * valeurPipParLot);
   return Math.max(0.01, Math.round(lots * 100) / 100);
 }
@@ -97,6 +105,7 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ─── SETUP ADMINS ─────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -117,6 +126,7 @@ app.get('/setup-admin', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
+// ─── VÉRIFICATION MANUELLE ────────────────────────────────────────
 app.get('/verify-manual/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase();
@@ -129,6 +139,7 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
+// ─── INSCRIPTION ──────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -170,6 +181,7 @@ app.post('/register', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
 });
 
+// ─── VÉRIFICATION EMAIL ───────────────────────────────────────────
 app.get('/verify/:token', async (req, res) => {
   try {
     const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
@@ -178,6 +190,7 @@ app.get('/verify/:token', async (req, res) => {
   } catch(e) { res.redirect('/login.html?error=1'); }
 });
 
+// ─── RENVOI EMAIL ─────────────────────────────────────────────────
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
   try {
@@ -204,6 +217,7 @@ app.post('/resend-email', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
 });
 
+// ─── CONNEXION ────────────────────────────────────────────────────
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -225,11 +239,13 @@ app.post('/login', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
 
+// ─── DÉCONNEXION ──────────────────────────────────────────────────
 app.get('/logout', (req, res) => {
   if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
   req.session.destroy(() => res.redirect('/login.html'));
 });
 
+// ─── INFOS USER ───────────────────────────────────────────────────
 app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
@@ -243,9 +259,18 @@ app.get('/me', checkAuth, async (req, res) => {
       return res.status(401).json({ error: 'session_conflict' });
     }
   }
-  res.json({ email: user.email, role: user.role, analysisCount: user.analysisCount, analysisMax: user.analysisMax, subscribed: user.subscribed });
+  res.json({
+    email: user.email,
+    role: user.role,
+    analysisCount: user.analysisCount,
+    analysisMax: user.analysisMax,
+    subscribed: user.subscribed,
+    paiementEnRetard: isPaiementEnRetard(user),
+    paidUntil: user.paidUntil || null
+  });
 });
 
+// ─── ANALYSE ──────────────────────────────────────────────────────
 app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -259,6 +284,10 @@ app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         req.session.destroy();
         return res.status(401).json({ error: 'session_conflict' });
+      }
+      if (isPaiementEnRetard(user)) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme pour accéder aux analyses.' });
       }
       if (!canAnalyze(user)) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -367,6 +396,10 @@ RÈGLES ABSOLUES:
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// ─── ADMIN ROUTES ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════
+
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
@@ -380,6 +413,8 @@ app.get('/admin/users', checkAdmin, async (req, res) => {
       paymentStatus: u.paymentStatus || 'pending',
       paymentNote: u.paymentNote || '',
       plan: u.plan || 'free',
+      paidUntil: u.paidUntil || null,
+      paiementEnRetard: isPaiementEnRetard(u),
       createdAt: u.createdAt,
       online: !!activeSessions[u._id]
     })));
@@ -395,8 +430,51 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
       paid: users.filter(u => u.paymentStatus === 'paid').length,
       pending: users.filter(u => u.paymentStatus === 'pending').length,
       banned: users.filter(u => u.banned).length,
+      enRetard: users.filter(u => isPaiementEnRetard(u)).length,
       online: Object.keys(activeSessions).length
     });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Paiement — Starter=30, Premium=150, Elite=300
+app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
+  try {
+    const { status, plan, note } = req.body;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const subscribed = status === 'paid';
+
+    let analysisMax = 2;
+    if (subscribed) {
+      if (plan === 'starter') analysisMax = 30;
+      else if (plan === 'premium') analysisMax = 150;
+      else if (plan === 'elite') analysisMax = 300;
+      else analysisMax = 30;
+    }
+
+    let paidUntil = null;
+    if (subscribed) {
+      const now = new Date();
+      const nextSunday = new Date(now);
+      const day = now.getDay();
+      const daysUntilSunday = day === 0 ? 7 : 7 - day;
+      nextSunday.setDate(now.getDate() + daysUntilSunday);
+      nextSunday.setHours(23, 59, 59, 999);
+      paidUntil = nextSunday.toISOString();
+    }
+
+    await db.updateAsync({ _id: req.params.id }, {
+      $set: {
+        paymentStatus: status,
+        plan: subscribed ? plan : 'free',
+        paymentNote: note || '',
+        subscribed,
+        analysisMax,
+        analysisCount: 0,
+        paidUntil
+      }
+    }, {});
+    res.json({ success: true, paidUntil, analysisMax });
   } catch(e) { res.json({ error: e.message }); }
 });
 
@@ -439,19 +517,6 @@ app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
     const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
     await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: Math.max(0, current - n) } }, {});
     res.json({ success: true, analysisMax: Math.max(0, current - n) });
-  } catch(e) { res.json({ error: e.message }); }
-});
-
-app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
-  try {
-    const { status, plan, note } = req.body;
-    const user = await db.findOneAsync({ _id: req.params.id });
-    if (!user) return res.json({ error: 'Introuvable' });
-    const subscribed = status === 'paid';
-    await db.updateAsync({ _id: req.params.id }, {
-      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax: subscribed ? 999999 : 2 }
-    }, {});
-    res.json({ success: true });
   } catch(e) { res.json({ error: e.message }); }
 });
 
