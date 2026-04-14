@@ -81,7 +81,6 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
   let valeurPipParLot;
-
   if (inst.includes('XAU') || inst.includes('GOLD')) {
     valeurPipParLot = 100;
   } else if (inst.includes('XAG') || inst.includes('SILVER')) {
@@ -95,7 +94,6 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   } else {
     valeurPipParLot = 10;
   }
-
   const lots = montantRisque / (slPips * valeurPipParLot);
   return Math.max(0.01, Math.round(lots * 100) / 100);
 }
@@ -348,6 +346,13 @@ RÈGLES D'ANALYSE TOP-DOWN:
 - Si les timeframes ne sont pas alignés → NE PAS TRADER obligatoire
 - La confluence entre timeframes augmente le score
 
+DÉTECTION DE MANIPULATION INSTITUTIONNELLE:
+- Analyser si le prix est proche d'une zone de liquidité (equal highs/lows, previous high/low)
+- Détecter si le SL naturel des traders retail est visible et vulnérable
+- Identifier si des mèches récentes indiquent une chasse aux stops
+- Sur XAU/USD: SL minimum 15 pips sous/sur le dernier creux/sommet M15
+- Si zone de manipulation détectée → réduire le score de 1 point et avertir
+
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks:
 
 {
@@ -359,17 +364,19 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans 
   "tendanceM1": "<signal entrée M1>",
   "confluence": "<alignement entre les timeframes>",
   "entree": "<prix d'entrée précis depuis M1>",
-  "sl": "<stop loss précis>",
-  "slPips": <distance en pips entre entrée et SL>,
+  "sl": "<stop loss précis — minimum 15 pips de l'entrée sur XAU/USD>",
+  "slPips": <distance en pips entre entrée et SL — minimum 15 sur XAU/USD>,
   "tp1": "<take profit 1>",
   "tp1Pips": <slPips × 2>,
   "tp2": "<take profit 2>",
   "tp2Pips": <slPips × 3>,
   "tp3": "<take profit 3>",
   "tp3Pips": <slPips × 4>,
+  "manipulation": "OUI" ou "NON",
+  "manipulationDetail": "<explication si OUI: type de manipulation détectée et conseil>",
   "ob": "<order block détecté>",
   "fvg": "<fair value gap détecté>",
-  "liquidite": "<zones de liquidité>",
+  "liquidite": "<zones de liquidité — préciser si dangereuses pour le SL>",
   "confluences": "<confluences Smart Money>",
   "invalidation": "<niveau d'invalidation du setup>",
   "instrument": "<nom exact de l'instrument ex: XAUUSD, EURUSD, GBPUSD, NAS100>",
@@ -449,6 +456,7 @@ RÈGLES ABSOLUES:
       score: parsed.score,
       instrument: parsed.instrument,
       lots: parsed.lots,
+      manipulation: parsed.manipulation,
       feedbackResult: null,
       createdAt: new Date()
     });

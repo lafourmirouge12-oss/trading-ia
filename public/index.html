@@ -20,18 +20,13 @@
     .header{text-align:center;margin-bottom:20px;}
     .badge{font-size:10px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;opacity:0.7;margin-bottom:8px;display:block;}
     h1{font-family:'Orbitron',monospace;font-size:clamp(20px,5vw,44px);font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,#fff,var(--cyan),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-
-    /* BANNIÈRE IMPAYÉ */
     .impaye-banner{width:100%;max-width:700px;margin-bottom:16px;background:rgba(255,48,96,0.08);border:2px solid rgba(255,48,96,0.5);border-radius:4px;padding:16px 20px;display:none;text-align:center;}
     .impaye-banner.show{display:block;}
     .impaye-title{font-family:'Orbitron',monospace;font-size:12px;letter-spacing:3px;color:var(--red);text-transform:uppercase;margin-bottom:8px;}
     .impaye-txt{font-size:14px;color:rgba(255,255,255,0.7);line-height:1.5;}
-
     .counter{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;padding:8px 20px;border-radius:2px;display:none;text-align:center;}
     .counter.ok{color:var(--cyan);background:rgba(0,245,255,0.05);border:1px solid rgba(0,245,255,0.15);}
     .counter.empty{color:var(--red);background:rgba(255,48,96,0.05);border:1px solid rgba(255,48,96,0.2);}
-
-    /* CAPITAL */
     .panel{width:100%;max-width:700px;margin-bottom:16px;}
     .box{background:rgba(0,20,50,0.7);border:1px solid rgba(0,245,255,0.2);border-radius:4px;padding:20px;}
     .box-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:rgba(0,245,255,0.6);text-transform:uppercase;margin-bottom:10px;}
@@ -40,8 +35,6 @@
     .cap-input{flex:1;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:12px 14px;color:#fff;font-family:'Orbitron',monospace;font-size:16px;outline:none;transition:border-color 0.3s;}
     .cap-input:focus{border-color:var(--cyan);}
     .cap-input.err{border-color:var(--red);}
-
-    /* 3 BLOCS TIMEFRAMES */
     .tf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:700px;margin-bottom:16px;}
     .tf-block{background:rgba(0,20,50,0.6);border:1px solid rgba(0,245,255,0.15);border-radius:4px;padding:12px;cursor:pointer;transition:all 0.3s;position:relative;}
     .tf-block:hover{border-color:rgba(0,245,255,0.4);}
@@ -55,15 +48,11 @@
     .tf-check{position:absolute;top:8px;right:8px;width:16px;height:16px;background:var(--green);border-radius:50%;display:none;align-items:center;justify-content:center;font-size:10px;}
     .tf-block.loaded .tf-check{display:flex;}
     .tf-required{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(255,48,96,0.6);text-transform:uppercase;text-align:center;margin-top:4px;}
-
-    /* HUD */
     .hud{display:flex;justify-content:space-between;padding:8px 12px;margin-bottom:16px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.1);border-radius:2px;flex-wrap:wrap;gap:4px;width:100%;max-width:700px;}
     .hud-item{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(0,245,255,0.5);text-transform:uppercase;}
     .hud-item span{color:var(--green);margin-left:4px;}
     .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;animation:blink 2s infinite;}
     @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.3;}}
-
-    /* BOUTON */
     .btn-wrap{width:100%;max-width:320px;margin-bottom:20px;}
     #analyzeBtn{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#fff;background:transparent;border:1px solid rgba(0,245,255,0.4);padding:15px 30px;cursor:pointer;width:100%;transition:all 0.3s;}
     #analyzeBtn:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan);}
@@ -74,8 +63,6 @@
     @keyframes sweep{0%{transform:translateX(-100%);}100%{transform:translateX(350%);}}
     .load-txt{display:none;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-top:8px;text-align:center;animation:blink 1s infinite;}
     .load-txt.on{display:block;}
-
-    /* RÉSULTAT */
     .result{width:100%;max-width:700px;display:none;}
     .result.show{display:block;}
     .dec-block{width:100%;padding:18px;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:clamp(22px,5vw,34px);font-weight:900;letter-spacing:4px;border-radius:4px;margin-bottom:12px;position:relative;}
@@ -87,14 +74,24 @@
     .score-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;}
     .score-val{font-family:'Orbitron',monospace;font-size:24px;font-weight:900;}
     .score-val.high{color:var(--green);}.score-val.mid{color:var(--gold);}.score-val.low{color:var(--red);}
-
-    /* CONFLUENCE TF */
     .tf-conf{background:rgba(0,10,30,0.8);border:1px solid rgba(128,0,255,0.2);border-radius:4px;padding:14px;margin-bottom:12px;}
     .tf-conf-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(128,0,255,0.6);text-transform:uppercase;margin-bottom:10px;}
     .tf-conf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
     .tf-conf-item{text-align:center;padding:8px;background:rgba(128,0,255,0.05);border-radius:2px;}
     .tf-conf-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(128,0,255,0.5);text-transform:uppercase;margin-bottom:4px;}
     .tf-conf-val{font-size:12px;color:rgba(255,255,255,0.7);}
+
+    /* BLOC MANIPULATION */
+    .manip-box{width:100%;border-radius:4px;padding:14px 16px;margin-bottom:12px;display:none;}
+    .manip-box.oui{background:rgba(255,48,96,0.08);border:2px solid rgba(255,48,96,0.5);}
+    .manip-box.non{background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);}
+    .manip-box.show{display:block;}
+    .manip-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+    .manip-icon{font-size:20px;}
+    .manip-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;}
+    .manip-box.oui .manip-title{color:var(--red);}
+    .manip-box.non .manip-title{color:var(--green);}
+    .manip-detail{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;}
 
     .lots-box{background:rgba(0,10,30,0.8);border:2px solid rgba(0,255,136,0.3);border-radius:4px;padding:16px;margin-bottom:12px;text-align:center;}
     .lots-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,255,136,0.6);text-transform:uppercase;margin-bottom:8px;}
@@ -131,8 +128,6 @@
     .cap-main-val{font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:var(--gold);}
     .inval{background:rgba(255,48,96,0.05);border:1px solid rgba(255,48,96,0.15);border-radius:4px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:rgba(255,255,255,0.5);}
     .inval-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,48,96,0.5);text-transform:uppercase;margin-bottom:5px;}
-
-    /* FEEDBACK */
     .fb-panel{width:100%;max-width:700px;margin-bottom:20px;display:none;}
     .fb-panel.show{display:block;}
     .fb-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,0.3);text-transform:uppercase;text-align:center;margin-bottom:10px;}
@@ -147,8 +142,6 @@
     .fb-btn.pend:hover,.fb-btn.pend.sel{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);}
     .fb-thanks{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;text-align:center;margin-top:10px;display:none;}
     .fb-thanks.show{display:block;}
-
-    /* HISTORIQUE */
     .hist{width:100%;max-width:700px;margin-top:30px;}
     .hist-title{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid rgba(0,245,255,0.1);}
     .hi{background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.08);border-radius:4px;padding:14px;margin-bottom:10px;}
@@ -171,13 +164,7 @@
     .hfb.pend{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.2);}
     .hfb.pend:hover,.hfb.pend.on{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);}
     .hi-empty{text-align:center;color:rgba(255,255,255,0.2);font-size:12px;padding:20px;}
-    @media(max-width:480px){
-      h1{font-size:18px;}
-      .nav-logo{font-size:11px;}
-      .nav-logout,.nav-link{font-size:8px;padding:6px 10px;}
-      .lots-num{font-size:32px;}
-      .tf-grid{grid-template-columns:1fr;}
-    }
+    @media(max-width:480px){h1{font-size:18px;}.nav-logo{font-size:11px;}.nav-logout,.nav-link{font-size:8px;padding:6px 10px;}.lots-num{font-size:32px;}.tf-grid{grid-template-columns:1fr;}}
   </style>
 </head>
 <body>
@@ -195,7 +182,6 @@
     <h1>J4keIA</h1>
   </div>
 
-  <!-- BANNIÈRE IMPAYÉ -->
   <div class="impaye-banner" id="impayeBanner">
     <div class="impaye-title">⚠ Impayé</div>
     <div class="impaye-txt">Veuillez régler la somme pour accéder aux analyses.<br>Contactez-nous en privé pour débloquer votre accès.</div>
@@ -203,7 +189,6 @@
 
   <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
 
-  <!-- CAPITAL -->
   <div class="panel">
     <div class="box">
       <div class="box-title">◈ Capital MetaTrader — Obligatoire</div>
@@ -214,10 +199,7 @@
     </div>
   </div>
 
-  <!-- 3 BLOCS TIMEFRAMES -->
   <div class="tf-grid">
-
-    <!-- M30 -->
     <div class="tf-block" id="blockM30" onclick="document.getElementById('fileM30').click()">
       <input type="file" id="fileM30" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
@@ -230,8 +212,6 @@
       <img class="tf-preview" id="previewM30" src="" alt=""/>
       <div class="tf-required">Requis</div>
     </div>
-
-    <!-- M15 -->
     <div class="tf-block" id="blockM15" onclick="document.getElementById('fileM15').click()">
       <input type="file" id="fileM15" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
@@ -244,8 +224,6 @@
       <img class="tf-preview" id="previewM15" src="" alt=""/>
       <div class="tf-required">Recommandé</div>
     </div>
-
-    <!-- M1 -->
     <div class="tf-block" id="blockM1" onclick="document.getElementById('fileM1').click()">
       <input type="file" id="fileM1" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
@@ -258,24 +236,20 @@
       <img class="tf-preview" id="previewM1" src="" alt=""/>
       <div class="tf-required">Recommandé</div>
     </div>
-
   </div>
 
-  <!-- HUD -->
   <div class="hud">
     <div class="hud-item"><span class="dot"></span>SYSTÈME <span>EN LIGNE</span></div>
     <div class="hud-item">SMART MONEY <span>ACTIF</span></div>
     <div class="hud-item">STATUT <span id="statusTxt">EN ATTENTE</span></div>
   </div>
 
-  <!-- BOUTON -->
   <div class="btn-wrap">
     <button id="analyzeBtn" onclick="analyze()">◈ Lancer l'analyse</button>
     <div class="load-bar" id="loadBar"></div>
     <div class="load-txt" id="loadTxt">Analyse multi-TF en cours...</div>
   </div>
 
-  <!-- RÉSULTAT -->
   <div class="result" id="result">
 
     <div class="dec-block skip" id="decBlock">
@@ -288,23 +262,22 @@
       <span class="score-val" id="scoreTxt">—/10</span>
     </div>
 
-    <!-- CONFLUENCE TF -->
     <div class="tf-conf" id="tfConf">
       <div class="tf-conf-title">◈ Analyse par timeframe</div>
       <div class="tf-conf-grid">
-        <div class="tf-conf-item">
-          <div class="tf-conf-lbl">M30</div>
-          <div class="tf-conf-val" id="tendanceM30">—</div>
-        </div>
-        <div class="tf-conf-item">
-          <div class="tf-conf-lbl">M15</div>
-          <div class="tf-conf-val" id="tendanceM15">—</div>
-        </div>
-        <div class="tf-conf-item">
-          <div class="tf-conf-lbl">M1</div>
-          <div class="tf-conf-val" id="tendanceM1">—</div>
-        </div>
+        <div class="tf-conf-item"><div class="tf-conf-lbl">M30</div><div class="tf-conf-val" id="tendanceM30">—</div></div>
+        <div class="tf-conf-item"><div class="tf-conf-lbl">M15</div><div class="tf-conf-val" id="tendanceM15">—</div></div>
+        <div class="tf-conf-item"><div class="tf-conf-lbl">M1</div><div class="tf-conf-val" id="tendanceM1">—</div></div>
       </div>
+    </div>
+
+    <!-- BLOC MANIPULATION -->
+    <div class="manip-box" id="manipBox">
+      <div class="manip-header">
+        <span class="manip-icon" id="manipIcon">⚠️</span>
+        <span class="manip-title" id="manipTitle">RISQUE MANIPULATION</span>
+      </div>
+      <div class="manip-detail" id="manipDetail">—</div>
     </div>
 
     <div class="lots-box" id="lotsBox" style="display:none">
@@ -365,7 +338,6 @@
 
   </div>
 
-  <!-- FEEDBACK -->
   <div class="fb-panel" id="fbPanel">
     <div class="fb-title">◈ Ce trade a-t-il fonctionné ?</div>
     <div class="fb-btns">
@@ -376,7 +348,6 @@
     <div class="fb-thanks" id="fbThanks">◈ Merci ! ◈</div>
   </div>
 
-  <!-- HISTORIQUE -->
   <div class="hist">
     <div class="hist-title">◈ Historique des analyses</div>
     <div id="histList"><div class="hi-empty">Aucune analyse pour l'instant</div></div>
@@ -387,16 +358,13 @@
 <script>
 let currentId = null;
 
-// ─── INIT ─────────────────────────────────────────────────────────
 fetch('/me').then(r=>r.json()).then(u=>{
   if(u.error==='session_conflict'||u.error==='banned'){window.location.href='/login.html';return;}
-
   if(u.paiementEnRetard){
     document.getElementById('impayeBanner').classList.add('show');
     document.getElementById('analyzeBtn').disabled=true;
     document.getElementById('analyzeBtn').textContent='⚠ Impayé';
   }
-
   const c=document.getElementById('counter');
   if(u.role!=='admin'&&!u.paiementEnRetard){
     const max=u.analysisMax;
@@ -406,7 +374,6 @@ fetch('/me').then(r=>r.json()).then(u=>{
     document.getElementById('analysesLeft').textContent=max>=999999?'∞':left;
     c.className='counter '+(left>0?'ok':'empty');
   }
-
   if(u.role==='admin'){
     const a=document.createElement('a');
     a.href='/admin.html';a.className='nav-link admin';a.textContent='◈ Admin';
@@ -415,7 +382,6 @@ fetch('/me').then(r=>r.json()).then(u=>{
   loadHist();
 });
 
-// ─── UPLOAD TIMEFRAMES ────────────────────────────────────────────
 function setupUpload(fileId, previewId, placeholderId, blockId) {
   document.getElementById(fileId).addEventListener('change', function() {
     if (!this.files[0]) return;
@@ -432,19 +398,15 @@ function setupUpload(fileId, previewId, placeholderId, blockId) {
     reader.readAsDataURL(this.files[0]);
   });
 }
+setupUpload('fileM30','previewM30','placeholderM30','blockM30');
+setupUpload('fileM15','previewM15','placeholderM15','blockM15');
+setupUpload('fileM1','previewM1','placeholderM1','blockM1');
 
-setupUpload('fileM30', 'previewM30', 'placeholderM30', 'blockM30');
-setupUpload('fileM15', 'previewM15', 'placeholderM15', 'blockM15');
-setupUpload('fileM1', 'previewM1', 'placeholderM1', 'blockM1');
-
-// ─── FEEDBACK ────────────────────────────────────────────────────
 async function sendFb(res){
   document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
   document.querySelector('.fb-btn.'+res).classList.add('sel');
   try{
-    if(currentId){
-      await fetch('/analyses/'+currentId+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:res})});
-    }
+    if(currentId) await fetch('/analyses/'+currentId+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:res})});
     document.getElementById('fbThanks').classList.add('show');
     loadHist();
   }catch(e){}
@@ -457,7 +419,6 @@ async function sendHFb(id,res){
   }catch(e){}
 }
 
-// ─── HISTORIQUE ──────────────────────────────────────────────────
 async function loadHist(){
   try{
     const r=await fetch('/my-analyses');
@@ -470,9 +431,10 @@ async function loadHist(){
       const dec=(a.decision||'').toLowerCase();
       const decClass=dec.includes('buy')?'buy':dec.includes('sell')?'sell':'skip';
       const fbClass=a.feedbackResult?a.feedbackResult:'';
+      const manipBadge=a.manipulation==='OUI'?' ⚠️':'';
       return`<div class="hi ${fbClass}">
         <div class="hi-head">
-          <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}</span>
+          <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}${manipBadge}</span>
           <span class="hi-date">${ds}</span>
         </div>
         <div class="hi-lvs">
@@ -490,12 +452,11 @@ async function loadHist(){
   }catch(e){}
 }
 
-// ─── ANALYSE ─────────────────────────────────────────────────────
 async function analyze(){
-  const cap = document.getElementById('capInput').value;
-  const fileM30 = document.getElementById('fileM30').files[0];
-  const fileM15 = document.getElementById('fileM15').files[0];
-  const fileM1 = document.getElementById('fileM1').files[0];
+  const cap=document.getElementById('capInput').value;
+  const fileM30=document.getElementById('fileM30').files[0];
+  const fileM15=document.getElementById('fileM15').files[0];
+  const fileM1=document.getElementById('fileM1').files[0];
 
   if(!cap||parseFloat(cap)<=0){
     const inp=document.getElementById('capInput');
@@ -503,11 +464,7 @@ async function analyze(){
     setTimeout(()=>inp.classList.remove('err'),3000);
     return;
   }
-
-  if(!fileM30){
-    alert('Le graphique M30 est obligatoire !');
-    return;
-  }
+  if(!fileM30){alert('Le graphique M30 est obligatoire !');return;}
 
   const btn=document.getElementById('analyzeBtn');
   btn.disabled=true;btn.textContent='ANALYSE...';
@@ -516,6 +473,7 @@ async function analyze(){
   document.getElementById('statusTxt').textContent='ANALYSE EN COURS';
   document.getElementById('result').classList.remove('show');
   document.getElementById('fbPanel').classList.remove('show');
+  document.getElementById('manipBox').classList.remove('show');
   currentId=null;
 
   const fd=new FormData();
@@ -549,28 +507,32 @@ async function analyze(){
 
     currentId=d.analysisId;
 
-    // DÉCISION
     const dec=d.decision||'NE PAS TRADER';
     const decLow=dec.toLowerCase();
     const decClass=decLow.includes('buy')?'buy':decLow.includes('sell')?'sell':'skip';
     document.getElementById('decBlock').className='dec-block '+decClass;
-    document.getElementById('decTxt').textContent=
-      decLow.includes('buy')?'▲ BUY':
-      decLow.includes('sell')?'▼ SELL':'⚠ NE PAS TRADER';
+    document.getElementById('decTxt').textContent=decLow.includes('buy')?'▲ BUY':decLow.includes('sell')?'▼ SELL':'⚠ NE PAS TRADER';
     document.getElementById('confTxt').textContent=d.confiance?'Confiance '+d.confiance:'';
 
-    // SCORE
     const sc=d.score||0;
     const scEl=document.getElementById('scoreTxt');
     scEl.textContent=sc+'/10';
     scEl.className='score-val '+(sc>=8?'high':sc>=6?'mid':'low');
 
-    // CONFLUENCE TF
     document.getElementById('tendanceM30').textContent=d.tendance||'—';
     document.getElementById('tendanceM15').textContent=d.tendanceM15||'—';
     document.getElementById('tendanceM1').textContent=d.tendanceM1||'—';
 
-    // LOTS
+    // ─── BLOC MANIPULATION ───────────────────────────────────
+    const manipBox=document.getElementById('manipBox');
+    if(d.manipulation){
+      const isOui=d.manipulation==='OUI';
+      manipBox.className='manip-box '+(isOui?'oui':'non')+' show';
+      document.getElementById('manipIcon').textContent=isOui?'⚠️':'✅';
+      document.getElementById('manipTitle').textContent=isOui?'⚠ RISQUE MANIPULATION DÉTECTÉ':'✅ AUCUNE MANIPULATION DÉTECTÉE';
+      document.getElementById('manipDetail').textContent=isOui?(d.manipulationDetail||'Zone de liquidité dangereuse proche du SL — soyez vigilant'):'Setup propre, pas de chasse aux stops identifiée.';
+    }
+
     const lotsBox=document.getElementById('lotsBox');
     if(d.lots&&!decLow.includes('ne pas')){
       document.getElementById('lotsNum').textContent=d.lots;
@@ -579,7 +541,6 @@ async function analyze(){
       lotsBox.style.display='block';
     } else {lotsBox.style.display='none';}
 
-    // NIVEAUX
     document.getElementById('lvEntry').textContent=d.entree||'—';
     document.getElementById('lvSL').textContent=d.sl||'—';
     document.getElementById('lvSLpips').textContent=d.slPips?d.slPips+' pips':'';
@@ -588,11 +549,7 @@ async function analyze(){
     document.getElementById('tp1Val').textContent=d.tp1||'—';
     document.getElementById('tp2Val').textContent=d.tp2||'—';
     document.getElementById('tp3Val').textContent=d.tp3||'—';
-
-    // BREAK EVEN
     document.getElementById('bePrice').textContent=d.entree||'—';
-
-    // SMART MONEY
     document.getElementById('smTendance').textContent=d.tendance||'—';
     document.getElementById('smConfl').textContent=d.confluence||'—';
     document.getElementById('smOB').textContent=d.ob||'—';
@@ -600,7 +557,6 @@ async function analyze(){
     document.getElementById('smLiq').textContent=d.liquidite||'—';
     document.getElementById('smConf').textContent=d.confluences||'—';
 
-    // CAPITAL
     const capRes=document.getElementById('capRes');
     if(d.capital>0&&d.montantRisque){
       document.getElementById('capResLbl').textContent='Risque IA — '+(d.risquePct||3)+'% (score '+sc+'/10)';
@@ -608,10 +564,8 @@ async function analyze(){
       capRes.style.display='block';
     } else {capRes.style.display='none';}
 
-    // INVALIDATION
     document.getElementById('invalTxt').textContent=d.invalidation||'—';
 
-    // COMPTEUR
     if(d.analysesLeft!==undefined){
       const l=d.analysesLeft;
       const c=document.getElementById('counter');
