@@ -81,7 +81,10 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
   let valeurPipParLot;
-  if (inst.includes('XAG') || inst.includes('SILVER')) {
+
+  if (inst.includes('XAU') || inst.includes('GOLD')) {
+    valeurPipParLot = 100;
+  } else if (inst.includes('XAG') || inst.includes('SILVER')) {
     valeurPipParLot = 50;
   } else if (inst.includes('JPY')) {
     valeurPipParLot = 9.09;
@@ -92,6 +95,7 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   } else {
     valeurPipParLot = 10;
   }
+
   const lots = montantRisque / (slPips * valeurPipParLot);
   return Math.max(0.01, Math.round(lots * 100) / 100);
 }
@@ -105,7 +109,6 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── SETUP ADMINS ─────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -126,7 +129,6 @@ app.get('/setup-admin', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── VÉRIFICATION MANUELLE ────────────────────────────────────────
 app.get('/verify-manual/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase();
@@ -139,7 +141,6 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
-// ─── INSCRIPTION ──────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -180,7 +181,6 @@ app.post('/register', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
 });
 
-// ─── VÉRIFICATION EMAIL ───────────────────────────────────────────
 app.get('/verify/:token', async (req, res) => {
   try {
     const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
@@ -189,7 +189,6 @@ app.get('/verify/:token', async (req, res) => {
   } catch(e) { res.redirect('/login.html?error=1'); }
 });
 
-// ─── RENVOI EMAIL ─────────────────────────────────────────────────
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
   try {
@@ -214,7 +213,6 @@ app.post('/resend-email', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
 });
 
-// ─── CONNEXION ────────────────────────────────────────────────────
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -236,13 +234,11 @@ app.post('/login', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
 
-// ─── DÉCONNEXION ──────────────────────────────────────────────────
 app.get('/logout', (req, res) => {
   if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
   req.session.destroy(() => res.redirect('/login.html'));
 });
 
-// ─── INFOS USER ───────────────────────────────────────────────────
 app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
@@ -266,7 +262,6 @@ app.get('/me', checkAuth, async (req, res) => {
   });
 });
 
-// ─── HISTORIQUE ANALYSES ──────────────────────────────────────────
 app.get('/my-analyses', checkAuth, async (req, res) => {
   try {
     const analyses = await analysesDb.findAsync({ userId: req.session.userId });
@@ -275,7 +270,6 @@ app.get('/my-analyses', checkAuth, async (req, res) => {
   } catch(e) { res.json([]); }
 });
 
-// ─── FEEDBACK ANALYSE ─────────────────────────────────────────────
 app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
   try {
     const { result } = req.body;
@@ -288,7 +282,6 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// ─── ANALYSE MULTI-TIMEFRAME ──────────────────────────────────────
 app.post('/analyze', checkAuth, uploadMulti.fields([
   { name: 'imageM30', maxCount: 1 },
   { name: 'imageM15', maxCount: 1 },
@@ -323,8 +316,6 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
     if (allFiles.length === 0) return res.status(400).json({ error: 'Aucune image reçue' });
 
     const capital = parseFloat(req.body.capital) || 0;
-
-    // Construire le contenu pour l'IA avec les images disponibles
     const content = [];
     const tfNames = { imageM30: 'M30', imageM15: 'M15', imageM1: 'M1' };
     const tfOrder = ['imageM30', 'imageM15', 'imageM1'];
@@ -341,14 +332,13 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
       }
     }
 
-    const nbTF = allFiles.length;
     const tfAnalyses = tfOrder.filter(k => files[k]?.[0]).map(k => tfNames[k]).join(', ');
 
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
 
-Tu as reçu ${nbTF} graphique(s) : ${tfAnalyses}.
+Tu as reçu les graphiques suivants : ${tfAnalyses}.
 Analyse en top-down (M30 → M15 → M1) selon la méthode ICT Smart Money.
 
 RÈGLES D'ANALYSE TOP-DOWN:
@@ -404,7 +394,6 @@ RÈGLES ABSOLUES:
       messages: [{ role: 'user', content }]
     });
 
-    // Nettoyer les fichiers
     allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
 
     let parsed;
@@ -448,7 +437,6 @@ RÈGLES ABSOLUES:
 
     const analysisId = uuidv4();
 
-    // ─── SAUVEGARDER DANS HISTORIQUE ─────────────────────────
     await analysesDb.insertAsync({
       _id: analysisId,
       userId: req.session.userId,
@@ -476,7 +464,6 @@ RÈGLES ABSOLUES:
   }
 });
 
-// ─── ADMIN ROUTES ─────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
