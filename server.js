@@ -13,6 +13,7 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const port = process.env.PORT || 3000;
 const upload = multer({ dest: 'uploads/' });
+const uploadMulti = multer({ dest: 'uploads/' });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
@@ -27,6 +28,7 @@ const transporter = nodemailer.createTransport({
 });
 
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
+const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
 const activeSessions = {};
 
 app.use(express.urlencoded({ extended: true }));
@@ -103,6 +105,7 @@ app.get('/admin.html', checkAuth, (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ─── SETUP ADMINS ─────────────────────────────────────────────────
 app.get('/setup-admin', async (req, res) => {
   try {
     await db.removeAsync({ role: 'admin' }, { multi: true });
@@ -123,6 +126,7 @@ app.get('/setup-admin', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
+// ─── VÉRIFICATION MANUELLE ────────────────────────────────────────
 app.get('/verify-manual/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email).toLowerCase();
@@ -135,6 +139,7 @@ app.get('/verify-manual/:email', async (req, res) => {
   } catch(e) { res.send('Erreur: ' + e.message); }
 });
 
+// ─── INSCRIPTION ──────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -175,6 +180,7 @@ app.post('/register', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
 });
 
+// ─── VÉRIFICATION EMAIL ───────────────────────────────────────────
 app.get('/verify/:token', async (req, res) => {
   try {
     const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
@@ -183,6 +189,7 @@ app.get('/verify/:token', async (req, res) => {
   } catch(e) { res.redirect('/login.html?error=1'); }
 });
 
+// ─── RENVOI EMAIL ─────────────────────────────────────────────────
 app.post('/resend-email', async (req, res) => {
   const { email } = req.body;
   try {
@@ -207,6 +214,7 @@ app.post('/resend-email', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
 });
 
+// ─── CONNEXION ────────────────────────────────────────────────────
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
@@ -228,11 +236,13 @@ app.post('/login', async (req, res) => {
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
 
+// ─── DÉCONNEXION ──────────────────────────────────────────────────
 app.get('/logout', (req, res) => {
   if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
   req.session.destroy(() => res.redirect('/login.html'));
 });
 
+// ─── INFOS USER ───────────────────────────────────────────────────
 app.get('/me', checkAuth, async (req, res) => {
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user) return res.json({ error: 'Non trouvé' });
@@ -256,53 +266,109 @@ app.get('/me', checkAuth, async (req, res) => {
   });
 });
 
-app.post('/analyze', checkAuth, upload.single('image'), async (req, res) => {
+// ─── HISTORIQUE ANALYSES ──────────────────────────────────────────
+app.get('/my-analyses', checkAuth, async (req, res) => {
+  try {
+    const analyses = await analysesDb.findAsync({ userId: req.session.userId });
+    analyses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json(analyses.slice(0, 20));
+  } catch(e) { res.json([]); }
+});
+
+// ─── FEEDBACK ANALYSE ─────────────────────────────────────────────
+app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
+  try {
+    const { result } = req.body;
+    await analysesDb.updateAsync(
+      { _id: req.params.id, userId: req.session.userId },
+      { $set: { feedbackResult: result } },
+      {}
+    );
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ─── ANALYSE MULTI-TIMEFRAME ──────────────────────────────────────
+app.post('/analyze', checkAuth, uploadMulti.fields([
+  { name: 'imageM30', maxCount: 1 },
+  { name: 'imageM15', maxCount: 1 },
+  { name: 'imageM1', maxCount: 1 }
+]), async (req, res) => {
+  const files = req.files || {};
+  const allFiles = [files.imageM30?.[0], files.imageM15?.[0], files.imageM1?.[0]].filter(Boolean);
+
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
     if (!user) return res.status(401).json({ error: 'Non connecté' });
     if (user.banned) {
-      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
       return res.status(403).json({ error: 'Compte banni' });
     }
     if (user.role !== 'admin') {
       if (activeSessions[user._id] && activeSessions[user._id] !== req.session.sessionId) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
         req.session.destroy();
         return res.status(401).json({ error: 'session_conflict' });
       }
       if (isPaiementEnRetard(user)) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
         return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme.' });
       }
       if (!canAnalyze(user)) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
         return res.json({ limitReached: true, redirect: '/abonnement.html' });
       }
     }
-    if (!req.file) return res.status(400).json({ error: 'Aucune image reçue' });
+
+    if (allFiles.length === 0) return res.status(400).json({ error: 'Aucune image reçue' });
 
     const capital = parseFloat(req.body.capital) || 0;
-    const imageData = fs.readFileSync(req.file.path);
-    const base64Image = imageData.toString('base64');
-    const mimeType = req.file.mimetype || 'image/png';
 
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-          { type: 'text', text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+    // Construire le contenu pour l'IA avec les images disponibles
+    const content = [];
+    const tfNames = { imageM30: 'M30', imageM15: 'M15', imageM1: 'M1' };
+    const tfOrder = ['imageM30', 'imageM15', 'imageM1'];
 
-Analyse ce graphique et réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks:
+    for (const tfKey of tfOrder) {
+      const file = files[tfKey]?.[0];
+      if (file) {
+        const imageData = fs.readFileSync(file.path);
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: file.mimetype || 'image/png', data: imageData.toString('base64') }
+        });
+        content.push({ type: 'text', text: `[Graphique ${tfNames[tfKey]}]` });
+      }
+    }
+
+    const nbTF = allFiles.length;
+    const tfAnalyses = tfOrder.filter(k => files[k]?.[0]).map(k => tfNames[k]).join(', ');
+
+    content.push({
+      type: 'text',
+      text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+
+Tu as reçu ${nbTF} graphique(s) : ${tfAnalyses}.
+Analyse en top-down (M30 → M15 → M1) selon la méthode ICT Smart Money.
+
+RÈGLES D'ANALYSE TOP-DOWN:
+- M30 = tendance principale et zones clés
+- M15 = confirmation du setup et structure
+- M1 = entrée précise au pip près
+- Si les timeframes ne sont pas alignés → NE PAS TRADER obligatoire
+- La confluence entre timeframes augmente le score
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks:
 
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
   "confiance": "XX%",
   "score": <nombre entier de 0 à 10>,
-  "tendance": "<description courte de la tendance>",
-  "entree": "<prix d'entrée précis>",
+  "tendance": "<tendance M30>",
+  "tendanceM15": "<confirmation M15>",
+  "tendanceM1": "<signal entrée M1>",
+  "confluence": "<alignement entre les timeframes>",
+  "entree": "<prix d'entrée précis depuis M1>",
   "sl": "<stop loss précis>",
   "slPips": <distance en pips entre entrée et SL>,
   "tp1": "<take profit 1>",
@@ -326,15 +392,20 @@ RÈGLES ABSOLUES:
 - Pour BUY: SL en dessous de l'entrée, TP au dessus de l'entrée
 - Pour SELL: SL au dessus de l'entrée, TP en dessous de l'entrée
 - TP1 = RR minimum 1:2, TP2 = RR 1:3, TP3 = RR 1:4
-- score 8-10 = setup excellent
+- score 8-10 = setup excellent avec confluence multi-TF
 - score 6-7 = setup moyen
 - score 0-5 = NE PAS TRADER
-- Sois direct, chiffres précis, pas de blabla` }
-        ]
-      }]
+- Sois direct, chiffres précis, pas de blabla`
     });
 
-    fs.unlinkSync(req.file.path);
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content }]
+    });
+
+    // Nettoyer les fichiers
+    allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
 
     let parsed;
     try {
@@ -352,18 +423,12 @@ RÈGLES ABSOLUES:
       const entree = parseFloat(parsed.entree);
       const sl = parseFloat(parsed.sl);
       const isBuy = parsed.decision === 'BUY';
-
       if (entree && sl) {
         const dist = Math.abs(entree - sl);
-
-        // FORCER SL du bon côté TOUJOURS
         const slCorrige = isBuy ? entree - dist : entree + dist;
-
-        // FORCER TP dans la bonne direction TOUJOURS
         const tp1 = isBuy ? entree + dist * 2 : entree - dist * 2;
         const tp2 = isBuy ? entree + dist * 3 : entree - dist * 3;
         const tp3 = isBuy ? entree + dist * 4 : entree - dist * 4;
-
         parsed.sl = slCorrige.toFixed(2);
         parsed.tp1 = tp1.toFixed(2);
         parsed.tp2 = tp2.toFixed(2);
@@ -381,17 +446,37 @@ RÈGLES ABSOLUES:
       parsed.montantRisque = (capital * parsed.risquePct / 100).toFixed(2);
     }
 
+    const analysisId = uuidv4();
+
+    // ─── SAUVEGARDER DANS HISTORIQUE ─────────────────────────
+    await analysesDb.insertAsync({
+      _id: analysisId,
+      userId: req.session.userId,
+      decision: parsed.decision,
+      entry: parsed.entree,
+      sl: parsed.sl,
+      tp: parsed.tp1,
+      tp2: parsed.tp2,
+      tp3: parsed.tp3,
+      score: parsed.score,
+      instrument: parsed.instrument,
+      lots: parsed.lots,
+      feedbackResult: null,
+      createdAt: new Date()
+    });
+
     if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
     const analysesLeft = analysesRestantes(user);
 
-    res.json({ ...parsed, analysesLeft, analysisId: uuidv4() });
+    res.json({ ...parsed, analysesLeft, analysisId });
 
   } catch (err) {
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e){} });
     res.status(500).json({ error: 'Erreur: ' + err.message });
   }
 });
 
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
