@@ -330,69 +330,66 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
       }
     }
 
-    const tfAnalyses = tfOrder.filter(k => files[k]?.[0]).map(k => tfNames[k]).join(', ');
+    const tfDisponibles = tfOrder.filter(k => files[k]?.[0]).map(k => tfNames[k]).join(', ');
+    const nbTF = allFiles.length;
 
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
 
-Tu as reçu les graphiques suivants : ${tfAnalyses}.
-Analyse en top-down (M30 → M15 → M1) selon la méthode ICT Smart Money.
+Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.
+Analyse selon la méthode ICT Smart Money.
 
-RÈGLES D'ANALYSE TOP-DOWN:
-- M30 = tendance principale et zones clés
-- M15 = confirmation du setup et structure
-- M1 = entrée précise au pip près
-- Si les timeframes ne sont pas alignés → NE PAS TRADER obligatoire
-- La confluence entre timeframes augmente le score
+RÈGLES D'ANALYSE:
+- Analyse la tendance, la structure de marché, les Order Blocks et FVG sur les graphiques fournis
+- Avec M30 seul : donne un signal basé sur la tendance principale et les zones clés
+- Avec plusieurs TF : analyse en top-down et vérifie la confluence
+- NE PAS TRADER uniquement si le marché est vraiment en range sans direction ou si le risque est trop élevé
+- Un graphique avec une tendance claire doit donner BUY ou SELL — sois direct et décisif
 
-DÉTECTION DE MANIPULATION INSTITUTIONNELLE:
-- Analyser si le prix est proche d'une zone de liquidité (equal highs/lows, previous high/low)
-- Détecter si le SL naturel des traders retail est visible et vulnérable
-- Identifier si des mèches récentes indiquent une chasse aux stops
-- Sur XAU/USD: SL minimum 15 pips sous/sur le dernier creux/sommet M15
-- Si zone de manipulation détectée → réduire le score de 1 point et avertir
+DÉTECTION DE MANIPULATION:
+- Identifier les zones de liquidité dangereuses proches du SL
+- Sur XAU/USD: SL minimum 15 pips de l'entrée
+- Avertir si chasse aux stops probable
 
-Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans backticks:
+Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks:
 
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
   "confiance": "XX%",
-  "score": <nombre entier de 0 à 10>,
-  "tendance": "<tendance M30>",
-  "tendanceM15": "<confirmation M15>",
-  "tendanceM1": "<signal entrée M1>",
-  "confluence": "<alignement entre les timeframes>",
-  "entree": "<prix d'entrée précis depuis M1>",
-  "sl": "<stop loss précis — minimum 15 pips de l'entrée sur XAU/USD>",
-  "slPips": <distance en pips entre entrée et SL — minimum 15 sur XAU/USD>,
-  "tp1": "<take profit 1>",
+  "score": <0 à 10>,
+  "tendance": "<tendance principale>",
+  "tendanceM15": "<M15 ou 'Non fourni'>",
+  "tendanceM1": "<M1 ou 'Non fourni'>",
+  "confluence": "<alignement TF>",
+  "entree": "<prix d'entrée précis>",
+  "sl": "<stop loss — min 15 pips sur XAU/USD>",
+  "slPips": <pips SL — min 15 sur XAU/USD>,
+  "tp1": "<TP1>",
   "tp1Pips": <slPips × 2>,
-  "tp2": "<take profit 2>",
+  "tp2": "<TP2>",
   "tp2Pips": <slPips × 3>,
-  "tp3": "<take profit 3>",
+  "tp3": "<TP3>",
   "tp3Pips": <slPips × 4>,
   "manipulation": "OUI" ou "NON",
-  "manipulationDetail": "<explication si OUI: type de manipulation détectée et conseil>",
-  "ob": "<order block détecté>",
-  "fvg": "<fair value gap détecté>",
-  "liquidite": "<zones de liquidité — préciser si dangereuses pour le SL>",
-  "confluences": "<confluences Smart Money>",
-  "invalidation": "<niveau d'invalidation du setup>",
-  "instrument": "<nom exact de l'instrument ex: XAUUSD, EURUSD, GBPUSD, NAS100>",
+  "manipulationDetail": "<détail manipulation ou 'Aucune'>",
+  "ob": "<order block>",
+  "fvg": "<fair value gap>",
+  "liquidite": "<zones liquidité>",
+  "confluences": "<confluences SMC>",
+  "invalidation": "<invalidation du setup>",
+  "instrument": "<ex: XAUUSD, EURUSD, NAS100>",
   "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
   "montantRisque": ${capital ? `<$${capital} × risquePct / 100>` : 'null'},
   "capital": ${capital || 0}
 }
 
 RÈGLES ABSOLUES:
-- Pour BUY: SL en dessous de l'entrée, TP au dessus de l'entrée
-- Pour SELL: SL au dessus de l'entrée, TP en dessous de l'entrée
-- TP1 = RR minimum 1:2, TP2 = RR 1:3, TP3 = RR 1:4
-- score 8-10 = setup excellent avec confluence multi-TF
-- score 6-7 = setup moyen
-- score 0-5 = NE PAS TRADER
-- Sois direct, chiffres précis, pas de blabla`
+- BUY: SL sous l'entrée, TP au dessus
+- SELL: SL au dessus, TP en dessous
+- TP1=RR 1:2, TP2=RR 1:3, TP3=RR 1:4
+- score 8-10=excellent, 6-7=moyen, 0-5=NE PAS TRADER
+- Chiffres précis, décision claire`
     });
 
     const response = await client.messages.create({
@@ -436,10 +433,13 @@ RÈGLES ABSOLUES:
       }
     }
 
-    // ─── CALCUL LOTS CÔTÉ SERVEUR ─────────────────────────────
-    if (capital && parsed.slPips && parsed.risquePct) {
-      parsed.lots = calculerLots(capital, parsed.risquePct, parsed.slPips, parsed.instrument || '');
-      parsed.montantRisque = (capital * parsed.risquePct / 100).toFixed(2);
+    // ─── CALCUL LOTS CÔTÉ SERVEUR (garanti) ──────────────────
+    if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {
+      const score = parsed.score || 0;
+      const risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
+      parsed.risquePct = risquePct;
+      parsed.lots = calculerLots(capital, risquePct, parsed.slPips, parsed.instrument || '');
+      parsed.montantRisque = (capital * risquePct / 100).toFixed(2);
     }
 
     const analysisId = uuidv4();
