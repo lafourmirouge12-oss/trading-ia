@@ -36,6 +36,12 @@
     .cap-input:focus{border-color:var(--cyan);}
     .cap-input.err{border-color:var(--red);}
     .tf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:700px;margin-bottom:16px;}
+    .tf-grid-bonus{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;width:100%;max-width:700px;margin-bottom:16px;}
+    .tf-optional-label{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,245,255,0.3);text-transform:uppercase;text-align:center;margin-bottom:8px;width:100%;max-width:700px;}
+    .tf-block.optional{border-color:rgba(128,0,255,0.2);background:rgba(128,0,255,0.03);}
+    .tf-block.optional .tf-label{color:rgba(128,0,255,0.7);}
+    .tf-block.optional .tf-add{color:rgba(128,0,255,0.4);}
+    .tf-badge-opt{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(128,0,255,0.5);text-transform:uppercase;text-align:center;margin-top:3px;}
     .tf-block{background:rgba(0,20,50,0.6);border:1px solid rgba(0,245,255,0.15);border-radius:4px;padding:12px;cursor:pointer;transition:all 0.3s;position:relative;}
     .tf-block:hover{border-color:rgba(0,245,255,0.4);}
     .tf-block.loaded{border-color:var(--cyan);background:rgba(0,245,255,0.05);}
@@ -92,6 +98,26 @@
     .manip-box.oui .manip-title{color:var(--red);}
     .manip-box.non .manip-title{color:var(--green);}
     .manip-detail{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;}
+
+    /* BLOC CRT */
+    .crt-box{width:100%;border-radius:4px;padding:14px 16px;margin-bottom:12px;display:none;}
+    .crt-box.oui{background:rgba(0,255,136,0.06);border:2px solid rgba(0,255,136,0.4);}
+    .crt-box.non{background:rgba(255,140,0,0.06);border:1px solid rgba(255,140,0,0.3);}
+    .crt-box.neutre{background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);}
+    .crt-box.show{display:block;}
+    .crt-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+    .crt-icon{font-size:20px;}
+    .crt-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;}
+    .crt-box.oui .crt-title{color:var(--green);}
+    .crt-box.non .crt-title{color:var(--orange);}
+    .crt-box.neutre .crt-title{color:var(--cyan);}
+    .crt-detail{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:10px;}
+    .crt-range{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;}
+    .crt-range-item{text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:2px;}
+    .crt-range-lbl{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:4px;}
+    .crt-range-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;}
+    .crt-range-item.haut .crt-range-val{color:var(--green);}
+    .crt-range-item.bas .crt-range-val{color:var(--red);}
 
     .lots-box{background:rgba(0,10,30,0.8);border:2px solid rgba(0,255,136,0.3);border-radius:4px;padding:16px;margin-bottom:12px;text-align:center;}
     .lots-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,255,136,0.6);text-transform:uppercase;margin-bottom:8px;}
@@ -199,7 +225,8 @@
     </div>
   </div>
 
-  <div class="tf-grid">
+  <!-- TIMEFRAMES OBLIGATOIRES -->
+      <div class="tf-grid">
     <div class="tf-block" id="blockM30" onclick="document.getElementById('fileM30').click()">
       <input type="file" id="fileM30" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
@@ -237,6 +264,36 @@
       <div class="tf-required">Recommandé</div>
     </div>
   </div>
+
+  <!-- TF OPTIONNELS H1 + M5 -->
+  <div class="tf-optional-label">◈ Optionnel — Enrichit l'analyse CRT</div>
+  <div class="tf-grid-bonus">
+    <div class="tf-block optional" id="blockH1" onclick="document.getElementById('fileH1').click()">
+      <input type="file" id="fileH1" accept="image/*" hidden/>
+      <div class="tf-check">✓</div>
+      <div class="tf-label">H1</div>
+      <div class="tf-sub">Tendance macro</div>
+      <div class="tf-placeholder" id="placeholderH1">
+        <div class="tf-icon">📈</div>
+        <div class="tf-add">Importer</div>
+      </div>
+      <img class="tf-preview" id="previewH1" src="" alt=""/>
+      <div class="tf-badge-opt">Optionnel</div>
+    </div>
+    <div class="tf-block optional" id="blockM5" onclick="document.getElementById('fileM5').click()">
+      <input type="file" id="fileM5" accept="image/*" hidden/>
+      <div class="tf-check">✓</div>
+      <div class="tf-label">M5</div>
+      <div class="tf-sub">Entrée précise CRT</div>
+      <div class="tf-placeholder" id="placeholderM5">
+        <div class="tf-icon">🎯</div>
+        <div class="tf-add">Importer</div>
+      </div>
+      <img class="tf-preview" id="previewM5" src="" alt=""/>
+      <div class="tf-badge-opt">Optionnel</div>
+    </div>
+  </div>
+
 
   <div class="hud">
     <div class="hud-item"><span class="dot"></span>SYSTÈME <span>EN LIGNE</span></div>
@@ -278,6 +335,25 @@
         <span class="manip-title" id="manipTitle">RISQUE MANIPULATION</span>
       </div>
       <div class="manip-detail" id="manipDetail">—</div>
+    </div>
+
+    <!-- BLOC CRT -->
+    <div class="crt-box" id="crtBox">
+      <div class="crt-header">
+        <span class="crt-icon" id="crtIcon">📐</span>
+        <span class="crt-title" id="crtTitle">◈ RANGE ASIATIQUE — CRT</span>
+      </div>
+      <div class="crt-detail" id="crtDetail">—</div>
+      <div class="crt-range" id="crtRange" style="display:none">
+        <div class="crt-range-item haut">
+          <div class="crt-range-lbl">◈ Range Haut</div>
+          <div class="crt-range-val" id="crtRangeHaut">—</div>
+        </div>
+        <div class="crt-range-item bas">
+          <div class="crt-range-lbl">◈ Range Bas</div>
+          <div class="crt-range-val" id="crtRangeBas">—</div>
+        </div>
+      </div>
     </div>
 
     <div class="lots-box" id="lotsBox" style="display:none">
@@ -401,6 +477,8 @@ function setupUpload(fileId, previewId, placeholderId, blockId) {
 setupUpload('fileM30','previewM30','placeholderM30','blockM30');
 setupUpload('fileM15','previewM15','placeholderM15','blockM15');
 setupUpload('fileM1','previewM1','placeholderM1','blockM1');
+setupUpload('fileH1','previewH1','placeholderH1','blockH1');
+setupUpload('fileM5','previewM5','placeholderM5','blockM5');
 
 async function sendFb(res){
   document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
@@ -432,9 +510,10 @@ async function loadHist(){
       const decClass=dec.includes('buy')?'buy':dec.includes('sell')?'sell':'skip';
       const fbClass=a.feedbackResult?a.feedbackResult:'';
       const manipBadge=a.manipulation==='OUI'?' ⚠️':'';
+      const crtBadge=a.crt==='OUI'?' 📐✅':a.crt==='NON'?' 📐❌':'';
       return`<div class="hi ${fbClass}">
         <div class="hi-head">
-          <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}${manipBadge}</span>
+          <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}${manipBadge}${crtBadge}</span>
           <span class="hi-date">${ds}</span>
         </div>
         <div class="hi-lvs">
@@ -474,13 +553,18 @@ async function analyze(){
   document.getElementById('result').classList.remove('show');
   document.getElementById('fbPanel').classList.remove('show');
   document.getElementById('manipBox').classList.remove('show');
+  document.getElementById('crtBox').classList.remove('show');
   currentId=null;
 
   const fd=new FormData();
   fd.append('capital',cap);
+  const fileH1 = document.getElementById('fileH1')?.files[0];
+  const fileM5 = document.getElementById('fileM5')?.files[0];
+  if(fileH1)  fd.append('imageH1', fileH1);
   fd.append('imageM30',fileM30);
   if(fileM15) fd.append('imageM15',fileM15);
-  if(fileM1) fd.append('imageM1',fileM1);
+  if(fileM5)  fd.append('imageM5', fileM5);
+  if(fileM1)  fd.append('imageM1',fileM1);
 
   try{
     const r=await fetch('/analyze',{method:'POST',body:fd});
@@ -520,7 +604,9 @@ async function analyze(){
     scEl.className='score-val '+(sc>=8?'high':sc>=6?'mid':'low');
 
     document.getElementById('tendanceM30').textContent=d.tendance||'—';
+    if(document.getElementById('tendanceH1')) document.getElementById('tendanceH1').textContent=d.tendanceH1||'Non fourni';
     document.getElementById('tendanceM15').textContent=d.tendanceM15||'—';
+    if(document.getElementById('tendanceM5')) document.getElementById('tendanceM5').textContent=d.tendanceM5||'Non fourni';
     document.getElementById('tendanceM1').textContent=d.tendanceM1||'—';
 
     // ─── BLOC MANIPULATION ───────────────────────────────────
@@ -531,6 +617,27 @@ async function analyze(){
       document.getElementById('manipIcon').textContent=isOui?'⚠️':'✅';
       document.getElementById('manipTitle').textContent=isOui?'⚠ RISQUE MANIPULATION DÉTECTÉ':'✅ AUCUNE MANIPULATION DÉTECTÉE';
       document.getElementById('manipDetail').textContent=isOui?(d.manipulationDetail||'Zone de liquidité dangereuse proche du SL — soyez vigilant'):'Setup propre, pas de chasse aux stops identifiée.';
+    }
+
+    // ─── BLOC CRT ─────────────────────────────────────────────
+    const crtBox=document.getElementById('crtBox');
+    if(d.crt){
+      const crtVal=(d.crt||'').toUpperCase();
+      const isOui=crtVal==='OUI';
+      const isNon=crtVal==='NON';
+      crtBox.className='crt-box '+(isOui?'oui':isNon?'non':'neutre')+' show';
+      document.getElementById('crtIcon').textContent=isOui?'📐✅':isNon?'📐❌':'📐';
+      document.getElementById('crtTitle').textContent=isOui?'◈ CRT CONFIRMÉ — RANGE ASIATIQUE ALIGNÉ':isNon?'◈ CRT NON ALIGNÉ — PRUDENCE':'◈ RANGE ASIATIQUE — CRT NEUTRE';
+      document.getElementById('crtDetail').textContent=d.crtDetail||'—';
+      const rangeHaut=d.rangeHaut&&d.rangeHaut!=='Non détecté'?d.rangeHaut:null;
+      const rangeBas=d.rangeBas&&d.rangeBas!=='Non détecté'?d.rangeBas:null;
+      if(rangeHaut||rangeBas){
+        document.getElementById('crtRange').style.display='grid';
+        document.getElementById('crtRangeHaut').textContent=rangeHaut||'—';
+        document.getElementById('crtRangeBas').textContent=rangeBas||'—';
+      } else {
+        document.getElementById('crtRange').style.display='none';
+      }
     }
 
     const lotsBox=document.getElementById('lotsBox');

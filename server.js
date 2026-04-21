@@ -281,12 +281,14 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
 });
 
 app.post('/analyze', checkAuth, uploadMulti.fields([
+  { name: 'imageH1',  maxCount: 1 },
   { name: 'imageM30', maxCount: 1 },
   { name: 'imageM15', maxCount: 1 },
-  { name: 'imageM1', maxCount: 1 }
+  { name: 'imageM5',  maxCount: 1 },
+  { name: 'imageM1',  maxCount: 1 }
 ]), async (req, res) => {
   const files = req.files || {};
-  const allFiles = [files.imageM30?.[0], files.imageM15?.[0], files.imageM1?.[0]].filter(Boolean);
+  const allFiles = [files.imageH1?.[0], files.imageM30?.[0], files.imageM15?.[0], files.imageM5?.[0], files.imageM1?.[0]].filter(Boolean);
 
   try {
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -315,8 +317,8 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
 
     const capital = parseFloat(req.body.capital) || 0;
     const content = [];
-    const tfNames = { imageM30: 'M30', imageM15: 'M15', imageM1: 'M1' };
-    const tfOrder = ['imageM30', 'imageM15', 'imageM1'];
+    const tfNames = { imageH1: 'H1', imageM30: 'M30', imageM15: 'M15', imageM5: 'M5', imageM1: 'M1' };
+    const tfOrder = ['imageH1', 'imageM30', 'imageM15', 'imageM5', 'imageM1'];
 
     for (const tfKey of tfOrder) {
       const file = files[tfKey]?.[0];
@@ -332,13 +334,19 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
 
     const tfDisponibles = tfOrder.filter(k => files[k]?.[0]).map(k => tfNames[k]).join(', ');
     const nbTF = allFiles.length;
+    const hasH1 = !!files.imageH1?.[0];
+    const hasM5 = !!files.imageM5?.[0];
+    const bonusTF = [hasH1 ? 'H1' : null, hasM5 ? 'M5' : null].filter(Boolean).join(', ');
 
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
 
-Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.
-Analyse selon la méthode ICT Smart Money.
+Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.${bonusTF ? `
+TIMEFRAMES BONUS FOURNIS: ${bonusTF} — utilise-les pour affiner l'analyse top-down et le CRT.` : ''}
+Analyse selon la méthode ICT Smart Money avec intégration CRT (Candle Range Theory).
+${hasH1 ? '- H1 fourni : utilise-le comme tendance macro principale pour le top-down' : '- H1 non fourni : déduis la tendance macro depuis M30'}
+${hasM5 ? '- M5 fourni : utilise-le pour affiner l'entrée précise et confirmer le FVG' : '- M5 non fourni : utilise M15 ou M1 pour l'entrée'}
 
 RÈGLES D'ANALYSE:
 - Analyse la tendance, la structure de marché, les Order Blocks et FVG sur les graphiques fournis
@@ -346,6 +354,15 @@ RÈGLES D'ANALYSE:
 - Avec plusieurs TF : analyse en top-down et vérifie la confluence
 - NE PAS TRADER uniquement si le marché est vraiment en range sans direction ou si le risque est trop élevé
 - Un graphique avec une tendance claire doit donner BUY ou SELL — sois direct et décisif
+
+DÉTECTION CRT (Candle Range Theory):
+- Identifier le range asiatique sur M30 : bougies formées entre 20h00 et 08h00 (heure Paris)
+- Le range asiatique = zone de consolidation entre le HIGH et le LOW de cette session
+- CRT valide = le prix est en train de casser ou vient de casser ce range
+- BUY CRT : cassure du HIGH du range asiatique vers le haut
+- SELL CRT : cassure du LOW du range asiatique vers le bas
+- Si CRT non aligné avec le signal → réduire le score de 1 point et mentionner l'invalidité
+- Si CRT aligné → bonus de +1 point sur le score et signaler la confluence
 
 DÉTECTION DE MANIPULATION:
 - Identifier les zones de liquidité dangereuses proches du SL
@@ -358,8 +375,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
   "confiance": "XX%",
   "score": <0 à 10>,
-  "tendance": "<tendance principale>",
+  "tendance": "<tendance principale M30>",
+  "tendanceH1": "<H1 ou 'Non fourni'>",
   "tendanceM15": "<M15 ou 'Non fourni'>",
+  "tendanceM5": "<M5 ou 'Non fourni'>",
   "tendanceM1": "<M1 ou 'Non fourni'>",
   "confluence": "<alignement TF>",
   "entree": "<prix d'entrée précis>",
@@ -371,6 +390,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "tp2Pips": <slPips × 3>,
   "tp3": "<TP3>",
   "tp3Pips": <slPips × 4>,
+  "crt": "OUI" ou "NON" ou "NEUTRE",
+  "crtDetail": "<explication CRT: range asiatique détecté, cassure confirmée ou non, impact sur le signal>",
+  "rangeHaut": "<prix du HIGH du range asiatique si détecté, sinon 'Non détecté'>",
+  "rangeBas": "<prix du LOW du range asiatique si détecté, sinon 'Non détecté'>",
   "manipulation": "OUI" ou "NON",
   "manipulationDetail": "<détail manipulation ou 'Aucune'>",
   "ob": "<order block>",
@@ -457,6 +480,9 @@ RÈGLES ABSOLUES:
       instrument: parsed.instrument,
       lots: parsed.lots,
       manipulation: parsed.manipulation,
+      crt: parsed.crt,
+      rangeHaut: parsed.rangeHaut,
+      rangeBas: parsed.rangeBas,
       feedbackResult: null,
       createdAt: new Date()
     });
