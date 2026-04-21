@@ -346,7 +346,7 @@ Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.${bonusTF ? `
 TIMEFRAMES BONUS FOURNIS: ${bonusTF} — utilise-les pour affiner l'analyse top-down et le CRT.` : ''}
 Analyse selon la méthode ICT Smart Money avec intégration CRT (Candle Range Theory).
 ${hasH1 ? '- H1 fourni : utilise-le comme tendance macro principale pour le top-down' : '- H1 non fourni : déduis la tendance macro depuis M30'}
-${hasM5 ? '- M5 fourni : utilise-le pour affiner l'entrée précise et confirmer le FVG' : '- M5 non fourni : utilise M15 ou M1 pour l'entrée'}
+${hasM5 ? '- M5 fourni : utilise-le pour affiner l\'entree precise et confirmer le FVG' : '- M5 non fourni : utilise M15 ou M1 pour l\'entree'}
 
 RÈGLES D'ANALYSE:
 - Analyse la tendance, la structure de marché, les Order Blocks et FVG sur les graphiques fournis
