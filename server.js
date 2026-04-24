@@ -80,22 +80,88 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   if (!capital || !slPips || slPips <= 0) return null;
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
-  let valeurPipParLot;
+
+  // ─── DETECTION INSTRUMENT + NORMALISATION DU SL ─────────────────
+  // Le SL recu peut etre en differentes unites selon comment l'IA l'interprete.
+  // On convertit tout en "valeur en dollars du mouvement complet du SL" pour 1 lot.
+  let valeurMouvementParLot; // = combien $ je perds/gagne pour le SL complet sur 1 lot
+  let slEnDollars; // SL converti en dollars (mouvement de prix)
+
   if (inst.includes('XAU') || inst.includes('GOLD')) {
-    valeurPipParLot = 100;
+    // Pour XAUUSD : 1 lot = 100 onces. 1$ de mouvement = 100$ de P&L par lot.
+    // L'IA peut renvoyer le SL en :
+    //   - dollars (ex: 5 = SL a $5 du prix) ← le plus courant
+    //   - pips broker (ex: 50 = $5, 1 pip = $0.10)
+    //   - points (ex: 500 = $5, 1 point = $0.01)
+    // On detecte intelligemment :
+    if (slPips < 30) {
+      // < 30 → c'est probablement deja en dollars (SL XAUUSD typique : $1-20)
+      slEnDollars = slPips;
+    } else if (slPips < 300) {
+      // 30-300 → c'est probablement en pips (1 pip = $0.10)
+      slEnDollars = slPips / 10;
+    } else {
+      // >= 300 → c'est en points (1 point = $0.01)
+      slEnDollars = slPips / 100;
+    }
+    valeurMouvementParLot = 100; // 1$ de mouvement = $100 par lot complet
   } else if (inst.includes('XAG') || inst.includes('SILVER')) {
-    valeurPipParLot = 50;
+    slEnDollars = slPips < 5 ? slPips : slPips / 10;
+    valeurMouvementParLot = 50;
   } else if (inst.includes('JPY')) {
-    valeurPipParLot = 9.09;
+    // Forex JPY : 1 pip = 0.01, 1 lot = ~$9 par pip
+    slEnDollars = slPips * 0.01;
+    valeurMouvementParLot = 909; // ~$9.09 par pip * 100 pips/dollar
   } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
-    valeurPipParLot = 1;
+    slEnDollars = slPips;
+    valeurMouvementParLot = 1;
   } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
-    valeurPipParLot = 1;
+    slEnDollars = slPips;
+    valeurMouvementParLot = 1;
   } else {
-    valeurPipParLot = 10;
+    // Forex standard : 1 pip = 0.0001, 1 lot = ~$10 par pip
+    slEnDollars = slPips * 0.0001;
+    valeurMouvementParLot = 100000; // 100k unites par lot
   }
-  const lots = montantRisque / (slPips * valeurPipParLot);
-  return Math.max(0.01, Math.round(lots * 100) / 100);
+
+  // ─── CALCUL DU LOT ──────────────────────────────────────────────
+  // Lot = Risque max / (mouvement SL × valeur par lot)
+  const perteParLotComplet = slEnDollars * valeurMouvementParLot;
+  let lots = montantRisque / perteParLotComplet;
+
+  // Arrondi a 2 decimales (precision broker standard)
+  lots = Math.round(lots * 100) / 100;
+
+  // ─── PROTECTION : lot minimum coherent selon capital ──────────
+  // Si le calcul donne moins que ce qui est utile pour ce capital → ajuste
+  // Pour XAUUSD, le minimum utile :
+  //   - capital < $300 → 0.01 (tres petit compte)
+  //   - capital $300-1000 → 0.02 minimum (sinon profits ridicules)
+  //   - capital $1000-3000 → 0.03 minimum
+  //   - capital > $3000 → 0.05 minimum
+  if (inst.includes('XAU') || inst.includes('GOLD')) {
+    let lotMinimum;
+    if (capital < 300) lotMinimum = 0.01;
+    else if (capital < 1000) lotMinimum = 0.02;
+    else if (capital < 3000) lotMinimum = 0.03;
+    else lotMinimum = 0.05;
+    if (lots < lotMinimum) {
+      console.log('[LOTS] Calcul: ' + lots + ' → ajuste a ' + lotMinimum + ' (capital $' + capital + ')');
+      lots = lotMinimum;
+    }
+  }
+
+  // ─── PLAFOND DE SECURITE : ne jamais risquer plus de 5% du capital ──
+  // Si le lot calcule fait risquer trop, on cap
+  const perteReelleEstimee = lots * perteParLotComplet;
+  const maxRisqueAbsolu = capital * 0.05; // jamais plus de 5%
+  if (perteReelleEstimee > maxRisqueAbsolu) {
+    const lotsCappés = maxRisqueAbsolu / perteParLotComplet;
+    lots = Math.max(0.01, Math.round(lotsCappés * 100) / 100);
+    console.log('[LOTS] Cap securite : risque ' + perteReelleEstimee.toFixed(2) + '$ > 5% capital → lot reduit a ' + lots);
+  }
+
+  return Math.max(0.01, lots);
 }
 
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
@@ -336,7 +402,12 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
     const nbTF = allFiles.length;
     const hasH1 = !!files.imageH1?.[0];
     const hasM5 = !!files.imageM5?.[0];
+    const hasM15 = !!files.imageM15?.[0];
+    const hasM1 = !!files.imageM1?.[0];
     const bonusTF = [hasH1 ? 'H1' : null, hasM5 ? 'M5' : null].filter(Boolean).join(', ');
+
+    // ANALYSE CRT KASPER ACTIVEE seulement si M15 + M1 sont fournis
+    const crtKasperActif = hasM15 && hasM1;
 
     content.push({
       type: 'text',
@@ -355,7 +426,7 @@ RÈGLES D'ANALYSE:
 - NE PAS TRADER uniquement si le marché est vraiment en range sans direction ou si le risque est trop élevé
 - Un graphique avec une tendance claire doit donner BUY ou SELL — sois direct et décisif
 
-DÉTECTION CRT (Candle Range Theory):
+DÉTECTION CRT (Candle Range Theory) — RANGE ASIATIQUE:
 - Identifier le range asiatique sur M30 : bougies formées entre 20h00 et 08h00 (heure Paris)
 - Le range asiatique = zone de consolidation entre le HIGH et le LOW de cette session
 - CRT valide = le prix est en train de casser ou vient de casser ce range
@@ -363,6 +434,45 @@ DÉTECTION CRT (Candle Range Theory):
 - SELL CRT : cassure du LOW du range asiatique vers le bas
 - Si CRT non aligné avec le signal → réduire le score de 1 point et mentionner l'invalidité
 - Si CRT aligné → bonus de +1 point sur le score et signaler la confluence
+${crtKasperActif ? `
+═══════════════════════════════════════════════════════════════
+🎯 ANALYSE CRT KASPER KARL ACTIVÉE (M15 + M1 fournis)
+═══════════════════════════════════════════════════════════════
+EN PLUS de l'analyse ICT classique ci-dessus, applique LA MÉTHODE KASPER KARL
+sur les 3 dernières bougies du M15 :
+
+PATTERN CRT KASPER (3 bougies M15) :
+• Bougie 1 (KEY CANDLE) : bougie de référence avec un HIGH et un LOW clairs
+• Bougie 2 (MANIPULATION/SWEEP) :
+   - Sa MÈCHE dépasse un extrême de la bougie 1 (sweep de liquidité)
+   - MAIS son CORPS (close) ferme DANS le range de la bougie 1 (fausse cassure)
+• Bougie 3 (DISTRIBUTION/BREAK) :
+   - Ferme au-delà de l'extrême OPPOSÉ de la bougie 1 = CONFIRMATION
+
+CRT BULLISH = Bougie 2 sweep le LOW + Bougie 3 ferme au-dessus du HIGH
+CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 ferme en-dessous du LOW
+
+UTILISATION DU M1 (entrée précise CRT) :
+- Une fois le pattern CRT détecté sur M15, regarde le M1 pour le timing d'entrée
+- Cherche un retest du niveau cassé (high/low de la key candle)
+- Place l'entrée précise au retest, pas au breakout pur (évite les faux signaux)
+- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 (pas plus loin)
+  → Exemple BUY : SL = low de bougie 2 - 2 pips de buffer
+  → Exemple SELL : SL = high de bougie 2 + 2 pips de buffer
+- Cette méthode donne des SL très serrés et précis (R:R souvent 1:3 ou plus)
+
+INTÉGRATION INTELLIGENTE CRT KASPER + ICT :
+- Si CRT Kasper détecté + ICT confirme (même direction, OB/FVG aligné) → SETUP A+ (score 9-10, lot boost)
+- Si CRT Kasper détecté + ICT neutre → bon setup (score 7-8)
+- Si CRT Kasper détecté + ICT contre → setup risqué (score 5-6, attendre confirmation)
+- Si pas de CRT Kasper mais ICT solide → trade ICT classique normal (score selon ICT)
+- Si ni CRT Kasper ni ICT → NE PAS TRADER
+
+PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
+- SI CRT Kasper détecté → utiliser les niveaux CRT pour l'entrée et le SL
+  (ça donne des SL plus serrés et précis, évite les SL "au feeling" qui se font taper)
+- SINON → utiliser les niveaux ICT classiques (OB, FVG, structure)
+═══════════════════════════════════════════════════════════════` : ''}
 
 DÉTECTION DE MANIPULATION:
 - Identifier les zones de liquidité dangereuses proches du SL
@@ -382,7 +492,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "tendanceM1": "<M1 ou 'Non fourni'>",
   "confluence": "<alignement TF>",
   "entree": "<prix d'entrée précis>",
-  "sl": "<stop loss — min 15 pips sur XAU/USD>",
+  "sl": "<stop loss — min 15 pips sur XAU/USD${crtKasperActif ? ', mais si CRT Kasper détecté: SL = juste au-delà du sweep bougie 2' : ''}>",
   "slPips": <pips SL — min 15 sur XAU/USD>,
   "tp1": "<TP1>",
   "tp1Pips": <slPips × 2>,
@@ -392,6 +502,9 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "tp3Pips": <slPips × 4>,
   "crt": "OUI" ou "NON" ou "NEUTRE",
   "crtDetail": "<explication CRT: range asiatique détecté, cassure confirmée ou non, impact sur le signal>",
+  ${crtKasperActif ? `"crtKasper": "DETECTE_BULLISH" ou "DETECTE_BEARISH" ou "NON_DETECTE",
+  "crtKasperDetail": "<si détecté: décris le pattern 3 bougies M15 - key candle / sweep / break, et précise comment ça affine l'entrée et le SL>",
+  "crtKasperImpact": "<impact sur le placement final: SL plus serré, entrée plus précise, etc.>",` : ''}
   "rangeHaut": "<prix du HIGH du range asiatique si détecté, sinon 'Non détecté'>",
   "rangeBas": "<prix du LOW du range asiatique si détecté, sinon 'Non détecté'>",
   "manipulation": "OUI" ou "NON",
