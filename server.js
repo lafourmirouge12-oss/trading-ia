@@ -457,10 +457,10 @@ PATTERN CRT KASPER (3 dernières bougies M15 UNIQUEMENT) :
 CRT BULLISH = Bougie 2 sweep le LOW + Bougie 3 close NETTEMENT au-dessus du HIGH
 CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 close NETTEMENT en-dessous du LOW
 
-⚠️ NE PAS détecter CRT si :
-- La bougie 3 n'est qu'une doji/petite bougie qui effleure le niveau
-- Les 3 bougies M15 forment un range serré sans break clair
-- Le prix est en plein milieu du range M15 sans direction claire
+⚠️ CRT SOFT accepté en plus du STRICT :
+- Bougie 3 petite mais ferme de l'autre côté → CRT SOFT valide (+1 score)
+- CRT STRICT = break net et clair → +2 score
+- CRT SOFT = effleure mais ferme de l'autre côté → +1 score
 
 UTILISATION DU M1 (entrée précise CRT) :
 - Une fois le pattern CRT détecté sur M15, regarde le M1 pour le timing d'entrée
@@ -471,25 +471,22 @@ UTILISATION DU M1 (entrée précise CRT) :
 
 INTÉGRATION INTELLIGENTE CRT KASPER + ICT + STRUCTURE M30 :
 
-⚠️ RÈGLE ABSOLUE DE STRUCTURE — La tendance M30 COMMANDE :
-- Si M30 est clairement BAISSIÈRE (plus bas/plus bas + EMA/MA descendantes) :
-  → BUY REFUSÉ sauf si CRT Kasper STRICT + reversal M30 confirmé (cassure structure)
-  → Sinon score max 5/10 → "NE PAS TRADER" ou SELL uniquement
-- Si M30 est clairement HAUSSIÈRE : inverse (SELL refusé sauf reversal)
-- Si M30 en range : libre d'aller dans les 2 sens selon CRT
+⚠️ STRUCTURE M30 — guide mais ne bloque pas :
+- M30 dans la direction → bonus +1 point
+- M30 contre → -1 point (pas de blocage total)
+- Si CRT Kasper détecté → on trade même si M30 légèrement contre
 
-⚠️ ANTI "ACHETER LE REBOND FAIBLE" — Très important :
-- Si le prix vient de chuter violemment de plusieurs dollars en quelques bougies M30/M15
-- Et qu'il y a un petit rebond mou avec des bougies vertes faibles
-- → NE PAS DONNER BUY. C'est pas un reversal, c'est une pause avant continuation
-- Même règle inverse pour SELL après remontée violente
+⚠️ REBOND FAIBLE — prudence mais pas de blocage :
+- Rebond faible sans CRT → réduire score de 1
+- CRT Kasper détecté sur un rebond → signal valide quand même
 
 ARBRE DE DÉCISION :
-1. Si CRT Kasper détecté + ICT confirme + M30 dans le sens → SETUP A+ (score 9-10)
-2. Si CRT Kasper détecté + ICT neutre + M30 dans le sens → bon setup (score 7-8)
-3. Si CRT Kasper détecté + M30 CONTRE la direction → score max 5 → NE PAS TRADER
-4. Si pas de CRT Kasper mais ICT solide + M30 aligné → trade ICT classique
-5. Si M30 clairement contre direction CRT/ICT → NE PAS TRADER (priorité structure)
+1. CRT + ICT + M30 alignés → SETUP A+ (score 9-10)
+2. CRT + ICT + M30 neutre → bon setup (score 7-8)
+3. CRT + ICT + M30 contre → score 6-7, trade quand même
+4. CRT seul → score 5-6, trade avec prudence
+5. ICT seul sans CRT → score 6-7 si structure claire
+6. Ni CRT ni ICT → NE PAS TRADER (score < 5)
 
 PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
 - SI CRT Kasper détecté → utiliser les niveaux CRT pour l'entrée et le SL
@@ -497,12 +494,11 @@ PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
 - SINON → utiliser les niveaux ICT classiques (OB, FVG, structure)
 ═══════════════════════════════════════════════════════════════` : ''}
 
-⚠️ RÈGLE STRUCTURE ANTI-ECHEC (applicable mode CRT actif ou pas) :
-Avant de donner un BUY ou SELL, vérifier IMPÉRATIVEMENT :
-1. La direction est-elle cohérente avec la tendance M30 ?
-2. Le prix est-il en zone Discount (pour BUY) ou Premium (pour SELL) du range récent ?
-3. Y a-t-il un vrai setup (pattern + confluence) ou juste un "feeling" ?
-Si 2 de ces 3 questions ont une réponse négative → NE PAS TRADER.
+⚠️ VÉRIFICATION RAPIDE :
+1. Tendance M30 dans le sens ? → si non : -1 point
+2. Zone Discount/Premium respectée ? → si non : -1 point
+3. Setup CRT ou ICT détecté ? → si non ET score < 5 → NE PAS TRADER
+Blocker seulement si score final < 5 ET aucun pattern clair.
 
 
 🎯 ═══════════════════════════════════════════════════════════════
@@ -560,7 +556,7 @@ COMMENT CALCULER L'ENTRÉE :
 4. Le meilleur niveau = celui qui a été testé PLUSIEURS FOIS ou qui a une confluence
    (ex: OB + FVG + EMA qui se croisent au même endroit)
 5. Place l'entrée PILE sur ce niveau (ordre LIMIT)
-6. Si aucun niveau FORT n'existe → NE PAS TRADER (score max 5)
+6. Si aucun niveau FORT mais CRT détecté → utiliser les niveaux CRT comme référence
 
 VALIDITÉ DE L'ENTRÉE :
 - L'entrée doit rester valide MAX 2 heures (bougies M15 évoluent vite)
