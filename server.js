@@ -484,7 +484,7 @@ ARBRE DE DÉCISION :
 1. CRT + ICT + M30 alignés → SETUP A+ (score 9-10)
 2. CRT + ICT + M30 neutre → bon setup (score 7-8)
 3. CRT + ICT + M30 contre → score 6-7, trade quand même
-4. CRT seul → score 5-6, trade avec prudence
+4. CRT seul (sans ICT confirmation) → score 5, trade avec prudence (signal limite)
 5. ICT seul sans CRT → score 6-7 si structure claire
 6. Ni CRT ni ICT → NE PAS TRADER (score < 5)
 
