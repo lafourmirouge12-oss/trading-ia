@@ -439,40 +439,141 @@ ${crtKasperActif ? `
 🎯 ANALYSE CRT KASPER KARL ACTIVÉE (M15 + M1 fournis)
 ═══════════════════════════════════════════════════════════════
 EN PLUS de l'analyse ICT classique ci-dessus, applique LA MÉTHODE KASPER KARL
-sur les 3 dernières bougies du M15 :
+UNIQUEMENT sur les 3 dernières bougies du M15 (jamais M1 ni M30).
 
-PATTERN CRT KASPER (3 bougies M15) :
+⚠️ RÈGLE CRITIQUE : Le pattern CRT Kasper ne se détecte QUE sur M15.
+NE JAMAIS extrapoler un "mini CRT" vu sur M1 ou M5 comme un pattern valide.
+Si aucun pattern Kasper clair sur M15 → crtKasper = "NON_DETECTE".
+
+PATTERN CRT KASPER (3 dernières bougies M15 UNIQUEMENT) :
 • Bougie 1 (KEY CANDLE) : bougie de référence avec un HIGH et un LOW clairs
 • Bougie 2 (MANIPULATION/SWEEP) :
    - Sa MÈCHE dépasse un extrême de la bougie 1 (sweep de liquidité)
    - MAIS son CORPS (close) ferme DANS le range de la bougie 1 (fausse cassure)
 • Bougie 3 (DISTRIBUTION/BREAK) :
    - Ferme au-delà de l'extrême OPPOSÉ de la bougie 1 = CONFIRMATION
+   - DOIT avoir un corps significatif (pas une doji) dans la direction du break
 
-CRT BULLISH = Bougie 2 sweep le LOW + Bougie 3 ferme au-dessus du HIGH
-CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 ferme en-dessous du LOW
+CRT BULLISH = Bougie 2 sweep le LOW + Bougie 3 close NETTEMENT au-dessus du HIGH
+CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 close NETTEMENT en-dessous du LOW
+
+⚠️ NE PAS détecter CRT si :
+- La bougie 3 n'est qu'une doji/petite bougie qui effleure le niveau
+- Les 3 bougies M15 forment un range serré sans break clair
+- Le prix est en plein milieu du range M15 sans direction claire
 
 UTILISATION DU M1 (entrée précise CRT) :
 - Une fois le pattern CRT détecté sur M15, regarde le M1 pour le timing d'entrée
-- Cherche un retest du niveau cassé (high/low de la key candle)
-- Place l'entrée précise au retest, pas au breakout pur (évite les faux signaux)
-- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 (pas plus loin)
-  → Exemple BUY : SL = low de bougie 2 - 2 pips de buffer
-  → Exemple SELL : SL = high de bougie 2 + 2 pips de buffer
-- Cette méthode donne des SL très serrés et précis (R:R souvent 1:3 ou plus)
+- Cherche un retest du niveau cassé (high/low de la key candle M15)
+- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 M15 (pas plus loin)
+  → Exemple BUY : SL = low de bougie 2 M15 - buffer
+  → Exemple SELL : SL = high de bougie 2 M15 + buffer
 
-INTÉGRATION INTELLIGENTE CRT KASPER + ICT :
-- Si CRT Kasper détecté + ICT confirme (même direction, OB/FVG aligné) → SETUP A+ (score 9-10, lot boost)
-- Si CRT Kasper détecté + ICT neutre → bon setup (score 7-8)
-- Si CRT Kasper détecté + ICT contre → setup risqué (score 5-6, attendre confirmation)
-- Si pas de CRT Kasper mais ICT solide → trade ICT classique normal (score selon ICT)
-- Si ni CRT Kasper ni ICT → NE PAS TRADER
+INTÉGRATION INTELLIGENTE CRT KASPER + ICT + STRUCTURE M30 :
+
+⚠️ RÈGLE ABSOLUE DE STRUCTURE — La tendance M30 COMMANDE :
+- Si M30 est clairement BAISSIÈRE (plus bas/plus bas + EMA/MA descendantes) :
+  → BUY REFUSÉ sauf si CRT Kasper STRICT + reversal M30 confirmé (cassure structure)
+  → Sinon score max 5/10 → "NE PAS TRADER" ou SELL uniquement
+- Si M30 est clairement HAUSSIÈRE : inverse (SELL refusé sauf reversal)
+- Si M30 en range : libre d'aller dans les 2 sens selon CRT
+
+⚠️ ANTI "ACHETER LE REBOND FAIBLE" — Très important :
+- Si le prix vient de chuter violemment de plusieurs dollars en quelques bougies M30/M15
+- Et qu'il y a un petit rebond mou avec des bougies vertes faibles
+- → NE PAS DONNER BUY. C'est pas un reversal, c'est une pause avant continuation
+- Même règle inverse pour SELL après remontée violente
+
+ARBRE DE DÉCISION :
+1. Si CRT Kasper détecté + ICT confirme + M30 dans le sens → SETUP A+ (score 9-10)
+2. Si CRT Kasper détecté + ICT neutre + M30 dans le sens → bon setup (score 7-8)
+3. Si CRT Kasper détecté + M30 CONTRE la direction → score max 5 → NE PAS TRADER
+4. Si pas de CRT Kasper mais ICT solide + M30 aligné → trade ICT classique
+5. Si M30 clairement contre direction CRT/ICT → NE PAS TRADER (priorité structure)
 
 PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
 - SI CRT Kasper détecté → utiliser les niveaux CRT pour l'entrée et le SL
-  (ça donne des SL plus serrés et précis, évite les SL "au feeling" qui se font taper)
+  (SL plus serré et précis, évite les SL "au feeling" qui se font taper)
 - SINON → utiliser les niveaux ICT classiques (OB, FVG, structure)
 ═══════════════════════════════════════════════════════════════` : ''}
+
+⚠️ RÈGLE STRUCTURE ANTI-ECHEC (applicable mode CRT actif ou pas) :
+Avant de donner un BUY ou SELL, vérifier IMPÉRATIVEMENT :
+1. La direction est-elle cohérente avec la tendance M30 ?
+2. Le prix est-il en zone Discount (pour BUY) ou Premium (pour SELL) du range récent ?
+3. Y a-t-il un vrai setup (pattern + confluence) ou juste un "feeling" ?
+Si 2 de ces 3 questions ont une réponse négative → NE PAS TRADER.
+
+
+🎯 ═══════════════════════════════════════════════════════════════
+ENTRÉE SNIPER OBLIGATOIRE — JAMAIS D'ENTRÉE AU MARCHÉ
+═══════════════════════════════════════════════════════════════
+Tu es un SNIPER, pas un mitrailleur. L'entrée doit être CHIRURGICALE.
+
+⚠️ CONTEXTE CLIENT : Le trader place TOUJOURS des ordres LIMIT.
+L'entrée que tu donnes doit donc être un NIVEAU RÉALISTE que le prix
+atteindra probablement. Ton job c'est de choisir le MEILLEUR niveau
+possible, pas "un niveau pas loin du prix actuel".
+
+❌ INTERDIT — ne JAMAIS faire :
+- Donner un prix "presque comme le prix actuel" pour que ça touche vite
+- Choisir un niveau sans signification technique juste parce qu'il est proche
+- Donner une entrée en plein milieu d'une zone (ni support ni résistance)
+- "Market order" au prix du moment
+
+✅ OBLIGATOIRE — toujours faire :
+Le prix d'entrée DOIT coïncider avec un NIVEAU TECHNIQUE MAJEUR
+visible clairement sur les graphiques :
+
+POUR UN BUY — l'entrée doit être sur :
+• Retest de la KEY CANDLE (high de bougie 1 CRT) ← préféré si CRT détecté
+• Retest d'un Order Block haussier clair (bas d'une bougie impulsive haussière visible)
+• Retest d'un FVG haussier identifiable (gap entre 3 bougies)
+• Retest d'un breakout de structure (ancien high devenu support)
+• Retest d'une EMA ou MA significative (20, 50, 200)
+• Support horizontal testé plusieurs fois (visible par des mèches à ce niveau)
+
+POUR UN SELL — l'entrée doit être sur :
+• Retest de la KEY CANDLE (low de bougie 1 CRT)
+• Retest d'un Order Block baissier clair
+• Retest d'un FVG baissier
+• Retest d'un breakout baissier (ancien low devenu résistance)
+• Retest d'une EMA ou MA significative
+• Résistance horizontale testée plusieurs fois
+
+⚠️ TEST DE VALIDATION DU NIVEAU D'ENTRÉE :
+Avant de valider le niveau d'entrée X, pose-toi ces 2 questions :
+1. Est-ce que je peux EXPLIQUER pourquoi le prix devrait réagir PILE à ce niveau ?
+2. Est-ce que ce niveau est VISIBLE clairement sur au moins 2 timeframes ?
+Si tu ne peux pas répondre OUI aux 2 → le niveau est trop faible, CHOISIS EN UN AUTRE
+ou "NE PAS TRADER" si aucun niveau valable n'existe.
+
+RÈGLES CHIFFRÉES :
+- Le prix d'entrée DOIT être à au moins 0.1% (environ 5$ pour XAUUSD à 4700) du prix actuel
+- Sauf exception : si le prix est LITTÉRALEMENT sur un niveau technique clé à l'instant T
+- Dans ce cas, le mentionner explicitement dans le champ "entreeType"
+
+COMMENT CALCULER L'ENTRÉE :
+1. Identifie TOUS les niveaux techniques visibles sur les graphiques
+2. Pour BUY : trouve le support le plus PROCHE ET LE PLUS FORT en-dessous du prix
+3. Pour SELL : trouve la résistance la plus PROCHE ET LA PLUS FORTE au-dessus
+4. Le meilleur niveau = celui qui a été testé PLUSIEURS FOIS ou qui a une confluence
+   (ex: OB + FVG + EMA qui se croisent au même endroit)
+5. Place l'entrée PILE sur ce niveau (ordre LIMIT)
+6. Si aucun niveau FORT n'existe → NE PAS TRADER (score max 5)
+
+VALIDITÉ DE L'ENTRÉE :
+- L'entrée doit rester valide MAX 2 heures (bougies M15 évoluent vite)
+- Si le prix s'éloigne trop du niveau d'entrée → signal expiré
+- L'IA doit indiquer si l'entrée est "immédiate" (prix déjà au niveau) ou "en attente"
+
+SL DOIT ÊTRE EXTRÊMEMENT SERRÉ :
+- BUY : SL juste sous le low de la zone d'entrée (OB, key candle, etc.) - 2-3$ buffer max
+- SELL : SL juste au-dessus du high de la zone - 2-3$ buffer max
+- Avec entrée sniper, SL typique XAUUSD = 3-8$ (vs 10-15$ en entrée marché)
+- R:R cible minimum 1:3, idéal 1:4 ou 1:5
+═══════════════════════════════════════════════════════════════
+
 
 DÉTECTION DE MANIPULATION:
 - Identifier les zones de liquidité dangereuses proches du SL
@@ -491,7 +592,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "tendanceM5": "<M5 ou 'Non fourni'>",
   "tendanceM1": "<M1 ou 'Non fourni'>",
   "confluence": "<alignement TF>",
-  "entree": "<prix d'entrée précis>",
+  "entree": "<prix d'entrée précis — DOIT être sur un niveau technique, PAS au marché>",
+  "entreeType": "<LIMIT ou MARKET>",
+  "entreeLevel": "<description du niveau: 'Retest OB H1 à 4675', 'Key candle M15 low', 'FVG M30 haussier', etc.>",
+  "entreeStatut": "<IMMEDIATE si prix déjà au niveau, EN_ATTENTE si le prix doit revenir>",
   "sl": "<stop loss — min 15 pips sur XAU/USD${crtKasperActif ? ', mais si CRT Kasper détecté: SL = juste au-delà du sweep bougie 2' : ''}>",
   "slPips": <pips SL — min 15 sur XAU/USD>,
   "tp1": "<TP1>",
