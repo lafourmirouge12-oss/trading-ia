@@ -187,6 +187,22 @@
     .cap-main-val{font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:var(--gold);}
     .inval{background:rgba(255,48,96,0.05);border:1px solid rgba(255,48,96,0.15);border-radius:4px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:rgba(255,255,255,0.5);}
     .inval-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,48,96,0.5);text-transform:uppercase;margin-bottom:5px;}
+
+    /* BLOC SESSION */
+    .session-box{width:100%;border-radius:4px;padding:12px 16px;margin-bottom:12px;display:none;}
+    .session-box.asiatique{background:rgba(255,140,0,0.07);border:2px solid rgba(255,140,0,0.5);}
+    .session-box.londres{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.35);}
+    .session-box.newyork{background:rgba(0,245,255,0.05);border:1px solid rgba(0,245,255,0.35);}
+    .session-box.neutre{background:rgba(128,0,255,0.05);border:1px solid rgba(128,0,255,0.3);}
+    .session-box.show{display:block;}
+    .session-header{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+    .session-icon{font-size:18px;}
+    .session-label{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;}
+    .session-box.asiatique .session-label{color:var(--orange);}
+    .session-box.londres .session-label{color:var(--green);}
+    .session-box.newyork .session-label{color:var(--cyan);}
+    .session-box.neutre .session-label{color:rgba(128,0,255,0.8);}
+    .session-impact{font-size:12px;color:rgba(255,255,255,0.55);line-height:1.5;}
     .fb-panel{width:100%;max-width:700px;margin-bottom:20px;display:none;}
     .fb-panel.show{display:block;}
 
@@ -798,6 +814,15 @@
     <div class="dec-block skip" id="decBlock">
       <span id="decTxt">—</span>
       <span class="conf" id="confTxt"></span>
+    </div>
+
+    <!-- BLOC SESSION -->
+    <div class="session-box" id="sessionBox">
+      <div class="session-header">
+        <span class="session-icon" id="sessionIcon">🕐</span>
+        <span class="session-label" id="sessionLabel">◈ SESSION</span>
+      </div>
+      <div class="session-impact" id="sessionImpact">—</div>
     </div>
 
     <div class="score-row">
@@ -1423,6 +1448,7 @@ async function analyze(){
   document.getElementById('placeOrderPanel').style.display='none';
   document.getElementById('manipBox').classList.remove('show');
   document.getElementById('crtBox').classList.remove('show');
+  document.getElementById('sessionBox').className='session-box';
   currentId=null;
   lastAnalysis=null;
 
@@ -1502,6 +1528,21 @@ async function analyze(){
       document.getElementById('manipIcon').textContent=isOui?'⚠️':'✅';
       document.getElementById('manipTitle').textContent=isOui?'⚠ RISQUE MANIPULATION DÉTECTÉ':'✅ AUCUNE MANIPULATION DÉTECTÉE';
       document.getElementById('manipDetail').textContent=isOui?(d.manipulationDetail||'Zone de liquidité dangereuse proche du SL — soyez vigilant'):'Setup propre, pas de chasse aux stops identifiée.';
+    }
+
+    // ─── BLOC SESSION ─────────────────────────────────────────
+    const sessionBox=document.getElementById('sessionBox');
+    if(d.session){
+      const s=(d.session||'').toUpperCase();
+      let sessCls='neutre', sessIcon='🕐', sessLbl='◈ SESSION';
+      if(s.includes('ASIATIQUE')){sessCls='asiatique';sessIcon='🌏';sessLbl='◈ SESSION ASIATIQUE — RANGE (20H-08H)';}
+      else if(s.includes('LONDRES')||s.includes('LONDON')){sessCls='londres';sessIcon='🇬🇧';sessLbl='◈ SESSION LONDRES — HAUTE VOLATILITÉ';}
+      else if(s.includes('NEW_YORK')||s.includes('NEW YORK')||s.includes('NY')){sessCls='newyork';sessIcon='🗽';sessLbl='◈ SESSION NEW YORK — HAUTE LIQUIDITÉ';}
+      else if(s.includes('FIN')){sessCls='neutre';sessIcon='🌙';sessLbl='◈ FIN SESSION — VOLUME DÉCROISSANT';}
+      sessionBox.className='session-box '+sessCls+' show';
+      document.getElementById('sessionIcon').textContent=sessIcon;
+      document.getElementById('sessionLabel').textContent=sessLbl;
+      document.getElementById('sessionImpact').textContent=d.sessionImpact||'—';
     }
 
     // ─── BLOC CRT ─────────────────────────────────────────────
