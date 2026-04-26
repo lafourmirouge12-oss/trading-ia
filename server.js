@@ -1256,17 +1256,31 @@ app.post('/mt5/connect', async (req, res) => {
       }
     }
 
-    // ─── Étape 3 : Deploy intelligent ──────────────────────────────
-    let alreadyConnected = false;
-    try {
-      console.log('[MT5-CONNECT] Etat actuel: state=' + account.state + ' connection=' + account.connectionStatus);
-      if (account.state === 'DEPLOYED' && account.connectionStatus === 'CONNECTED') {
-        console.log('[MT5-CONNECT] Compte deja deploye et connecte → skip deploy');
-        alreadyConnected = true;
-      }
-    } catch(e) {}
+    // ─── Étape 3 : Polling actif de l'état du compte ──────────────
+    // On veut un compte DEPLOYED + CONNECTED avant de tenter la sync
+    // Si pas DEPLOYED → deploy + poll jusqu'a ce qu'il le soit
+    // Si DEPLOYED mais DISCONNECTED → on attend la connexion broker
 
-    if (!alreadyConnected) {
+    // Helper : reload l'etat reel du compte depuis MetaApi
+    const reloadAccount = async () => {
+      try {
+        await account.reload();
+      } catch(e) {
+        // reload() n'existe pas dans toutes les versions du SDK
+        // → on utilise la methode alternative de getAccount
+        try {
+          const fresh = await metaApi.metatraderAccountApi.getAccount(account.id);
+          account = fresh;
+        } catch(e2) {}
+      }
+    };
+
+    // Etape 3a : reload pour avoir l'etat reel
+    await reloadAccount();
+    console.log('[MT5-CONNECT] Etat reel: state=' + account.state + ' connection=' + account.connectionStatus);
+
+    // Etape 3b : Si UNDEPLOYED, deploy
+    if (account.state === 'UNDEPLOYED' || account.state === 'UNDEPLOYING') {
       console.log('[MT5-CONNECT] Deploy en cours...');
       try {
         await account.deploy();
@@ -1277,48 +1291,56 @@ app.post('/mt5/connect', async (req, res) => {
         }
         trackDeploy(account.id, login);
       }
+    } else if (account.state === 'DEPLOYED') {
+      console.log('[MT5-CONNECT] Compte deja DEPLOYED, on track quand meme');
+      trackDeploy(account.id, login);
+    } else {
+      console.log('[MT5-CONNECT] Etat ' + account.state + ', on attend stabilisation...');
+      trackDeploy(account.id, login);
+    }
 
-      // ─── Étape 4 : Attendre que le compte soit connecte au broker ──
-      // Nouveau compte = besoin de plus de temps (180s)
-      // Compte existant = 120s suffisent
-      const waitTimeout = isNewAccount ? 180 : 120;
-      console.log('[MT5-CONNECT] WaitConnected (timeout ' + waitTimeout + 's)...');
-      try {
-        await account.waitConnected({ timeoutInSeconds: waitTimeout });
-        console.log('[MT5-CONNECT] WaitConnected OK !');
-      } catch(waitErr) {
-        console.log('[MT5-CONNECT] WaitConnected timeout, on tente quand meme la sync...');
+    // Etape 3c : POLLING actif jusqu'a CONNECTED ou timeout
+    // C'est PLUS FIABLE que waitConnected qui peut planter avec un timeout silencieux
+    const maxPollTime = isNewAccount ? 180000 : 150000; // 3 min ou 2.5 min
+    const pollStart = Date.now();
+    let isStable = false;
+
+    while (Date.now() - pollStart < maxPollTime) {
+      await new Promise(r => setTimeout(r, 5000)); // attendre 5s entre chaque check
+      await reloadAccount();
+      const elapsed = Math.round((Date.now() - pollStart) / 1000);
+      console.log('[MT5-CONNECT] Poll ' + elapsed + 's: state=' + account.state + ' connection=' + account.connectionStatus);
+
+      if (account.state === 'DEPLOYED' && account.connectionStatus === 'CONNECTED') {
+        console.log('[MT5-CONNECT] ✅ Compte stable et connecte au broker !');
+        isStable = true;
+        break;
       }
     }
 
-    // ─── Étape 5 : Récupérer la connexion + capital ────────────────
-    // Plus de temps pour les nouveaux comptes (jusqu'a 90s)
+    if (!isStable) {
+      // ON NE FAIT PAS UNDEPLOY ! Le watchdog le fera dans 5 min si necessaire
+      // L'utilisateur peut retenter dans 1 min, le compte aura peut-etre eu le temps
+      console.log('[MT5-CONNECT] Timeout polling — compte en cours de connexion, le watchdog gerera');
+      throw new Error(
+        'Connexion en cours côté broker — réessaye dans 1 minute. ' +
+        '(Si ça persiste, vérifie tes identifiants MT5 ou le serveur ' + server + '.)'
+      );
+    }
+
+    // ─── Étape 4 : Récupérer la connexion + capital ────────────────
     let accountInfo;
     try {
       const connection = account.getRPCConnection();
       await connection.connect();
-      const syncTimeout = alreadyConnected ? 30 : (isNewAccount ? 120 : 90);
-      console.log('[MT5-CONNECT] WaitSynchronized (timeout ' + syncTimeout + 's)...');
-      await connection.waitSynchronized({ timeoutInSeconds: syncTimeout });
+      console.log('[MT5-CONNECT] WaitSynchronized (timeout 60s)...');
+      await connection.waitSynchronized({ timeoutInSeconds: 60 });
       accountInfo = await connection.getAccountInformation();
-      console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
+      console.log('[MT5-CONNECT] ✅ Capital récupéré: ' + accountInfo.balance + ' ' + accountInfo.currency);
     } catch(syncErr) {
       console.log('[MT5-CONNECT] Sync failed:', syncErr.message);
-      // POUR UN NOUVEAU COMPTE : on garde deployed (le watchdog le gerera dans 5 min si besoin)
-      // → ca permet a l'utilisateur de reessayer dans 1-2 min sans recreer le compte
-      if (!alreadyConnected && !isNewAccount) {
-        try {
-          await account.undeploy();
-          trackUndeploy(account.id);
-        } catch(e) {}
-      } else if (isNewAccount) {
-        console.log('[MT5-CONNECT] Nouveau compte - on laisse deployed pour le retry (watchdog le coupera dans 5 min)');
-      }
-      throw new Error(
-        isNewAccount
-          ? 'Le compte a ete cree mais la connexion broker prend du temps. Attends 1-2 minutes et reessaie — pas besoin de retaper tes identifiants, le compte est sauvegarde sur MetaApi.'
-          : 'Le broker ne repond pas. Verifie que ton MT5 mobile/desktop est bien connecte (compte ' + login + ' actif sur VTMarkets), puis reessaie dans 1-2 minutes.'
-      );
+      // ON NE TOUCHE PAS AU UNDEPLOY — laisse le watchdog faire son job
+      throw new Error('La connexion au broker a démarré mais la sync échoue. Réessaye dans 1 minute.');
     }
 
     // ─── Étape 6 : Sauvegarder les credentials chiffres ────────────
@@ -1332,21 +1354,12 @@ app.post('/mt5/connect', async (req, res) => {
       currency: accountInfo.currency
     });
 
-    // ─── Étape 7 : UNDEPLOY (sauf si le bot l'utilise deja) ────────
-    if (alreadyConnected) {
-      // Le bot J4keBot utilise deja ce compte → on touche a rien !
-      console.log('[MT5-CONNECT] Skip undeploy (compte utilise par J4keBot)');
-    } else {
-      // C'est nous qui l'avons deploye → on undeploy pour economiser
-      try {
-        console.log('[MT5-CONNECT] Undeploy pour economiser...');
-        await account.undeploy();
-        trackUndeploy(account.id);
-      } catch(undeployErr) {
-        console.log('[MT5-CONNECT] Undeploy ignore:', undeployErr.message);
-        // Le watchdog s'en chargera apres 5 min
-      }
-    }
+    // ─── Étape 5 : NE PAS UNDEPLOY ────────────────────────────────
+    // On laisse le compte deployed pour quelques minutes :
+    // - L'utilisateur peut placer un ordre juste apres
+    // - Le watchdog l'undeploy automatiquement apres 5 min d'inactivite
+    // - Evite les race conditions deploy/undeploy trop rapides
+    console.log('[MT5-CONNECT] ✅ Connexion reussie — compte reste deployed (watchdog auto-undeploy dans 5 min)');
 
     res.json({
       success: true,
