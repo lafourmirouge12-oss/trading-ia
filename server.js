@@ -1442,13 +1442,27 @@ app.post('/mt5/connect', async (req, res) => {
 });
 
 // ─── POST /mt5/switch : changer de compte MT5 ────────────────────────
-// Deconnecte l'ancien (sans toucher au compte MetaApi qui peut etre utilise par bot)
-// Puis ouvre le formulaire de reconnexion cote frontend
+// Undeploy l'ancien compte MetaApi AVANT de switch pour éviter la facturation inutile
 app.post('/mt5/switch', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   try {
-    // On garde le compte MetaApi (peut servir au bot) mais on supprime juste
-    // les credentials de l'utilisateur cote site
+    // Récupérer l'ancien compte MetaApi et l'undeploy proprement
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (user && user.mt5 && user.mt5.metaApiAccountId && metaApi) {
+      try {
+        const oldAccount = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+        if (oldAccount && oldAccount.state !== 'UNDEPLOYED') {
+          await oldAccount.undeploy();
+          trackUndeploy(oldAccount.id);
+          console.log('[MT5-SWITCH] Ancien compte undeploye: ' + user.mt5.metaApiAccountId + ' (login ' + user.mt5.login + ')');
+        }
+      } catch(undeployErr) {
+        // Ne pas bloquer le switch si l'undeploy echoue, le watchdog prendra le relais
+        console.log('[MT5-SWITCH] Undeploy ancien compte echoue (watchdog prendra le relais):', undeployErr.message);
+      }
+    }
+
+    // Supprimer les credentials de l'utilisateur en DB
     await db.updateAsync(
       { _id: req.session.userId },
       { $unset: { mt5: true } }
@@ -1553,9 +1567,28 @@ app.post('/mt5/place-order', async (req, res) => {
     await connection.connect();
     await connection.waitSynchronized();
 
-    // Determiner type d'ordre LIMIT
-    const tickInfo = await connection.getSymbolPrice(symbol);
-    const currentPrice = tickInfo.bid;
+    // ─── RESOLUTION DU SYMBOLE BROKER ────────────────────────────────
+    // VTMarkets (et d'autres brokers) utilisent des suffixes sur les symboles
+    // ex: XAUUSD → XAUUSD-VIP ou XAUUSD-STD selon le type de compte
+    // On teste le symbole brut d'abord, puis les variantes courantes
+    const resolveSymbol = async (baseSymbol) => {
+      const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+      for (const suffix of suffixes) {
+        const candidate = baseSymbol + suffix;
+        try {
+          const tick = await connection.getSymbolPrice(candidate);
+          if (tick && tick.bid) {
+            console.log('[MT5-ORDER] Symbole resolu: ' + candidate + ' (bid=' + tick.bid + ')');
+            return { resolvedSymbol: candidate, currentPrice: tick.bid };
+          }
+        } catch(e) {
+          // Ce suffixe n'existe pas sur ce broker, on essaie le suivant
+        }
+      }
+      throw new Error('Symbole ' + baseSymbol + ' introuvable sur ce compte broker. Verifie le nom exact dans ton MT5.');
+    };
+
+    const { resolvedSymbol, currentPrice } = await resolveSymbol(symbol);
     const isBuy = String(direction).toUpperCase().includes('BUY');
 
     let orderType;
@@ -1565,14 +1598,16 @@ app.post('/mt5/place-order', async (req, res) => {
       orderType = parseFloat(entryPrice) > currentPrice ? 'ORDER_TYPE_SELL_LIMIT' : 'ORDER_TYPE_SELL_STOP';
     }
 
-    // Placer l'ordre
+    console.log('[MT5-ORDER] Symbole final: ' + resolvedSymbol + ' | Type: ' + orderType + ' | Prix actuel: ' + currentPrice);
+
+    // Placer l'ordre avec le symbole resolu
     const result = isBuy
       ? (orderType === 'ORDER_TYPE_BUY_LIMIT'
-          ? await connection.createLimitBuyOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
-          : await connection.createStopBuyOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }))
+          ? await connection.createLimitBuyOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
+          : await connection.createStopBuyOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }))
       : (orderType === 'ORDER_TYPE_SELL_LIMIT'
-          ? await connection.createLimitSellOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
-          : await connection.createStopSellOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }));
+          ? await connection.createLimitSellOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
+          : await connection.createStopSellOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }));
 
     console.log('[MT5-ORDER] Ordre place ! ID:', result.orderId);
 
