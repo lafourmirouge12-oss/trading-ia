@@ -136,10 +136,43 @@
     .lv.sl .lv-val{color:var(--red);}
     .lv.tp .lv-val{color:var(--green);}
     .tps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
-    .tp-card{background:rgba(0,10,30,0.8);border:1px solid rgba(0,255,136,0.15);border-radius:4px;padding:10px 8px;text-align:center;}
+    .tp-card{
+      background:rgba(0,10,30,0.8);
+      border:2px solid rgba(0,255,136,0.15);
+      border-radius:4px;padding:10px 8px;text-align:center;
+      cursor:pointer;
+      transition:all 0.25s;
+      user-select:none;
+      -webkit-tap-highlight-color:transparent;
+      position:relative;
+    }
+    .tp-card:hover{border-color:rgba(0,255,136,0.5);background:rgba(0,255,136,0.07);}
+    .tp-card:active{transform:scale(0.96);}
+    .tp-card.selected{
+      border-color:var(--green);
+      background:rgba(0,255,136,0.12);
+      box-shadow:0 0 16px rgba(0,255,136,0.25);
+    }
+    .tp-card.selected::after{
+      content:'✓ SÉLECTIONNÉ';
+      position:absolute;
+      bottom:4px;left:0;right:0;
+      font-family:'Orbitron',monospace;
+      font-size:6px;letter-spacing:1px;
+      color:var(--green);opacity:0.8;
+    }
     .tp-lbl{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;color:rgba(0,255,136,0.5);text-transform:uppercase;margin-bottom:6px;}
     .tp-val{font-family:'Orbitron',monospace;font-size:15px;font-weight:700;color:var(--green);}
     .tp-rr{font-size:10px;color:rgba(255,255,255,0.3);margin-top:3px;}
+    .tp-hint{
+      text-align:center;
+      font-family:'Orbitron',monospace;
+      font-size:8px;letter-spacing:2px;
+      color:rgba(0,255,136,0.4);
+      text-transform:uppercase;
+      margin-bottom:10px;
+      animation:blink 2s infinite;
+    }
     .be{background:rgba(0,10,30,0.8);border:1px solid rgba(128,0,255,0.2);border-radius:4px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px;}
     .be-txt{font-size:13px;color:rgba(255,255,255,0.6);}
     .be-price{font-family:'Orbitron',monospace;font-size:15px;font-weight:700;color:var(--purple);}
@@ -684,7 +717,7 @@
       <input type="file" id="fileM30" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
       <div class="tf-label">M30</div>
-      <div class="tf-sub">Biais + OB HTF</div>
+      <div class="tf-sub">Tendance principale</div>
       <div class="tf-placeholder" id="placeholderM30">
         <div class="tf-icon">📊</div>
         <div class="tf-add">Importer</div>
@@ -696,7 +729,7 @@
       <input type="file" id="fileM15" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
       <div class="tf-label">M15</div>
-      <div class="tf-sub">B1 · B2 · B3 pattern CRT</div>
+      <div class="tf-sub">Confirmation setup</div>
       <div class="tf-placeholder" id="placeholderM15">
         <div class="tf-icon">📈</div>
         <div class="tf-add">Importer</div>
@@ -708,7 +741,7 @@
       <input type="file" id="fileM1" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
       <div class="tf-label">M1</div>
-      <div class="tf-sub">Entrée FVG précise</div>
+      <div class="tf-sub">Entrée précise</div>
       <div class="tf-placeholder" id="placeholderM1">
         <div class="tf-icon">🎯</div>
         <div class="tf-add">Importer</div>
@@ -719,7 +752,7 @@
   </div>
 
   <!-- TF OPTIONNELS H1 + M5 -->
-  <div class="tf-optional-label">◈ Optionnel — H1 biais macro · M5 confirmation FVG</div>
+  <div class="tf-optional-label">◈ Optionnel — Enrichit l'analyse CRT</div>
   <div class="tf-grid-bonus">
     <div class="tf-block optional" id="blockH1" onclick="document.getElementById('fileH1').click()">
       <input type="file" id="fileH1" accept="image/*" hidden/>
@@ -828,10 +861,23 @@
       <div class="lv tp"><div class="lv-lbl">Take Profit 1</div><div class="lv-val" id="lvTP1">—</div><div class="lv-sub" id="lvTP1pips">—</div></div>
     </div>
 
+    <div class="tp-hint" id="tpHint">◈ Touche un TP pour le sélectionner ◈</div>
     <div class="tps">
-      <div class="tp-card"><div class="tp-lbl">◈ TP 1</div><div class="tp-val" id="tp1Val">—</div><div class="tp-rr">RR 1:2</div></div>
-      <div class="tp-card"><div class="tp-lbl">◈ TP 2</div><div class="tp-val" id="tp2Val">—</div><div class="tp-rr">RR 1:3</div></div>
-      <div class="tp-card"><div class="tp-lbl">◈ TP 3</div><div class="tp-val" id="tp3Val">—</div><div class="tp-rr">RR 1:4</div></div>
+      <div class="tp-card" id="tpCard1" onclick="selectTP(1)">
+        <div class="tp-lbl">◈ TP 1</div>
+        <div class="tp-val" id="tp1Val">—</div>
+        <div class="tp-rr">RR 1:2</div>
+      </div>
+      <div class="tp-card" id="tpCard2" onclick="selectTP(2)">
+        <div class="tp-lbl">◈ TP 2</div>
+        <div class="tp-val" id="tp2Val">—</div>
+        <div class="tp-rr">RR 1:3</div>
+      </div>
+      <div class="tp-card" id="tpCard3" onclick="selectTP(3)">
+        <div class="tp-lbl">◈ TP 3</div>
+        <div class="tp-val" id="tp3Val">—</div>
+        <div class="tp-rr">RR 1:4</div>
+      </div>
     </div>
 
     <div class="be">
@@ -872,12 +918,14 @@
   <!-- ◈ PLACER L'ORDRE — auto si MT5 connecte, sinon deep link -->
   <div class="fb-panel" id="placeOrderPanel" style="display:none;margin-top:14px;">
     <div class="fb-title" style="color:var(--cyan);">◈ Placer cet ordre</div>
-    <button class="place-mt5-btn" id="placeMT5Btn" onclick="placerOrdre()">
-      <span style="font-size:18px;">🚀</span>
-      <span class="place-mt5-label" id="placeMT5Label">Placer cet ordre</span>
-      <span class="place-mt5-sub" id="placeMT5Sub">Pré-rempli avec entrée / SL / TP / lot</span>
+    <button class="place-mt5-btn" id="placeMT5Btn" onclick="placerOrdre()" disabled style="opacity:0.4;cursor:not-allowed;">
+      <span style="font-size:18px;">🎯</span>
+      <span class="place-mt5-label" id="placeMT5Label">Sélectionne un TP ci-dessus</span>
+      <span class="place-mt5-sub" id="placeMT5Sub">Touche TP1 · TP2 · TP3 pour choisir ton objectif</span>
     </button>
-    <div class="place-mt5-info" id="placeMT5Info"></div>
+    <div class="place-mt5-info" id="placeMT5Info" style="color:rgba(0,245,255,0.4);font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;margin-top:8px;text-align:center;">
+      ◈ Le bouton s'active après la sélection du TP
+    </div>
   </div>
 
   <div class="fb-panel" id="fbPanel">
@@ -901,6 +949,74 @@
 let currentId = null;
 let lastAnalysis = null;
 let mt5IsConnected = false;
+let selectedTP = null;       // TP choisi par le client (1, 2 ou 3)
+let idleSleepTimer = null;   // timer mise en veille API
+
+// ─── MISE EN VEILLE API ──────────────────────────────────────────
+// Si l'utilisateur ne lance pas d'analyse dans les 10s après le chargement
+// on envoie un signal "idle" au serveur pour liberer les ressources
+function startIdleTimer() {
+  if (idleSleepTimer) clearTimeout(idleSleepTimer);
+  idleSleepTimer = setTimeout(() => {
+    fetch('/api/idle', { method: 'POST' }).catch(() => {});
+    console.log('[J4keIA] Aucune activité — API mise en veille');
+  }, 10000); // 10 secondes
+}
+
+// Réinitialiser le timer à chaque interaction
+function resetIdleTimer() {
+  startIdleTimer();
+}
+
+document.addEventListener('click', resetIdleTimer);
+document.addEventListener('touchstart', resetIdleTimer);
+startIdleTimer(); // démarrer au chargement
+
+// ─── SELECTION DU TP ─────────────────────────────────────────────
+function selectTP(num) {
+  selectedTP = num;
+
+  // Mise à jour visuelle des cartes
+  [1, 2, 3].forEach(n => {
+    document.getElementById('tpCard' + n).classList.toggle('selected', n === num);
+  });
+
+  // Récupérer le prix du TP sélectionné
+  const tpPrix = document.getElementById('tp' + num + 'Val').textContent;
+
+  // Mettre à jour lastAnalysis avec le TP choisi
+  if (lastAnalysis) {
+    lastAnalysis.tpChoisi = tpPrix;
+    lastAnalysis.tpNum = num;
+  }
+
+  // Activer le bouton placer
+  const btn = document.getElementById('placeMT5Btn');
+  const labelEl = document.getElementById('placeMT5Label');
+  const subEl = document.getElementById('placeMT5Sub');
+  const infoEl = document.getElementById('placeMT5Info');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+  btn.style.cursor = 'pointer';
+
+  const rrMap = { 1: '1:2', 2: '1:3', 3: '1:4' };
+  if (mt5IsConnected) {
+    btn.querySelector('span:first-child').textContent = '🚀';
+    labelEl.textContent = '🚀 Placer avec TP' + num + ' — ' + tpPrix;
+    subEl.textContent = 'RR ' + rrMap[num] + ' · Placement auto sur MT5';
+    infoEl.textContent = '◈ Le serveur va déployer ton compte, placer l\'ordre, puis se déconnecter';
+    infoEl.style.color = 'var(--cyan)';
+  } else {
+    btn.querySelector('span:first-child').textContent = '📋';
+    labelEl.textContent = 'Préparer l\'ordre · TP' + num + ' — ' + tpPrix;
+    subEl.textContent = 'RR ' + rrMap[num] + ' · Détails copiés / MT5 mobile';
+    infoEl.textContent = '💡 Connecte ton MT5 pour le placement automatique';
+    infoEl.style.color = 'rgba(0,200,255,0.5)';
+  }
+
+  // Vibration tactile si disponible
+  if (navigator.vibrate) navigator.vibrate(40);
+}
 
 fetch('/me').then(r=>r.json()).then(u=>{
   if(u.error==='session_conflict'||u.error==='banned'){window.location.href='/login.html';return;}
@@ -1086,16 +1202,16 @@ function parsePrice(str) {
 }
 
 async function placerOrdre() {
-  if (!lastAnalysis) {
-    alert('Aucune analyse en cours.');
-    return;
-  }
+  if (!lastAnalysis) { alert('Aucune analyse en cours.'); return; }
+  if (!selectedTP)   { alert('Choisis un TP avant de placer l\'ordre.'); return; }
 
   const a = lastAnalysis;
   const symbol = a.instrument || 'XAUUSD';
   const entree = parsePrice(a.entree);
   const sl     = parsePrice(a.sl);
-  const tp     = parsePrice(a.tp1) || parsePrice(a.tp2);
+  // Utilise le TP choisi par le client
+  const tpKey  = 'tp' + selectedTP;
+  const tp     = parsePrice(a[tpKey]) || parsePrice(a.tp1);
   const lots   = a.lots || 0.01;
   const isBuy  = String(a.decision).toUpperCase().includes('BUY');
 
@@ -1262,7 +1378,7 @@ async function loadHist(){
       const decClass=dec.includes('buy')?'buy':dec.includes('sell')?'sell':'skip';
       const fbClass=a.feedbackResult?a.feedbackResult:'';
       const manipBadge=a.manipulation==='OUI'?' ⚠️':'';
-      const crtBadge=a.crt==='OUI'?(a.crtType==='STRICT'?' 📐⚡STRICT':' 📐✅SOFT'):a.crt==='NON'?' 📐❌':'';
+      const crtBadge=a.crt==='OUI'?' 📐✅':a.crt==='NON'?' 📐❌':'';
       return`<div class="hi ${fbClass}">
         <div class="hi-head">
           <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}${manipBadge}${crtBadge}</span>
@@ -1310,15 +1426,30 @@ async function analyze(){
   currentId=null;
   lastAnalysis=null;
 
+  // Reset sélection TP
+  selectedTP = null;
+  [1,2,3].forEach(n => document.getElementById('tpCard'+n).classList.remove('selected'));
+  const placeBtn = document.getElementById('placeMT5Btn');
+  placeBtn.disabled = true;
+  placeBtn.style.opacity = '0.4';
+  placeBtn.style.cursor = 'not-allowed';
+  document.getElementById('placeMT5Label').textContent = 'Sélectionne un TP ci-dessus';
+  document.getElementById('placeMT5Sub').textContent = 'Touche TP1 · TP2 · TP3 pour choisir ton objectif';
+  document.getElementById('placeMT5Info').textContent = '◈ Le bouton s\'active après la sélection du TP';
+  document.getElementById('placeMT5Info').style.color = 'rgba(0,245,255,0.4)';
+
+  // Reset idle timer — l'utilisateur est actif
+  resetIdleTimer();
+
   const fd=new FormData();
   fd.append('capital',cap);
   const fileH1 = document.getElementById('fileH1')?.files[0];
   const fileM5 = document.getElementById('fileM5')?.files[0];
-  if(fileH1)  fd.append('imageH1', fileH1);   // H1 en premier = biais HTF
-  fd.append('imageM30',fileM30);               // M30 = setup principal
-  if(fileM15) fd.append('imageM15',fileM15);  // M15 = pattern CRT
-  if(fileM5)  fd.append('imageM5', fileM5);   // M5 = timing entrée
-  if(fileM1)  fd.append('imageM1',fileM1);    // M1 = entrée précise
+  if(fileH1)  fd.append('imageH1', fileH1);
+  fd.append('imageM30',fileM30);
+  if(fileM15) fd.append('imageM15',fileM15);
+  if(fileM5)  fd.append('imageM5', fileM5);
+  if(fileM1)  fd.append('imageM1',fileM1);
 
   try{
     const r=await fetch('/analyze',{method:'POST',body:fd});
@@ -1377,28 +1508,12 @@ async function analyze(){
     const crtBox=document.getElementById('crtBox');
     if(d.crt){
       const crtVal=(d.crt||'').toUpperCase();
-      const crtType=(d.crtType||'').toUpperCase();
       const isOui=crtVal==='OUI';
       const isNon=crtVal==='NON';
       crtBox.className='crt-box '+(isOui?'oui':isNon?'non':'neutre')+' show';
-
-      // Icone selon STRICT ou SOFT
-      document.getElementById('crtIcon').textContent=isOui?(crtType==='STRICT'?'📐⚡':'📐✅'):isNon?'📐❌':'📐';
-
-      // Titre avec badge STRICT / SOFT
-      let crtTitre;
-      if(isOui){
-        crtTitre = crtType==='STRICT'
-          ? '◈ PATTERN CRT STRICT ⚡ — SETUP A+'
-          : '◈ PATTERN CRT SOFT ✅ — BON SETUP';
-      } else if(isNon){
-        crtTitre = '◈ PAS DE PATTERN CRT — SETUP ICT SEUL';
-      } else {
-        crtTitre = '◈ CRT NEUTRE — CONTEXTE MITIGÉ';
-      }
-      document.getElementById('crtTitle').textContent=crtTitre;
+      document.getElementById('crtIcon').textContent=isOui?'📐✅':isNon?'📐❌':'📐';
+      document.getElementById('crtTitle').textContent=isOui?'◈ CRT CONFIRMÉ — RANGE ASIATIQUE ALIGNÉ':isNon?'◈ CRT NON ALIGNÉ — PRUDENCE':'◈ RANGE ASIATIQUE — CRT NEUTRE';
       document.getElementById('crtDetail').textContent=d.crtDetail||'—';
-
       const rangeHaut=d.rangeHaut&&d.rangeHaut!=='Non détecté'?d.rangeHaut:null;
       const rangeBas=d.rangeBas&&d.rangeBas!=='Non détecté'?d.rangeBas:null;
       if(rangeHaut||rangeBas){
@@ -1471,24 +1586,7 @@ async function analyze(){
         lots: d.lots
       };
 
-      // Afficher panel + adapter le label selon MT5 connecte ou pas
-      const placeBtn = document.getElementById('placeMT5Btn');
-      placeBtn.classList.remove('success', 'error');
-      placeBtn.disabled = false;
-      const labelEl = document.getElementById('placeMT5Label');
-      const subEl = document.getElementById('placeMT5Sub');
-      const infoEl = document.getElementById('placeMT5Info');
-      if (mt5IsConnected) {
-        labelEl.textContent = '🚀 Placer cet ordre AUTOMATIQUEMENT';
-        subEl.textContent = 'Sera placé directement sur ton MT5 connecté';
-        infoEl.textContent = '◈ Le serveur va déployer ton compte, placer l\'ordre, puis se déconnecter (économie max)';
-        infoEl.style.color = 'var(--cyan)';
-      } else {
-        labelEl.textContent = 'Préparer l\'ordre dans MT5';
-        subEl.textContent = 'Détails copiés / MT5 mobile s\'ouvre';
-        infoEl.textContent = '💡 Connecte ton MT5 ci-dessus pour activer le placement automatique en 1 clic';
-        infoEl.style.color = 'rgba(0,200,255,0.5)';
-      }
+      // Afficher le panel — le bouton reste désactivé jusqu'au choix du TP
       document.getElementById('placeOrderPanel').style.display = 'block';
     } else {
       document.getElementById('placeOrderPanel').style.display = 'none';
