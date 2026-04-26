@@ -1222,6 +1222,9 @@ app.post('/mt5/connect', async (req, res) => {
 
     // ─── Étape 1 : Chercher un compte existant dans MetaApi ─────────
     // (ce login peut deja avoir un compte MetaApi cree par le bot Telegram
+    // Flag pour savoir si le compte vient d'etre cree (besoin de plus de temps)
+    let isNewAccount = false;
+
     //  ou par une connexion precedente du site → on REUTILISE, pas de doublon)
     account = await findMetaApiAccountByLogin(login);
 
@@ -1230,6 +1233,7 @@ app.post('/mt5/connect', async (req, res) => {
     } else {
       // ─── Étape 2 : Pas de compte trouve → en creer un nouveau ─────
       console.log('[MT5-CONNECT] Compte non trouve, creation...');
+      isNewAccount = true;
       try {
         account = await metaApi.metatraderAccountApi.createAccount({
           name: 'AIM-' + login + '-' + (accountType || 'demo'),
@@ -1241,25 +1245,23 @@ app.post('/mt5/connect', async (req, res) => {
           magic: 12345,
           application: 'MetaApi'
         });
+        console.log('[MT5-CONNECT] Compte cree: ' + account.id + ' — attente provisioning 10s...');
+        // Laisser le temps a MetaApi de provisionner les ressources
+        await new Promise(r => setTimeout(r, 10000));
       } catch(createErr) {
-        // Race condition possible : un autre process a peut-etre cree le compte
-        // → on retente la recherche
         console.log('[MT5-CONNECT] Erreur creation, retry recherche:', createErr.message);
         account = await findMetaApiAccountByLogin(login);
         if (!account) throw createErr;
+        isNewAccount = false;
       }
     }
 
     // ─── Étape 3 : Deploy intelligent ──────────────────────────────
-    // Si le compte est DEJA deploye + connecte (utilise par le bot J4keBot),
-    // on ne touche pas au deploy → on tente direct la sync RPC
     let alreadyConnected = false;
     try {
-      // L'etat 'state' peut etre : DEPLOYED, UNDEPLOYED, etc.
-      // Le 'connectionStatus' peut etre : CONNECTED, DISCONNECTED, etc.
       console.log('[MT5-CONNECT] Etat actuel: state=' + account.state + ' connection=' + account.connectionStatus);
       if (account.state === 'DEPLOYED' && account.connectionStatus === 'CONNECTED') {
-        console.log('[MT5-CONNECT] Compte deja deploye et connecte (probablement utilise par le bot) → skip deploy');
+        console.log('[MT5-CONNECT] Compte deja deploye et connecte → skip deploy');
         alreadyConnected = true;
       }
     } catch(e) {}
@@ -1270,41 +1272,53 @@ app.post('/mt5/connect', async (req, res) => {
         await account.deploy();
         trackDeploy(account.id, login);
       } catch(deployErr) {
-        // Peut deja etre deployed (utilise par le bot p.ex.) → c'est OK
         if (!String(deployErr.message).includes('already')) {
           console.log('[MT5-CONNECT] Deploy warning:', deployErr.message);
         }
         trackDeploy(account.id, login);
       }
 
-      // ─── Étape 4 : Attendre que le compte soit connecte ──────────
+      // ─── Étape 4 : Attendre que le compte soit connecte au broker ──
+      // Nouveau compte = besoin de plus de temps (180s)
+      // Compte existant = 120s suffisent
+      const waitTimeout = isNewAccount ? 180 : 120;
+      console.log('[MT5-CONNECT] WaitConnected (timeout ' + waitTimeout + 's)...');
       try {
-        await account.waitConnected({ timeoutInSeconds: 120 });
+        await account.waitConnected({ timeoutInSeconds: waitTimeout });
+        console.log('[MT5-CONNECT] WaitConnected OK !');
       } catch(waitErr) {
-        console.log('[MT5-CONNECT] WaitConnected timeout, on tente quand meme...');
+        console.log('[MT5-CONNECT] WaitConnected timeout, on tente quand meme la sync...');
       }
     }
 
     // ─── Étape 5 : Récupérer la connexion + capital ────────────────
+    // Plus de temps pour les nouveaux comptes (jusqu'a 90s)
     let accountInfo;
     try {
       const connection = account.getRPCConnection();
       await connection.connect();
-      // Si compte deja connecte, sync rapide. Sinon, sync longue.
-      const syncTimeout = alreadyConnected ? 30 : 60;
+      const syncTimeout = alreadyConnected ? 30 : (isNewAccount ? 120 : 90);
+      console.log('[MT5-CONNECT] WaitSynchronized (timeout ' + syncTimeout + 's)...');
       await connection.waitSynchronized({ timeoutInSeconds: syncTimeout });
       accountInfo = await connection.getAccountInformation();
       console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
     } catch(syncErr) {
       console.log('[MT5-CONNECT] Sync failed:', syncErr.message);
-      // Si on a deploye nous-meme, undeploy. Sinon laisse tel quel (bot l'utilise).
-      if (!alreadyConnected) {
+      // POUR UN NOUVEAU COMPTE : on garde deployed (le watchdog le gerera dans 5 min si besoin)
+      // → ca permet a l'utilisateur de reessayer dans 1-2 min sans recreer le compte
+      if (!alreadyConnected && !isNewAccount) {
         try {
           await account.undeploy();
           trackUndeploy(account.id);
         } catch(e) {}
+      } else if (isNewAccount) {
+        console.log('[MT5-CONNECT] Nouveau compte - on laisse deployed pour le retry (watchdog le coupera dans 5 min)');
       }
-      throw new Error('Le broker ne repond pas. Verifie que ton MT5 mobile/desktop est bien connecte (compte ' + login + ' actif sur VTMarkets), puis reessaie dans 1-2 minutes.');
+      throw new Error(
+        isNewAccount
+          ? 'Le compte a ete cree mais la connexion broker prend du temps. Attends 1-2 minutes et reessaie — pas besoin de retaper tes identifiants, le compte est sauvegarde sur MetaApi.'
+          : 'Le broker ne repond pas. Verifie que ton MT5 mobile/desktop est bien connecte (compte ' + login + ' actif sur VTMarkets), puis reessaie dans 1-2 minutes.'
+      );
     }
 
     // ─── Étape 6 : Sauvegarder les credentials chiffres ────────────
