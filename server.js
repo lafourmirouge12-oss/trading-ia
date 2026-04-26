@@ -1250,33 +1250,62 @@ app.post('/mt5/connect', async (req, res) => {
       }
     }
 
-    // ─── Étape 3 : Deploy le compte (le connecte au broker) ────────
-    console.log('[MT5-CONNECT] Deploy en cours...');
+    // ─── Étape 3 : Deploy intelligent ──────────────────────────────
+    // Si le compte est DEJA deploye + connecte (utilise par le bot J4keBot),
+    // on ne touche pas au deploy → on tente direct la sync RPC
+    let alreadyConnected = false;
     try {
-      await account.deploy();
-      trackDeploy(account.id, login);
-    } catch(deployErr) {
-      // Peut deja etre deployed (utilise par le bot p.ex.) → c'est OK
-      if (!String(deployErr.message).includes('already')) {
-        console.log('[MT5-CONNECT] Deploy warning:', deployErr.message);
+      // L'etat 'state' peut etre : DEPLOYED, UNDEPLOYED, etc.
+      // Le 'connectionStatus' peut etre : CONNECTED, DISCONNECTED, etc.
+      console.log('[MT5-CONNECT] Etat actuel: state=' + account.state + ' connection=' + account.connectionStatus);
+      if (account.state === 'DEPLOYED' && account.connectionStatus === 'CONNECTED') {
+        console.log('[MT5-CONNECT] Compte deja deploye et connecte (probablement utilise par le bot) → skip deploy');
+        alreadyConnected = true;
       }
-      trackDeploy(account.id, login); // tracker quand meme au cas ou
-    }
+    } catch(e) {}
 
-    // ─── Étape 4 : Attendre que le compte soit connecte ────────────
-    try {
-      await account.waitConnected({ timeoutInSeconds: 120 });
-    } catch(waitErr) {
-      console.log('[MT5-CONNECT] WaitConnected timeout, on tente quand meme...');
+    if (!alreadyConnected) {
+      console.log('[MT5-CONNECT] Deploy en cours...');
+      try {
+        await account.deploy();
+        trackDeploy(account.id, login);
+      } catch(deployErr) {
+        // Peut deja etre deployed (utilise par le bot p.ex.) → c'est OK
+        if (!String(deployErr.message).includes('already')) {
+          console.log('[MT5-CONNECT] Deploy warning:', deployErr.message);
+        }
+        trackDeploy(account.id, login);
+      }
+
+      // ─── Étape 4 : Attendre que le compte soit connecte ──────────
+      try {
+        await account.waitConnected({ timeoutInSeconds: 120 });
+      } catch(waitErr) {
+        console.log('[MT5-CONNECT] WaitConnected timeout, on tente quand meme...');
+      }
     }
 
     // ─── Étape 5 : Récupérer la connexion + capital ────────────────
-    const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized({ timeoutInSeconds: 60 });
-
-    const accountInfo = await connection.getAccountInformation();
-    console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
+    let accountInfo;
+    try {
+      const connection = account.getRPCConnection();
+      await connection.connect();
+      // Si compte deja connecte, sync rapide. Sinon, sync longue.
+      const syncTimeout = alreadyConnected ? 30 : 60;
+      await connection.waitSynchronized({ timeoutInSeconds: syncTimeout });
+      accountInfo = await connection.getAccountInformation();
+      console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
+    } catch(syncErr) {
+      console.log('[MT5-CONNECT] Sync failed:', syncErr.message);
+      // Si on a deploye nous-meme, undeploy. Sinon laisse tel quel (bot l'utilise).
+      if (!alreadyConnected) {
+        try {
+          await account.undeploy();
+          trackUndeploy(account.id);
+        } catch(e) {}
+      }
+      throw new Error('Le broker ne repond pas. Verifie que ton MT5 mobile/desktop est bien connecte (compte ' + login + ' actif sur VTMarkets), puis reessaie dans 1-2 minutes.');
+    }
 
     // ─── Étape 6 : Sauvegarder les credentials chiffres ────────────
     await saveMT5Credentials(req.session.userId, {
@@ -1289,16 +1318,20 @@ app.post('/mt5/connect', async (req, res) => {
       currency: accountInfo.currency
     });
 
-    // ─── Étape 7 : UNDEPLOY immediatement (economie MetaApi) ───────
-    // Sauf si le bot l'utilise, il restera deploye de toute facon
-    try {
-      console.log('[MT5-CONNECT] Undeploy pour economiser...');
-      await account.undeploy();
-      trackUndeploy(account.id);
-    } catch(undeployErr) {
-      // Peut etre utilise ailleurs (par le bot) → ignore
-      console.log('[MT5-CONNECT] Undeploy ignore (compte peut-etre utilise ailleurs)');
-      // On garde dans le tracker → le watchdog s'en chargera apres 5 min
+    // ─── Étape 7 : UNDEPLOY (sauf si le bot l'utilise deja) ────────
+    if (alreadyConnected) {
+      // Le bot J4keBot utilise deja ce compte → on touche a rien !
+      console.log('[MT5-CONNECT] Skip undeploy (compte utilise par J4keBot)');
+    } else {
+      // C'est nous qui l'avons deploye → on undeploy pour economiser
+      try {
+        console.log('[MT5-CONNECT] Undeploy pour economiser...');
+        await account.undeploy();
+        trackUndeploy(account.id);
+      } catch(undeployErr) {
+        console.log('[MT5-CONNECT] Undeploy ignore:', undeployErr.message);
+        // Le watchdog s'en chargera apres 5 min
+      }
     }
 
     res.json({
@@ -1312,13 +1345,25 @@ app.post('/mt5/connect', async (req, res) => {
     });
   } catch (err) {
     console.error('[MT5-CONNECT] Erreur:', err.message);
+
+    // Detection precise du probleme pour message client clair
+    let userMsg = err.message;
+    if (err.message.includes('not connected to broker yet') || err.message.includes('Failed to subscribe')) {
+      userMsg = 'Ton compte MT5 n\'arrive pas a se connecter au broker VTMarkets. ' +
+                'Verifie que ton MT5 mobile/desktop est bien en ligne. ' +
+                'Si le probleme persiste, ton compte demo a peut-etre expire — recree un nouveau demo et reessaie.';
+    } else if (err.message.includes('Invalid') || err.message.includes('invalid')) {
+      userMsg = 'Identifiants MT5 invalides. Verifie ton login, mot de passe et nom du serveur.';
+    } else if (err.message.includes('connection') || err.message.includes('timeout')) {
+      userMsg = 'Impossible de se connecter au broker (timeout). Reessaie dans 1-2 minutes ou verifie ton serveur MT5.';
+    } else if (err.message.includes('region')) {
+      userMsg = 'Probleme de region MetaApi. Contacte le support — c\'est un probleme cote serveur.';
+    }
+
     res.status(500).json({
       error: 'Connexion echouee',
-      details: err.message.includes('Invalid')
-        ? 'Identifiants MT5 invalides'
-        : err.message.includes('connection')
-        ? 'Impossible de se connecter au broker — verifie le serveur MT5'
-        : err.message
+      details: userMsg,
+      raw: err.message
     });
   }
 });
