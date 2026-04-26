@@ -569,12 +569,139 @@ SL DOIT ÊTRE EXTRÊMEMENT SERRÉ :
 - Avec entrée sniper, SL typique XAUUSD = 3-8$ (vs 10-15$ en entrée marché)
 - R:R cible minimum 1:3, idéal 1:4 ou 1:5
 ═══════════════════════════════════════════════════════════════
+🔥 ═══════════════════════════════════════════════════════════════
+CONFLUENCE CRT + FVG + ORDER BLOCK = SETUP A+ (ICT PRO)
+═══════════════════════════════════════════════════════════════
+Quand un CRT Kasper se forme, la bougie 3 (celle qui CASSE l'extrême
+opposé) crée souvent un FVG ET un Order Block au même endroit.
+C'est LE setup le plus puissant en ICT/SMC. À chercher en priorité.
 
+📐 DÉFINITIONS PRÉCISES :
 
-DÉTECTION DE MANIPULATION:
-- Identifier les zones de liquidité dangereuses proches du SL
-- Sur XAU/USD: SL minimum 15 pips de l'entrée
-- Avertir si chasse aux stops probable
+ORDER BLOCK (OB) — Zone où le smart money a accumulé/distribué :
+• OB BULLISH = la DERNIÈRE bougie BAISSIÈRE avant un mouvement haussier impulsif
+  → Zone d'entrée BUY = entre le HIGH et le LOW de cette bougie rouge
+• OB BEARISH = la DERNIÈRE bougie HAUSSIÈRE avant un mouvement baissier impulsif
+  → Zone d'entrée SELL = entre le HIGH et le LOW de cette bougie verte
+• Plus la bougie OB est petite et l'impulsion suivante grande, plus le OB est puissant
+
+FVG (Fair Value Gap) — Imbalance dans le prix :
+• FVG BULLISH = sur 3 bougies consécutives, le LOW de la bougie 3 > HIGH de la bougie 1
+  → Le gap entre HIGH bougie 1 et LOW bougie 3 = FVG haussier (à combler)
+• FVG BEARISH = HIGH bougie 3 < LOW bougie 1
+  → Gap entre LOW bougie 1 et HIGH bougie 3 = FVG baissier
+• Le prix RETOURNE souvent combler les FVG avant de continuer
+
+🎯 COMMENT COMBINER CRT + FVG + OB :
+
+ÉTAPE 1 — Identifier le CRT Kasper sur M15 (3 bougies)
+ÉTAPE 2 — Sur la bougie 3 (la bougie de BREAK), identifier :
+   • L'OB = la dernière bougie OPPOSÉE à la direction du break
+     (pour CRT BULLISH = la dernière bougie rouge avant le break vert)
+     (pour CRT BEARISH = la dernière bougie verte avant le break rouge)
+   • Le FVG = le gap créé par la bougie 3 (si elle est forte)
+
+ÉTAPE 3 — Vérifier la CONFLUENCE :
+   • Le OB et le FVG sont-ils sur la MÊME ZONE de prix ?
+   • Cette zone correspond-elle au RETEST de la key candle CRT ?
+   • Si OUI aux 3 → SETUP A+ (3 confluences alignées)
+
+🎯 PLACEMENT OPTIMAL avec confluence CRT + FVG + OB :
+
+POUR UN BUY (CRT BULLISH) :
+• Entrée 1 (idéale) : haut du FVG bullish (zone haute du gap)
+• Entrée 2 (alternative) : haut de l'OB bullish (zone haute de la dernière bougie rouge)
+• Entrée 3 (sécurisée) : key candle high CRT (retest du break)
+→ Choisis le niveau le PLUS PROCHE du prix actuel parmi ces 3
+
+• SL : sous le LOW de l'OB - 2-3 pips de buffer
+  (si l'OB est cassé, le setup est invalidé, donc SL logique)
+• TP1 : avant la prochaine zone de liquidité (R:R 1:2 min)
+• TP2 : sur le high majeur précédent (R:R 1:3)
+
+POUR UN SELL (CRT BEARISH) :
+• Entrée 1 (idéale) : bas du FVG bearish
+• Entrée 2 (alternative) : bas de l'OB bearish
+• Entrée 3 (sécurisée) : key candle low CRT
+• SL : au-dessus du HIGH de l'OB + buffer
+
+📊 SCORING DE LA CONFLUENCE :
+• CRT + FVG + OB tous alignés → score 9-10 (setup A+, lot boost autorisé)
+• CRT + (FVG ou OB) → score 7-8 (très bon setup)
+• CRT seul sans FVG ni OB clair → score 5-6 (setup correct mais moins fiable)
+• OB + FVG sans CRT → score 6-7 (setup ICT classique, valide)
+
+⚠️ RÈGLES IMPORTANTES :
+• Le FVG doit être FRAIS (pas déjà comblé une 1ère fois)
+• L'OB doit être proche du prix actuel (pas à 50+ pips)
+• Si plusieurs OB visibles, prends celui le plus PROCHE de l'entrée CRT
+• Privilégie TOUJOURS la zone où FVG + OB se chevauchent (=double confluence)
+═══════════════════════════════════════════════════════════════
+
+🛡️ ═══════════════════════════════════════════════════════════════
+PROTECTION ANTI-LIQUIDITÉ — CRITICAL POUR ÉVITER LES SL TAPÉS
+═══════════════════════════════════════════════════════════════
+Le smart money chasse SYSTÉMATIQUEMENT la liquidité avant de partir
+dans la vraie direction. Ton job : placer le SL et le TP de manière
+à NE PAS être pris dans cette chasse.
+
+🚨 LIQUIDITÉ = zones où ya des stops loss accumulés :
+• EQUAL LOWS (plusieurs bougies avec le même low) → liquidité basse
+• EQUAL HIGHS (plusieurs bougies avec le même high) → liquidité haute
+• Mèches multiples au même niveau → stops accumulés
+• Round numbers ($4700, $4750, $4800 sur XAUUSD) → liquidité psychologique
+• Anciens swing high/low évidents → magnet à stops
+• Niveaux pré-news (avant CPI/NFP) → liquidité juteuse
+
+⚠️ RÈGLES DE PLACEMENT DU SL :
+1. AVANT de placer le SL, identifie TOUTES les zones de liquidité
+   en-dessous (pour BUY) ou au-dessus (pour SELL) du prix d'entrée
+2. Le SL ne doit JAMAIS être placé :
+   • PILE sur un equal low/high évident
+   • JUSTE au-dessus/sous un round number ($4700 par ex)
+   • Au "milieu de nulle part" sans support technique
+3. Le SL doit être placé :
+   • DERRIÈRE une zone de liquidité (qu'on laisse être chassée d'abord)
+   • OU à un niveau structurel évident (low/high majeur protégé)
+   • Avec 2-3 pips de buffer de sécurité
+
+EXEMPLE BUY XAUUSD :
+- Entrée : 4720 (sur OB)
+- Y a 3 mèches qui ont touché 4715 (equal lows) = liquidité
+- ❌ MAUVAIS SL : 4714 (juste sous l'equal low → va se faire taper en chasse)
+- ✅ BON SL : 4711 (DERRIÈRE l'equal low + buffer → la chasse à 4715
+  va se faire mais ton SL tient, puis ça repart en BUY)
+
+⚠️ RÈGLES DE PLACEMENT DU TP :
+1. AVANT de placer le TP, identifie les zones de liquidité opposées
+   qui vont attirer le prix
+2. Le TP doit être placé :
+   • LÉGÈREMENT AVANT une grosse zone de liquidité (pour prendre les profits
+     avant que le prix se fasse rejeter)
+   • OU PILE sur une zone de liquidité majeure (le smart money va y aller)
+3. Le TP ne doit JAMAIS être placé :
+   • Juste APRÈS une zone de liquidité forte (le prix va rejeter avant)
+   • Sur un niveau "rond" sans signification technique
+
+EXEMPLE BUY XAUUSD :
+- Entrée 4720, prix actuel 4722
+- Y a un swing high majeur à 4750 + equal highs vers 4748 = liquidité haute
+- ✅ TP1 : 4744 (avant la liquidité, profits sécurisés)
+- ✅ TP2 : 4750 (sur le swing high, le smart money y va)
+- ❌ TP3 : 4760 (au-delà → risque de rejet sur la liquidité)
+
+🎯 LOGIQUE FINALE DU PLACEMENT :
+- Entrée = sur niveau technique (OB/FVG/key candle/EMA)
+- SL = DERRIÈRE la liquidité la plus proche (pas dessus !)
+- TP1 = AVANT la prochaine liquidité opposée (R:R min 1:2)
+- TP2 = SUR la zone de liquidité opposée majeure (R:R 1:3)
+- TP3 = optionnel, sur le prochain niveau structurel
+
+⚠️ AVERTISSEMENT CRITIQUE :
+Si tu ne peux pas placer un SL "safe" (toujours derrière une liquidité majeure),
+augmente le SL pour passer derrière la liquidité, OU réduis la taille du trade
+mentale, OU NE PAS TRADER si la zone est trop dangereuse.
+═══════════════════════════════════════════════════════════════
 
 Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks:
 
@@ -609,8 +736,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "rangeBas": "<prix du LOW du range asiatique si détecté, sinon 'Non détecté'>",
   "manipulation": "OUI" ou "NON",
   "manipulationDetail": "<détail manipulation ou 'Aucune'>",
-  "ob": "<order block>",
-  "fvg": "<fair value gap>",
+  "ob": "<Order Block: prix exact de la zone OB + direction (haussier/baissier) ou 'Aucun OB clair'>",
+  "fvg": "<Fair Value Gap: prix exact du gap + direction ou 'Aucun FVG visible'>",
+  "obFvgConfluence": "<OUI si OB et FVG se chevauchent + niveau de prix concerné, NON sinon>",
+  "confluenceCrtObFvg": "<si CRT Kasper détecté: décris si CRT + OB + FVG sont alignés sur la même zone — SETUP A+ ou pas>",
   "liquidite": "<zones liquidité>",
   "confluences": "<confluences SMC>",
   "invalidation": "<invalidation du setup>",
