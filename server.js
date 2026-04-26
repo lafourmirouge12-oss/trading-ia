@@ -570,9 +570,48 @@ app.post('/analyze', checkAuth, uploadMulti.fields([
     // ANALYSE CRT KASPER ACTIVEE seulement si M15 + M1 sont fournis
     const crtKasperActif = hasM15 && hasM1;
 
+    // ─── CONTEXTE TEMPOREL (heure Paris + session) ───────────────────
+    const nowParis = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', hour12: false });
+    const hourParis = parseInt(new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }));
+    let sessionActive, sessionWarning;
+    if (hourParis >= 20 || hourParis < 8) {
+      sessionActive = 'SESSION ASIATIQUE (range, faible volume)';
+      sessionWarning = `⚠️ HEURE ACTUELLE: ${nowParis} (heure Paris) — SESSION ASIATIQUE EN COURS (20h00-08h00).
+RÈGLE ABSOLUE SESSION ASIATIQUE :
+- Le marché est en RANGE, faible directionnalité, faible volume
+- Les faux breakouts sont TRÈS fréquents pendant cette session
+- NE PAS TRADER sauf si : (1) cassure NETTE du range asiatique avec forte bougie + (2) score >= 8 + (3) confluence CRT + ICT claire
+- Si le signal est dans le range asiatique sans cassure confirmée → NE PAS TRADER obligatoire (score automatique < 5)
+- Le RSI en zone neutre (40-60) pendant la session asiatique = PAS de momentum suffisant → NE PAS TRADER
+- Sois BEAUCOUP plus strict qu'en session Londres ou New York`;
+    } else if (hourParis >= 8 && hourParis < 11) {
+      sessionActive = 'OUVERTURE LONDRES (haute volatilité)';
+      sessionWarning = `✅ HEURE ACTUELLE: ${nowParis} (heure Paris) — OUVERTURE SESSION LONDRES (08h00-11h00).
+Session de haute volatilité, les setups ICT/CRT sont fiables. Analyse normale.`;
+    } else if (hourParis >= 11 && hourParis < 13) {
+      sessionActive = 'MI-JOURNÉE LONDRES (volatilité réduite)';
+      sessionWarning = `⚠️ HEURE ACTUELLE: ${nowParis} (heure Paris) — MI-JOURNÉE LONDRES (11h00-13h00).
+Volatilité en baisse, période de consolidation avant New York. Être plus sélectif, score minimum 7.`;
+    } else if (hourParis >= 13 && hourParis < 17) {
+      sessionActive = 'SESSION NEW YORK (haute volatilité)';
+      sessionWarning = `✅ HEURE ACTUELLE: ${nowParis} (heure Paris) — SESSION NEW YORK (13h00-17h00).
+Chevauchement Londres/New York, meilleure liquidité. Setups ICT/CRT très fiables. Analyse normale.`;
+    } else {
+      sessionActive = 'FIN SESSION NEW YORK (volume décroissant)';
+      sessionWarning = `⚠️ HEURE ACTUELLE: ${nowParis} (heure Paris) — FIN SESSION NEW YORK / PRÉ-ASIATIQUE (17h00-20h00).
+Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
+    }
+
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+
+═══════════════════════════════════════════════════════════════
+🕐 CONTEXTE TEMPOREL — OBLIGATOIRE À RESPECTER
+═══════════════════════════════════════════════════════════════
+${sessionWarning}
+SESSION ACTIVE: ${sessionActive}
+═══════════════════════════════════════════════════════════════
 
 Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.${bonusTF ? `
 TIMEFRAMES BONUS FOURNIS: ${bonusTF} — utilise-les pour affiner l'analyse top-down et le CRT.` : ''}
@@ -869,6 +908,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
+  "session": "<session active au moment de l'analyse: ASIATIQUE / LONDRES / NEW_YORK / FIN_NY>",
+  "sessionImpact": "<comment la session influence ce signal: ex 'Session asiatique → range probable, signal rejeté' ou 'Ouverture Londres → signal valide'>",
   "confiance": "XX%",
   "score": <0 à 10>,
   "tendance": "<tendance principale M30>",
