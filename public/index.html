@@ -1,707 +1,1294 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>J4keIA — Trading IA</title>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
-  <style>
-    :root{--cyan:#00f5ff;--blue:#0080ff;--purple:#8000ff;--green:#00ff88;--red:#ff3060;--gold:#ffd700;--orange:#ff8c00;--dark:#020510;}
-    *{margin:0;padding:0;box-sizing:border-box;}
-    body{background:var(--dark);font-family:'Rajdhani',sans-serif;min-height:100vh;}
-    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,245,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,245,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
-    .nav{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;z-index:9999;background:rgba(2,5,16,0.97);border-bottom:1px solid rgba(0,245,255,0.08);}
-    .nav-logout{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,48,96,0.8);text-decoration:none;text-transform:uppercase;border:1px solid rgba(255,48,96,0.3);padding:8px 14px;}
-    .nav-logo{font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,#fff,var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-    .nav-right{display:flex;gap:8px;align-items:center;}
-    .nav-link{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(0,245,255,0.8);text-decoration:none;text-transform:uppercase;border:1px solid rgba(0,245,255,0.3);padding:8px 14px;}
-    .nav-link.admin{color:rgba(255,215,0,0.8);border-color:rgba(255,215,0,0.3);}
-    .container{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;padding:90px 16px 60px;}
-    .header{text-align:center;margin-bottom:20px;}
-    .badge{font-size:10px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;opacity:0.7;margin-bottom:8px;display:block;}
-    h1{font-family:'Orbitron',monospace;font-size:clamp(20px,5vw,44px);font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,#fff,var(--cyan),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-    .impaye-banner{width:100%;max-width:700px;margin-bottom:16px;background:rgba(255,48,96,0.08);border:2px solid rgba(255,48,96,0.5);border-radius:4px;padding:16px 20px;display:none;text-align:center;}
-    .impaye-banner.show{display:block;}
-    .impaye-title{font-family:'Orbitron',monospace;font-size:12px;letter-spacing:3px;color:var(--red);text-transform:uppercase;margin-bottom:8px;}
-    .impaye-txt{font-size:14px;color:rgba(255,255,255,0.7);line-height:1.5;}
-    .counter{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;padding:8px 20px;border-radius:2px;display:none;text-align:center;}
-    .counter.ok{color:var(--cyan);background:rgba(0,245,255,0.05);border:1px solid rgba(0,245,255,0.15);}
-    .counter.empty{color:var(--red);background:rgba(255,48,96,0.05);border:1px solid rgba(255,48,96,0.2);}
-    .panel{width:100%;max-width:700px;margin-bottom:16px;}
-    .box{background:rgba(0,20,50,0.7);border:1px solid rgba(0,245,255,0.2);border-radius:4px;padding:20px;}
-    .box-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:rgba(0,245,255,0.6);text-transform:uppercase;margin-bottom:10px;}
-    .cap-row{display:flex;align-items:center;gap:10px;}
-    .cap-sym{font-family:'Orbitron',monospace;font-size:18px;color:var(--cyan);}
-    .cap-input{flex:1;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:12px 14px;color:#fff;font-family:'Orbitron',monospace;font-size:16px;outline:none;transition:border-color 0.3s;}
-    .cap-input:focus{border-color:var(--cyan);}
-    .cap-input.err{border-color:var(--red);}
-    .tf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:700px;margin-bottom:16px;}
-    .tf-grid-bonus{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;width:100%;max-width:700px;margin-bottom:16px;}
-    .tf-optional-label{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,245,255,0.3);text-transform:uppercase;text-align:center;margin-bottom:8px;width:100%;max-width:700px;}
-    .tf-block.optional{border-color:rgba(128,0,255,0.2);background:rgba(128,0,255,0.03);}
-    .tf-block.optional .tf-label{color:rgba(128,0,255,0.7);}
-    .tf-block.optional .tf-add{color:rgba(128,0,255,0.4);}
-    .tf-badge-opt{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(128,0,255,0.5);text-transform:uppercase;text-align:center;margin-top:3px;}
-    .tf-block{background:rgba(0,20,50,0.6);border:1px solid rgba(0,245,255,0.15);border-radius:4px;padding:12px;cursor:pointer;transition:all 0.3s;position:relative;}
-    .tf-block:hover{border-color:rgba(0,245,255,0.4);}
-    .tf-block.loaded{border-color:var(--cyan);background:rgba(0,245,255,0.05);}
-    .tf-label{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;text-align:center;margin-bottom:8px;}
-    .tf-sub{font-size:10px;color:rgba(255,255,255,0.3);text-align:center;margin-bottom:10px;}
-    .tf-preview{width:100%;height:80px;object-fit:cover;border-radius:2px;display:none;}
-    .tf-placeholder{height:80px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;}
-    .tf-icon{font-size:24px;opacity:0.4;}
-    .tf-add{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(0,245,255,0.4);text-transform:uppercase;}
-    .tf-check{position:absolute;top:8px;right:8px;width:16px;height:16px;background:var(--green);border-radius:50%;display:none;align-items:center;justify-content:center;font-size:10px;}
-    .tf-block.loaded .tf-check{display:flex;}
-    .tf-required{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(255,48,96,0.6);text-transform:uppercase;text-align:center;margin-top:4px;}
-    .hud{display:flex;justify-content:space-between;padding:8px 12px;margin-bottom:16px;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.1);border-radius:2px;flex-wrap:wrap;gap:4px;width:100%;max-width:700px;}
-    .hud-item{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(0,245,255,0.5);text-transform:uppercase;}
-    .hud-item span{color:var(--green);margin-left:4px;}
-    .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;animation:blink 2s infinite;}
-    @keyframes blink{0%,100%{opacity:1;}50%{opacity:0.3;}}
-    .btn-wrap{width:100%;max-width:320px;margin-bottom:20px;}
-    #analyzeBtn{font-family:'Orbitron',monospace;font-size:11px;font-weight:700;letter-spacing:4px;text-transform:uppercase;color:#fff;background:transparent;border:1px solid rgba(0,245,255,0.4);padding:15px 30px;cursor:pointer;width:100%;transition:all 0.3s;}
-    #analyzeBtn:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan);}
-    #analyzeBtn:disabled{opacity:0.5;cursor:not-allowed;}
-    .load-bar{display:none;width:100%;height:2px;background:rgba(0,245,255,0.1);margin-top:10px;overflow:hidden;}
-    .load-bar.on{display:block;}
-    .load-bar::after{content:'';display:block;height:100%;width:40%;background:linear-gradient(90deg,transparent,var(--cyan),transparent);animation:sweep 1.2s infinite;}
-    @keyframes sweep{0%{transform:translateX(-100%);}100%{transform:translateX(350%);}}
-    .load-txt{display:none;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-top:8px;text-align:center;animation:blink 1s infinite;}
-    .load-txt.on{display:block;}
-    .result{width:100%;max-width:700px;display:none;}
-    .result.show{display:block;}
-    .dec-block{width:100%;padding:18px;display:flex;align-items:center;justify-content:center;font-family:'Orbitron',monospace;font-size:clamp(22px,5vw,34px);font-weight:900;letter-spacing:4px;border-radius:4px;margin-bottom:12px;position:relative;}
-    .dec-block.buy{background:rgba(0,255,136,0.08);border:2px solid var(--green);color:var(--green);}
-    .dec-block.sell{background:rgba(255,48,96,0.08);border:2px solid var(--red);color:var(--red);}
-    .dec-block.skip{background:rgba(255,140,0,0.08);border:2px solid var(--orange);color:var(--orange);}
-    .conf{position:absolute;right:14px;font-size:11px;opacity:0.7;}
-    .score-row{display:flex;justify-content:space-between;align-items:center;background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.1);border-radius:4px;padding:12px 16px;margin-bottom:12px;}
-    .score-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;}
-    .score-val{font-family:'Orbitron',monospace;font-size:24px;font-weight:900;}
-    .score-val.high{color:var(--green);}.score-val.mid{color:var(--gold);}.score-val.low{color:var(--red);}
-    .tf-conf{background:rgba(0,10,30,0.8);border:1px solid rgba(128,0,255,0.2);border-radius:4px;padding:14px;margin-bottom:12px;}
-    .tf-conf-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(128,0,255,0.6);text-transform:uppercase;margin-bottom:10px;}
-    .tf-conf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
-    .tf-conf-item{text-align:center;padding:8px;background:rgba(128,0,255,0.05);border-radius:2px;}
-    .tf-conf-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(128,0,255,0.5);text-transform:uppercase;margin-bottom:4px;}
-    .tf-conf-val{font-size:12px;color:rgba(255,255,255,0.7);}
+require('dotenv').config();
+const express = require('express');
+const session = require('express-session');
+const Datastore = require('@seald-io/nedb');
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
+const multer = require('multer');
+const Anthropic = require('@anthropic-ai/sdk');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const { v4: uuidv4 } = require('uuid');
 
-    /* BLOC MANIPULATION */
-    .manip-box{width:100%;border-radius:4px;padding:14px 16px;margin-bottom:12px;display:none;}
-    .manip-box.oui{background:rgba(255,48,96,0.08);border:2px solid rgba(255,48,96,0.5);}
-    .manip-box.non{background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.2);}
-    .manip-box.show{display:block;}
-    .manip-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
-    .manip-icon{font-size:20px;}
-    .manip-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;}
-    .manip-box.oui .manip-title{color:var(--red);}
-    .manip-box.non .manip-title{color:var(--green);}
-    .manip-detail{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;}
+// ─── METAAPI POUR CONNEXION MT5 ────────────────────────────────────
+let MetaApi = null;
+try {
+  MetaApi = require('metaapi.cloud-sdk').default;
+} catch(e) {
+  console.warn('[MetaApi] SDK non installé. Run: npm install metaapi.cloud-sdk');
+}
+const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
+  ? new MetaApi(process.env.METAAPI_TOKEN)
+  : null;
 
-    /* BLOC CRT */
-    .crt-box{width:100%;border-radius:4px;padding:14px 16px;margin-bottom:12px;display:none;}
-    .crt-box.oui{background:rgba(0,255,136,0.06);border:2px solid rgba(0,255,136,0.4);}
-    .crt-box.non{background:rgba(255,140,0,0.06);border:1px solid rgba(255,140,0,0.3);}
-    .crt-box.neutre{background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);}
-    .crt-box.show{display:block;}
-    .crt-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
-    .crt-icon{font-size:20px;}
-    .crt-title{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;}
-    .crt-box.oui .crt-title{color:var(--green);}
-    .crt-box.non .crt-title{color:var(--orange);}
-    .crt-box.neutre .crt-title{color:var(--cyan);}
-    .crt-detail{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.5;margin-bottom:10px;}
-    .crt-range{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px;}
-    .crt-range-item{text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:2px;}
-    .crt-range-lbl{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:4px;}
-    .crt-range-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;}
-    .crt-range-item.haut .crt-range-val{color:var(--green);}
-    .crt-range-item.bas .crt-range-val{color:var(--red);}
+// ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
+// La cle est dans MT5_ENCRYPT_KEY (32 chars) — DOIT etre dans .env / Render
+const ENCRYPT_KEY = (process.env.MT5_ENCRYPT_KEY || '').padEnd(32, '0').slice(0, 32);
+const IV_LENGTH = 16;
 
-    .lots-box{background:rgba(0,10,30,0.8);border:2px solid rgba(0,255,136,0.3);border-radius:4px;padding:16px;margin-bottom:12px;text-align:center;}
-    .lots-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,255,136,0.6);text-transform:uppercase;margin-bottom:8px;}
-    .lots-num{font-family:'Orbitron',monospace;font-size:44px;font-weight:900;color:var(--green);line-height:1;}
-    .lots-unit{font-family:'Orbitron',monospace;font-size:14px;color:rgba(0,255,136,0.5);margin-left:6px;}
-    .lots-row{display:flex;justify-content:center;gap:24px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,255,136,0.1);}
-    .lots-item{text-align:center;}
-    .lots-item-lbl{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:1px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:3px;}
-    .lots-item-val{font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:rgba(255,255,255,0.7);}
-    .levels{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
-    .lv{background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.1);border-radius:4px;padding:12px 8px;text-align:center;}
-    .lv-lbl{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:8px;}
-    .lv-val{font-family:'Orbitron',monospace;font-size:16px;font-weight:700;}
-    .lv-sub{font-size:10px;color:rgba(255,255,255,0.3);margin-top:3px;}
-    .lv.entry .lv-val{color:var(--cyan);}
-    .lv.sl .lv-val{color:var(--red);}
-    .lv.tp .lv-val{color:var(--green);}
-    .tps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
-    .tp-card{background:rgba(0,10,30,0.8);border:1px solid rgba(0,255,136,0.15);border-radius:4px;padding:10px 8px;text-align:center;}
-    .tp-lbl{font-family:'Orbitron',monospace;font-size:7px;letter-spacing:2px;color:rgba(0,255,136,0.5);text-transform:uppercase;margin-bottom:6px;}
-    .tp-val{font-family:'Orbitron',monospace;font-size:15px;font-weight:700;color:var(--green);}
-    .tp-rr{font-size:10px;color:rgba(255,255,255,0.3);margin-top:3px;}
-    .be{background:rgba(0,10,30,0.8);border:1px solid rgba(128,0,255,0.2);border-radius:4px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px;}
-    .be-txt{font-size:13px;color:rgba(255,255,255,0.6);}
-    .be-price{font-family:'Orbitron',monospace;font-size:15px;font-weight:700;color:var(--purple);}
-    .sm{background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.1);border-radius:4px;padding:14px 16px;margin-bottom:12px;}
-    .sm-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,245,255,0.4);text-transform:uppercase;margin-bottom:10px;}
-    .sm-row{display:flex;gap:8px;margin-bottom:5px;font-size:13px;color:rgba(255,255,255,0.6);}
-    .sm-key{font-family:'Orbitron',monospace;font-size:9px;color:rgba(0,245,255,0.5);min-width:85px;flex-shrink:0;}
-    .cap-res{background:rgba(0,10,30,0.8);border:1px solid rgba(255,215,0,0.2);border-radius:4px;padding:14px;margin-bottom:12px;}
-    .cap-res-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,215,0,0.6);text-transform:uppercase;margin-bottom:10px;}
-    .cap-main{text-align:center;padding:10px;background:rgba(255,215,0,0.05);border-radius:2px;margin-bottom:10px;}
-    .cap-main-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,215,0,0.5);text-transform:uppercase;margin-bottom:4px;}
-    .cap-main-val{font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:var(--gold);}
-    .inval{background:rgba(255,48,96,0.05);border:1px solid rgba(255,48,96,0.15);border-radius:4px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:rgba(255,255,255,0.5);}
-    .inval-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,48,96,0.5);text-transform:uppercase;margin-bottom:5px;}
-    .fb-panel{width:100%;max-width:700px;margin-bottom:20px;display:none;}
-    .fb-panel.show{display:block;}
-    .fb-title{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,0.3);text-transform:uppercase;text-align:center;margin-bottom:10px;}
-    .fb-btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
-    .fb-btn{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:14px 8px;border:1px solid;background:transparent;cursor:pointer;transition:all 0.3s;border-radius:2px;display:flex;flex-direction:column;align-items:center;gap:6px;}
-    .fb-icon{font-size:22px;}
-    .fb-btn.tp{color:rgba(0,255,136,0.6);border-color:rgba(0,255,136,0.15);}
-    .fb-btn.tp:hover,.fb-btn.tp.sel{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08);}
-    .fb-btn.sl{color:rgba(255,48,96,0.6);border-color:rgba(255,48,96,0.15);}
-    .fb-btn.sl:hover,.fb-btn.sl.sel{color:var(--red);border-color:var(--red);background:rgba(255,48,96,0.08);}
-    .fb-btn.pend{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.15);}
-    .fb-btn.pend:hover,.fb-btn.pend.sel{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);}
-    .fb-thanks{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;text-align:center;margin-top:10px;display:none;}
-    .fb-thanks.show{display:block;}
-    .hist{width:100%;max-width:700px;margin-top:30px;}
-    .hist-title{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:4px;color:rgba(0,245,255,0.5);text-transform:uppercase;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid rgba(0,245,255,0.1);}
-    .hi{background:rgba(0,10,30,0.8);border:1px solid rgba(0,245,255,0.08);border-radius:4px;padding:14px;margin-bottom:10px;}
-    .hi.tp{border-color:rgba(0,255,136,0.3);}
-    .hi.sl{border-color:rgba(255,48,96,0.3);}
-    .hi-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
-    .hi-dec{font-family:'Orbitron',monospace;font-size:12px;font-weight:900;}
-    .hi-dec.buy{color:var(--green);}.hi-dec.sell{color:var(--red);}.hi-dec.skip{color:var(--orange);}
-    .hi-date{font-size:11px;color:rgba(255,255,255,0.3);}
-    .hi-lvs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;}
-    .hi-lv{text-align:center;padding:6px;background:rgba(0,0,0,0.2);border-radius:2px;}
-    .hi-lv-lbl{font-family:'Orbitron',monospace;font-size:7px;color:rgba(255,255,255,0.3);text-transform:uppercase;margin-bottom:3px;}
-    .hi-lv-val{font-family:'Orbitron',monospace;font-size:12px;font-weight:700;color:rgba(255,255,255,0.7);}
-    .hi-fbs{display:flex;gap:6px;}
-    .hfb{flex:1;font-family:'Orbitron',monospace;font-size:8px;text-transform:uppercase;padding:8px 4px;border:1px solid;background:transparent;cursor:pointer;border-radius:2px;text-align:center;transition:all 0.2s;}
-    .hfb.tp{color:rgba(0,255,136,0.6);border-color:rgba(0,255,136,0.2);}
-    .hfb.tp:hover,.hfb.tp.on{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08);}
-    .hfb.sl{color:rgba(255,48,96,0.6);border-color:rgba(255,48,96,0.2);}
-    .hfb.sl:hover,.hfb.sl.on{color:var(--red);border-color:var(--red);background:rgba(255,48,96,0.08);}
-    .hfb.pend{color:rgba(255,215,0,0.6);border-color:rgba(255,215,0,0.2);}
-    .hfb.pend:hover,.hfb.pend.on{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);}
-    .hi-empty{text-align:center;color:rgba(255,255,255,0.2);font-size:12px;padding:20px;}
-    @media(max-width:480px){h1{font-size:18px;}.nav-logo{font-size:11px;}.nav-logout,.nav-link{font-size:8px;padding:6px 10px;}.lots-num{font-size:32px;}.tf-grid{grid-template-columns:1fr;}}
-  </style>
-</head>
-<body>
-<nav class="nav">
-  <a href="/logout" class="nav-logout">✕ Déco</a>
-  <div class="nav-logo">J4keIA</div>
-  <div class="nav-right" id="navRight">
-    <a href="/abonnement.html" class="nav-link">◈ Plans</a>
-  </div>
-</nav>
+function encryptStr(text) {
+  if (!text) return null;
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv);
+  let encrypted = cipher.update(String(text), 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
 
-<div class="container">
-  <div class="header">
-    <span class="badge">◈ Smart Money IA — Analyse Multi-Timeframe ◈</span>
-    <h1>J4keIA</h1>
-  </div>
-
-  <div class="impaye-banner" id="impayeBanner">
-    <div class="impaye-title">⚠ Impayé</div>
-    <div class="impaye-txt">Veuillez régler la somme pour accéder aux analyses.<br>Contactez-nous en privé pour débloquer votre accès.</div>
-  </div>
-
-  <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
-
-  <div class="panel">
-    <div class="box">
-      <div class="box-title">◈ Capital MetaTrader — Obligatoire</div>
-      <div class="cap-row">
-        <span class="cap-sym">$</span>
-        <input type="number" class="cap-input" id="capInput" placeholder="Ex: 600" min="1" step="any"/>
-      </div>
-    </div>
-  </div>
-
-  <!-- TIMEFRAMES OBLIGATOIRES -->
-      <div class="tf-grid">
-    <div class="tf-block" id="blockM30" onclick="document.getElementById('fileM30').click()">
-      <input type="file" id="fileM30" accept="image/*" hidden/>
-      <div class="tf-check">✓</div>
-      <div class="tf-label">M30</div>
-      <div class="tf-sub">Tendance principale</div>
-      <div class="tf-placeholder" id="placeholderM30">
-        <div class="tf-icon">📊</div>
-        <div class="tf-add">Importer</div>
-      </div>
-      <img class="tf-preview" id="previewM30" src="" alt=""/>
-      <div class="tf-required">Requis</div>
-    </div>
-    <div class="tf-block" id="blockM15" onclick="document.getElementById('fileM15').click()">
-      <input type="file" id="fileM15" accept="image/*" hidden/>
-      <div class="tf-check">✓</div>
-      <div class="tf-label">M15</div>
-      <div class="tf-sub">Confirmation setup</div>
-      <div class="tf-placeholder" id="placeholderM15">
-        <div class="tf-icon">📈</div>
-        <div class="tf-add">Importer</div>
-      </div>
-      <img class="tf-preview" id="previewM15" src="" alt=""/>
-      <div class="tf-required">Recommandé</div>
-    </div>
-    <div class="tf-block" id="blockM1" onclick="document.getElementById('fileM1').click()">
-      <input type="file" id="fileM1" accept="image/*" hidden/>
-      <div class="tf-check">✓</div>
-      <div class="tf-label">M1</div>
-      <div class="tf-sub">Entrée précise</div>
-      <div class="tf-placeholder" id="placeholderM1">
-        <div class="tf-icon">🎯</div>
-        <div class="tf-add">Importer</div>
-      </div>
-      <img class="tf-preview" id="previewM1" src="" alt=""/>
-      <div class="tf-required">Recommandé</div>
-    </div>
-  </div>
-
-  <!-- TF OPTIONNELS H1 + M5 -->
-  <div class="tf-optional-label">◈ Optionnel — Enrichit l'analyse CRT</div>
-  <div class="tf-grid-bonus">
-    <div class="tf-block optional" id="blockH1" onclick="document.getElementById('fileH1').click()">
-      <input type="file" id="fileH1" accept="image/*" hidden/>
-      <div class="tf-check">✓</div>
-      <div class="tf-label">H1</div>
-      <div class="tf-sub">Tendance macro</div>
-      <div class="tf-placeholder" id="placeholderH1">
-        <div class="tf-icon">📈</div>
-        <div class="tf-add">Importer</div>
-      </div>
-      <img class="tf-preview" id="previewH1" src="" alt=""/>
-      <div class="tf-badge-opt">Optionnel</div>
-    </div>
-    <div class="tf-block optional" id="blockM5" onclick="document.getElementById('fileM5').click()">
-      <input type="file" id="fileM5" accept="image/*" hidden/>
-      <div class="tf-check">✓</div>
-      <div class="tf-label">M5</div>
-      <div class="tf-sub">Entrée précise CRT</div>
-      <div class="tf-placeholder" id="placeholderM5">
-        <div class="tf-icon">🎯</div>
-        <div class="tf-add">Importer</div>
-      </div>
-      <img class="tf-preview" id="previewM5" src="" alt=""/>
-      <div class="tf-badge-opt">Optionnel</div>
-    </div>
-  </div>
-
-
-  <div class="hud">
-    <div class="hud-item"><span class="dot"></span>SYSTÈME <span>EN LIGNE</span></div>
-    <div class="hud-item">SMART MONEY <span>ACTIF</span></div>
-    <div class="hud-item">STATUT <span id="statusTxt">EN ATTENTE</span></div>
-  </div>
-
-  <div class="btn-wrap">
-    <button id="analyzeBtn" onclick="analyze()">◈ Lancer l'analyse</button>
-    <div class="load-bar" id="loadBar"></div>
-    <div class="load-txt" id="loadTxt">Analyse multi-TF en cours...</div>
-  </div>
-
-  <div class="result" id="result">
-
-    <div class="dec-block skip" id="decBlock">
-      <span id="decTxt">—</span>
-      <span class="conf" id="confTxt"></span>
-    </div>
-
-    <div class="score-row">
-      <span class="score-lbl">◈ Score du setup multi-timeframe</span>
-      <span class="score-val" id="scoreTxt">—/10</span>
-    </div>
-
-    <div class="tf-conf" id="tfConf">
-      <div class="tf-conf-title">◈ Analyse par timeframe</div>
-      <div class="tf-conf-grid">
-        <div class="tf-conf-item"><div class="tf-conf-lbl">M30</div><div class="tf-conf-val" id="tendanceM30">—</div></div>
-        <div class="tf-conf-item"><div class="tf-conf-lbl">M15</div><div class="tf-conf-val" id="tendanceM15">—</div></div>
-        <div class="tf-conf-item"><div class="tf-conf-lbl">M1</div><div class="tf-conf-val" id="tendanceM1">—</div></div>
-      </div>
-    </div>
-
-    <!-- BLOC MANIPULATION -->
-    <div class="manip-box" id="manipBox">
-      <div class="manip-header">
-        <span class="manip-icon" id="manipIcon">⚠️</span>
-        <span class="manip-title" id="manipTitle">RISQUE MANIPULATION</span>
-      </div>
-      <div class="manip-detail" id="manipDetail">—</div>
-    </div>
-
-    <!-- BLOC CRT -->
-    <div class="crt-box" id="crtBox">
-      <div class="crt-header">
-        <span class="crt-icon" id="crtIcon">📐</span>
-        <span class="crt-title" id="crtTitle">◈ RANGE ASIATIQUE — CRT</span>
-      </div>
-      <div class="crt-detail" id="crtDetail">—</div>
-      <div class="crt-range" id="crtRange" style="display:none">
-        <div class="crt-range-item haut">
-          <div class="crt-range-lbl">◈ Range Haut</div>
-          <div class="crt-range-val" id="crtRangeHaut">—</div>
-        </div>
-        <div class="crt-range-item bas">
-          <div class="crt-range-lbl">◈ Range Bas</div>
-          <div class="crt-range-val" id="crtRangeBas">—</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="lots-box" id="lotsBox" style="display:none">
-      <div class="lots-lbl">◈ Taille de position — Entrez ce lot sur MT5</div>
-      <div>
-        <span class="lots-num" id="lotsNum">—</span>
-        <span class="lots-unit">LOTS</span>
-      </div>
-      <div class="lots-row">
-        <div class="lots-item"><div class="lots-item-lbl">Risque</div><div class="lots-item-val" id="lotsRisk">—</div></div>
-        <div class="lots-item"><div class="lots-item-lbl">Montant</div><div class="lots-item-val" id="lotsMontant">—</div></div>
-        <div class="lots-item"><div class="lots-item-lbl">Levier</div><div class="lots-item-val">500:1</div></div>
-      </div>
-    </div>
-
-    <div class="levels">
-      <div class="lv entry"><div class="lv-lbl">Entrée</div><div class="lv-val" id="lvEntry">—</div><div class="lv-sub">M1 précis</div></div>
-      <div class="lv sl"><div class="lv-lbl">Stop Loss</div><div class="lv-val" id="lvSL">—</div><div class="lv-sub" id="lvSLpips">—</div></div>
-      <div class="lv tp"><div class="lv-lbl">Take Profit 1</div><div class="lv-val" id="lvTP1">—</div><div class="lv-sub" id="lvTP1pips">—</div></div>
-    </div>
-
-    <div class="tps">
-      <div class="tp-card"><div class="tp-lbl">◈ TP 1</div><div class="tp-val" id="tp1Val">—</div><div class="tp-rr">RR 1:2</div></div>
-      <div class="tp-card"><div class="tp-lbl">◈ TP 2</div><div class="tp-val" id="tp2Val">—</div><div class="tp-rr">RR 1:3</div></div>
-      <div class="tp-card"><div class="tp-lbl">◈ TP 3</div><div class="tp-val" id="tp3Val">—</div><div class="tp-rr">RR 1:4</div></div>
-    </div>
-
-    <div class="be">
-      <div style="font-size:20px">🔒</div>
-      <div>
-        <div style="font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(128,0,255,0.7);text-transform:uppercase;margin-bottom:4px;">◈ Break Even</div>
-        <div class="be-txt">Dès que <strong style="color:var(--green)">TP1 atteint</strong> → déplacez SL à : <span class="be-price" id="bePrice">—</span></div>
-      </div>
-    </div>
-
-    <div class="sm">
-      <div class="sm-title">◈ Analyse Smart Money</div>
-      <div class="sm-row"><span class="sm-key">Tendance</span><span id="smTendance">—</span></div>
-      <div class="sm-row"><span class="sm-key">Confluence</span><span id="smConfl">—</span></div>
-      <div class="sm-row"><span class="sm-key">Order Block</span><span id="smOB">—</span></div>
-      <div class="sm-row"><span class="sm-key">FVG</span><span id="smFVG">—</span></div>
-      <div class="sm-row"><span class="sm-key">Liquidité</span><span id="smLiq">—</span></div>
-      <div class="sm-row"><span class="sm-key">Confluences</span><span id="smConf">—</span></div>
-    </div>
-
-    <div class="cap-res" id="capRes" style="display:none">
-      <div class="cap-res-title" id="capResLbl">◈ Gestion du capital</div>
-      <div class="cap-main">
-        <div class="cap-main-lbl">Montant risqué</div>
-        <div class="cap-main-val" id="capResVal">—</div>
-      </div>
-    </div>
-
-    <div class="inval">
-      <div class="inval-lbl">◈ Invalidation</div>
-      <div id="invalTxt">—</div>
-    </div>
-
-  </div>
-
-  <div class="fb-panel" id="fbPanel">
-    <div class="fb-title">◈ Ce trade a-t-il fonctionné ?</div>
-    <div class="fb-btns">
-      <button class="fb-btn tp" onclick="sendFb('tp')"><span class="fb-icon">✅</span>TP atteint</button>
-      <button class="fb-btn sl" onclick="sendFb('sl')"><span class="fb-icon">❌</span>SL touché</button>
-      <button class="fb-btn pend" onclick="sendFb('pending')"><span class="fb-icon">⏳</span>En cours</button>
-    </div>
-    <div class="fb-thanks" id="fbThanks">◈ Merci ! ◈</div>
-  </div>
-
-  <div class="hist">
-    <div class="hist-title">◈ Historique des analyses</div>
-    <div id="histList"><div class="hi-empty">Aucune analyse pour l'instant</div></div>
-  </div>
-
-</div>
-
-<script>
-let currentId = null;
-
-fetch('/me').then(r=>r.json()).then(u=>{
-  if(u.error==='session_conflict'||u.error==='banned'){window.location.href='/login.html';return;}
-  if(u.paiementEnRetard){
-    document.getElementById('impayeBanner').classList.add('show');
-    document.getElementById('analyzeBtn').disabled=true;
-    document.getElementById('analyzeBtn').textContent='⚠ Impayé';
+function decryptStr(payload) {
+  if (!payload || typeof payload !== 'string' || !payload.includes(':')) return null;
+  try {
+    const [ivHex, encryptedHex] = payload.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv);
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch(e) {
+    console.error('[CRYPTO] Erreur dechiffrement:', e.message);
+    return null;
   }
-  const c=document.getElementById('counter');
-  if(u.role!=='admin'&&!u.paiementEnRetard){
-    const max=u.analysisMax;
-    const count=u.analysisCount||0;
-    const left=Math.max(0,(max||2)-count);
-    c.style.display='block';
-    document.getElementById('analysesLeft').textContent=max>=999999?'∞':left;
-    c.className='counter '+(left>0?'ok':'empty');
+}
+
+const app = express();
+const port = process.env.PORT || 3000;
+const upload = multer({ dest: 'uploads/' });
+const uploadMulti = multer({ dest: 'uploads/' });
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
+
+const transporter = nodemailer.createTransport({
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.BREVO_USER,
+    pass: process.env.BREVO_PASS
   }
-  if(u.role==='admin'){
-    const a=document.createElement('a');
-    a.href='/admin.html';a.className='nav-link admin';a.textContent='◈ Admin';
-    document.getElementById('navRight').insertBefore(a,document.getElementById('navRight').firstChild);
-  }
-  loadHist();
 });
 
-function setupUpload(fileId, previewId, placeholderId, blockId) {
-  document.getElementById(fileId).addEventListener('change', function() {
-    if (!this.files[0]) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      const preview = document.getElementById(previewId);
-      const placeholder = document.getElementById(placeholderId);
-      const block = document.getElementById(blockId);
-      preview.src = e.target.result;
-      preview.style.display = 'block';
-      placeholder.style.display = 'none';
-      block.classList.add('loaded');
-    };
-    reader.readAsDataURL(this.files[0]);
-  });
+const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
+const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
+const activeSessions = {};
+
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'ai-mazza-secret-2024',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+}));
+
+app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
+app.get('/register.html', (req, res) => res.sendFile(path.join(__dirname, 'public/register.html')));
+app.get('/success.html', (req, res) => res.sendFile(path.join(__dirname, 'public/success.html')));
+
+function checkAuth(req, res, next) {
+  if (!req.session || !req.session.userId) return res.redirect('/login.html');
+  next();
 }
-setupUpload('fileM30','previewM30','placeholderM30','blockM30');
-setupUpload('fileM15','previewM15','placeholderM15','blockM15');
-setupUpload('fileM1','previewM1','placeholderM1','blockM1');
-setupUpload('fileH1','previewH1','placeholderH1','blockH1');
-setupUpload('fileM5','previewM5','placeholderM5','blockM5');
-
-async function sendFb(res){
-  document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
-  document.querySelector('.fb-btn.'+res).classList.add('sel');
-  try{
-    if(currentId) await fetch('/analyses/'+currentId+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:res})});
-    document.getElementById('fbThanks').classList.add('show');
-    loadHist();
-  }catch(e){}
-}
-
-async function sendHFb(id,res){
-  try{
-    await fetch('/analyses/'+id+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:res})});
-    loadHist();
-  }catch(e){}
-}
-
-async function loadHist(){
-  try{
-    const r=await fetch('/my-analyses');
-    const list=await r.json();
-    const el=document.getElementById('histList');
-    if(!list||!list.length){el.innerHTML='<div class="hi-empty">Aucune analyse pour l\'instant</div>';return;}
-    el.innerHTML=list.map(a=>{
-      const d=new Date(a.createdAt);
-      const ds=d.toLocaleDateString('fr-FR')+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-      const dec=(a.decision||'').toLowerCase();
-      const decClass=dec.includes('buy')?'buy':dec.includes('sell')?'sell':'skip';
-      const fbClass=a.feedbackResult?a.feedbackResult:'';
-      const manipBadge=a.manipulation==='OUI'?' ⚠️':'';
-      const crtBadge=a.crt==='OUI'?' 📐✅':a.crt==='NON'?' 📐❌':'';
-      return`<div class="hi ${fbClass}">
-        <div class="hi-head">
-          <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}${manipBadge}${crtBadge}</span>
-          <span class="hi-date">${ds}</span>
-        </div>
-        <div class="hi-lvs">
-          <div class="hi-lv"><div class="hi-lv-lbl">Entrée</div><div class="hi-lv-val">${a.entry||'—'}</div></div>
-          <div class="hi-lv"><div class="hi-lv-lbl">Stop Loss</div><div class="hi-lv-val" style="color:var(--red)">${a.sl||'—'}</div></div>
-          <div class="hi-lv"><div class="hi-lv-lbl">TP1</div><div class="hi-lv-val" style="color:var(--green)">${a.tp||'—'}</div></div>
-        </div>
-        <div class="hi-fbs">
-          <button class="hfb tp ${a.feedbackResult==='tp'?'on':''}" onclick="sendHFb('${a._id}','tp')">✅ TP</button>
-          <button class="hfb sl ${a.feedbackResult==='sl'?'on':''}" onclick="sendHFb('${a._id}','sl')">❌ SL</button>
-          <button class="hfb pend ${a.feedbackResult==='pending'?'on':''}" onclick="sendHFb('${a._id}','pending')">⏳ En cours</button>
-        </div>
-      </div>`;
-    }).join('');
-  }catch(e){}
-}
-
-async function analyze(){
-  const cap=document.getElementById('capInput').value;
-  const fileM30=document.getElementById('fileM30').files[0];
-  const fileM15=document.getElementById('fileM15').files[0];
-  const fileM1=document.getElementById('fileM1').files[0];
-
-  if(!cap||parseFloat(cap)<=0){
-    const inp=document.getElementById('capInput');
-    inp.classList.add('err');
-    setTimeout(()=>inp.classList.remove('err'),3000);
-    return;
+function checkAdmin(req, res, next) {
+  if (!req.session || !req.session.userId || req.session.userRole !== 'admin') {
+    return res.status(403).json({ error: 'Accès refusé' });
   }
-  if(!fileM30){alert('Le graphique M30 est obligatoire !');return;}
+  next();
+}
 
-  const btn=document.getElementById('analyzeBtn');
-  btn.disabled=true;btn.textContent='ANALYSE...';
-  document.getElementById('loadBar').classList.add('on');
-  document.getElementById('loadTxt').classList.add('on');
-  document.getElementById('statusTxt').textContent='ANALYSE EN COURS';
-  document.getElementById('result').classList.remove('show');
-  document.getElementById('fbPanel').classList.remove('show');
-  document.getElementById('manipBox').classList.remove('show');
-  document.getElementById('crtBox').classList.remove('show');
-  currentId=null;
+function isPaiementEnRetard(user) {
+  if (user.role === 'admin') return false;
+  if (!user.subscribed) return false;
+  if (!user.paidUntil) return true;
+  return new Date() > new Date(user.paidUntil);
+}
 
-  const fd=new FormData();
-  fd.append('capital',cap);
-  const fileH1 = document.getElementById('fileH1')?.files[0];
-  const fileM5 = document.getElementById('fileM5')?.files[0];
-  if(fileH1)  fd.append('imageH1', fileH1);
-  fd.append('imageM30',fileM30);
-  if(fileM15) fd.append('imageM15',fileM15);
-  if(fileM5)  fd.append('imageM5', fileM5);
-  if(fileM1)  fd.append('imageM1',fileM1);
+function canAnalyze(user) {
+  if (user.role === 'admin') return true;
+  if (isPaiementEnRetard(user)) return false;
+  if (user.subscribed) return true;
+  if (typeof user.analysisMax === 'number') return user.analysisCount < user.analysisMax;
+  return user.analysisCount < 2;
+}
 
-  try{
-    const r=await fetch('/analyze',{method:'POST',body:fd});
-    const d=await r.json();
+function analysesRestantes(user) {
+  if (user.role === 'admin' || user.subscribed) return undefined;
+  if (typeof user.analysisMax === 'number') return Math.max(0, user.analysisMax - (user.analysisCount || 0));
+  return Math.max(0, 2 - (user.analysisCount || 0));
+}
 
-    if(d.error==='session_conflict'){window.location.href='/login.html';return;}
-    if(d.error==='paiement_en_retard'){
-      document.getElementById('impayeBanner').classList.add('show');
-      document.getElementById('statusTxt').textContent='IMPAYÉ';
-      btn.textContent='⚠ Impayé';
-      document.getElementById('loadBar').classList.remove('on');
-      document.getElementById('loadTxt').classList.remove('on');
-      return;
+function calculerLots(capital, risquePct, slPips, instrument) {
+  if (!capital || !slPips || slPips <= 0) return null;
+  const montantRisque = capital * risquePct / 100;
+  const inst = (instrument || '').toUpperCase();
+
+  // ─── DETECTION INSTRUMENT + NORMALISATION DU SL ─────────────────
+  // Le SL recu peut etre en differentes unites selon comment l'IA l'interprete.
+  // On convertit tout en "valeur en dollars du mouvement complet du SL" pour 1 lot.
+  let valeurMouvementParLot; // = combien $ je perds/gagne pour le SL complet sur 1 lot
+  let slEnDollars; // SL converti en dollars (mouvement de prix)
+
+  if (inst.includes('XAU') || inst.includes('GOLD')) {
+    // Pour XAUUSD : 1 lot = 100 onces. 1$ de mouvement = 100$ de P&L par lot.
+    // L'IA peut renvoyer le SL en :
+    //   - dollars (ex: 5 = SL a $5 du prix) ← le plus courant
+    //   - pips broker (ex: 50 = $5, 1 pip = $0.10)
+    //   - points (ex: 500 = $5, 1 point = $0.01)
+    // On detecte intelligemment :
+    if (slPips < 30) {
+      // < 30 → c'est probablement deja en dollars (SL XAUUSD typique : $1-20)
+      slEnDollars = slPips;
+    } else if (slPips < 300) {
+      // 30-300 → c'est probablement en pips (1 pip = $0.10)
+      slEnDollars = slPips / 10;
+    } else {
+      // >= 300 → c'est en points (1 point = $0.01)
+      slEnDollars = slPips / 100;
     }
-    if(d.limitReached){window.location.href=d.redirect||'/abonnement.html';return;}
-    if(d.error){
-      document.getElementById('statusTxt').textContent='ERREUR';
-      alert(d.error);
-      btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
-      document.getElementById('loadBar').classList.remove('on');
-      document.getElementById('loadTxt').classList.remove('on');
-      return;
+    valeurMouvementParLot = 100; // 1$ de mouvement = $100 par lot complet
+  } else if (inst.includes('XAG') || inst.includes('SILVER')) {
+    slEnDollars = slPips < 5 ? slPips : slPips / 10;
+    valeurMouvementParLot = 50;
+  } else if (inst.includes('JPY')) {
+    // Forex JPY : 1 pip = 0.01, 1 lot = ~$9 par pip
+    slEnDollars = slPips * 0.01;
+    valeurMouvementParLot = 909; // ~$9.09 par pip * 100 pips/dollar
+  } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
+    slEnDollars = slPips;
+    valeurMouvementParLot = 1;
+  } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
+    slEnDollars = slPips;
+    valeurMouvementParLot = 1;
+  } else {
+    // Forex standard : 1 pip = 0.0001, 1 lot = ~$10 par pip
+    slEnDollars = slPips * 0.0001;
+    valeurMouvementParLot = 100000; // 100k unites par lot
+  }
+
+  // ─── CALCUL DU LOT ──────────────────────────────────────────────
+  // Lot = Risque max / (mouvement SL × valeur par lot)
+  const perteParLotComplet = slEnDollars * valeurMouvementParLot;
+  let lots = montantRisque / perteParLotComplet;
+
+  // Arrondi a 2 decimales (precision broker standard)
+  lots = Math.round(lots * 100) / 100;
+
+  // ─── PROTECTION : lot minimum coherent selon capital ──────────
+  // Si le calcul donne moins que ce qui est utile pour ce capital → ajuste
+  // Pour XAUUSD, le minimum utile :
+  //   - capital < $300 → 0.01 (tres petit compte)
+  //   - capital $300-1000 → 0.02 minimum (sinon profits ridicules)
+  //   - capital $1000-3000 → 0.03 minimum
+  //   - capital > $3000 → 0.05 minimum
+  if (inst.includes('XAU') || inst.includes('GOLD')) {
+    let lotMinimum;
+    if (capital < 300) lotMinimum = 0.01;
+    else if (capital < 1000) lotMinimum = 0.02;
+    else if (capital < 3000) lotMinimum = 0.03;
+    else lotMinimum = 0.05;
+    if (lots < lotMinimum) {
+      console.log('[LOTS] Calcul: ' + lots + ' → ajuste a ' + lotMinimum + ' (capital $' + capital + ')');
+      lots = lotMinimum;
     }
+  }
 
-    currentId=d.analysisId;
+  // ─── PLAFOND DE SECURITE : ne jamais risquer plus de 5% du capital ──
+  // Si le lot calcule fait risquer trop, on cap
+  const perteReelleEstimee = lots * perteParLotComplet;
+  const maxRisqueAbsolu = capital * 0.05; // jamais plus de 5%
+  if (perteReelleEstimee > maxRisqueAbsolu) {
+    const lotsCappés = maxRisqueAbsolu / perteParLotComplet;
+    lots = Math.max(0.01, Math.round(lotsCappés * 100) / 100);
+    console.log('[LOTS] Cap securite : risque ' + perteReelleEstimee.toFixed(2) + '$ > 5% capital → lot reduit a ' + lots);
+  }
 
-    const dec=d.decision||'NE PAS TRADER';
-    const decLow=dec.toLowerCase();
-    const decClass=decLow.includes('buy')?'buy':decLow.includes('sell')?'sell':'skip';
-    document.getElementById('decBlock').className='dec-block '+decClass;
-    document.getElementById('decTxt').textContent=decLow.includes('buy')?'▲ BUY':decLow.includes('sell')?'▼ SELL':'⚠ NE PAS TRADER';
-    document.getElementById('confTxt').textContent=d.confiance?'Confiance '+d.confiance:'';
+  return Math.max(0.01, lots);
+}
 
-    const sc=d.score||0;
-    const scEl=document.getElementById('scoreTxt');
-    scEl.textContent=sc+'/10';
-    scEl.className='score-val '+(sc>=8?'high':sc>=6?'mid':'low');
+app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
+app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
+app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
+app.get('/admin.html', checkAuth, (req, res) => {
+  if (req.session.userRole !== 'admin') return res.redirect('/');
+  res.sendFile(path.join(__dirname, 'public/admin.html'));
+});
+app.use(express.static(path.join(__dirname, 'public')));
 
-    document.getElementById('tendanceM30').textContent=d.tendance||'—';
-    if(document.getElementById('tendanceH1')) document.getElementById('tendanceH1').textContent=d.tendanceH1||'Non fourni';
-    document.getElementById('tendanceM15').textContent=d.tendanceM15||'—';
-    if(document.getElementById('tendanceM5')) document.getElementById('tendanceM5').textContent=d.tendanceM5||'Non fourni';
-    document.getElementById('tendanceM1').textContent=d.tendanceM1||'—';
-
-    // ─── BLOC MANIPULATION ───────────────────────────────────
-    const manipBox=document.getElementById('manipBox');
-    if(d.manipulation){
-      const isOui=d.manipulation==='OUI';
-      manipBox.className='manip-box '+(isOui?'oui':'non')+' show';
-      document.getElementById('manipIcon').textContent=isOui?'⚠️':'✅';
-      document.getElementById('manipTitle').textContent=isOui?'⚠ RISQUE MANIPULATION DÉTECTÉ':'✅ AUCUNE MANIPULATION DÉTECTÉE';
-      document.getElementById('manipDetail').textContent=isOui?(d.manipulationDetail||'Zone de liquidité dangereuse proche du SL — soyez vigilant'):'Setup propre, pas de chasse aux stops identifiée.';
+app.get('/setup-admin', async (req, res) => {
+  try {
+    await db.removeAsync({ role: 'admin' }, { multi: true });
+    const admins = [
+      { email: 'admin@ai-mazza.com', password: 'Mx#9kL$2vP!qR7nT' },
+      { email: 'admin2@ai-mazza.com', password: 'Zw@4jF$8mK!xQ3bY' }
+    ];
+    for (const a of admins) {
+      const hash = await bcrypt.hash(a.password, 10);
+      await db.insertAsync({ email: a.email, password: hash, role: 'admin', isVerified: true, analysisCount: 0, analysisMax: 999999, subscribed: true, banned: false, paymentStatus: 'paid', plan: 'admin', createdAt: new Date() });
     }
+    res.send(`<div style="background:#020510;color:#00f5ff;font-family:monospace;padding:40px;">
+      <h2>✅ Admins créés !</h2>
+      <p>admin@ai-mazza.com / Mx#9kL$2vP!qR7nT</p>
+      <p>admin2@ai-mazza.com / Zw@4jF$8mK!xQ3bY</p>
+      <br><a href="/login.html" style="color:#00f5ff;">→ Se connecter</a>
+    </div>`);
+  } catch(e) { res.send('Erreur: ' + e.message); }
+});
 
-    // ─── BLOC CRT ─────────────────────────────────────────────
-    const crtBox=document.getElementById('crtBox');
-    if(d.crt){
-      const crtVal=(d.crt||'').toUpperCase();
-      const isOui=crtVal==='OUI';
-      const isNon=crtVal==='NON';
-      crtBox.className='crt-box '+(isOui?'oui':isNon?'non':'neutre')+' show';
-      document.getElementById('crtIcon').textContent=isOui?'📐✅':isNon?'📐❌':'📐';
-      document.getElementById('crtTitle').textContent=isOui?'◈ CRT CONFIRMÉ — RANGE ASIATIQUE ALIGNÉ':isNon?'◈ CRT NON ALIGNÉ — PRUDENCE':'◈ RANGE ASIATIQUE — CRT NEUTRE';
-      document.getElementById('crtDetail').textContent=d.crtDetail||'—';
-      const rangeHaut=d.rangeHaut&&d.rangeHaut!=='Non détecté'?d.rangeHaut:null;
-      const rangeBas=d.rangeBas&&d.rangeBas!=='Non détecté'?d.rangeBas:null;
-      if(rangeHaut||rangeBas){
-        document.getElementById('crtRange').style.display='grid';
-        document.getElementById('crtRangeHaut').textContent=rangeHaut||'—';
-        document.getElementById('crtRangeBas').textContent=rangeBas||'—';
-      } else {
-        document.getElementById('crtRange').style.display='none';
+app.get('/verify-manual/:email', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+    const n = await db.updateAsync({ email }, { $set: { isVerified: true, verifyToken: null } }, {});
+    if (n === 0) return res.send('❌ Email introuvable : ' + email);
+    res.send(`<div style="background:#020510;color:#00f5ff;font-family:monospace;padding:40px;">
+      <h2>✅ Compte vérifié : ${email}</h2>
+      <a href="/login.html" style="color:#00f5ff;">→ Se connecter</a>
+    </div>`);
+  } catch(e) { res.send('Erreur: ' + e.message); }
+});
+
+app.post('/register', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.json({ error: 'Champs manquants' });
+  if (password.length < 6) return res.json({ error: 'Mot de passe trop court (6 min)' });
+  try {
+    const existing = await db.findOneAsync({ email: email.toLowerCase() });
+    if (existing) return res.json({ error: 'Email déjà utilisé' });
+    const hash = await bcrypt.hash(password, 10);
+    const token = uuidv4();
+    await db.insertAsync({
+      email: email.toLowerCase(), password: hash,
+      role: 'user', isVerified: false,
+      verifyToken: token, analysisCount: 0,
+      analysisMax: 2, subscribed: false,
+      banned: false, paymentStatus: 'pending',
+      plan: 'free', createdAt: new Date()
+    });
+    const verifyUrl = BASE_URL + '/verify/' + token;
+    try {
+      await transporter.sendMail({
+        from: '"AI-Mazza" <' + process.env.BREVO_SENDER + '>',
+        to: email,
+        subject: '✅ Confirmez votre compte AI-Mazza',
+        html: `<div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+          <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
+          <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+          <p style="color:rgba(255,255,255,0.8);margin-bottom:8px;">Bienvenue !</p>
+          <p style="color:rgba(255,255,255,0.6);margin-bottom:24px;">Confirmez votre email pour activer vos <strong style="color:#00f5ff;">2 analyses gratuites</strong>.</p>
+          <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
+          <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
+        </div>`
+      });
+      res.json({ success: 'Compte créé ! Vérifiez votre email pour activer votre compte.' });
+    } catch(e) {
+      console.log('Email non envoyé:', e.message);
+      res.json({ success: 'Compte créé ! (Email non envoyé, contactez le support)' });
+    }
+  } catch(e) { res.json({ error: 'Erreur: ' + e.message }); }
+});
+
+app.get('/verify/:token', async (req, res) => {
+  try {
+    const n = await db.updateAsync({ verifyToken: req.params.token }, { $set: { isVerified: true, verifyToken: null } }, {});
+    if (n === 0) return res.redirect('/login.html?error=1');
+    res.redirect('/login.html?verified=1');
+  } catch(e) { res.redirect('/login.html?error=1'); }
+});
+
+app.post('/resend-email', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await db.findOneAsync({ email: email.toLowerCase() });
+    if (!user) return res.json({ error: 'Email introuvable' });
+    if (user.isVerified) return res.json({ error: 'Compte déjà vérifié, connectez-vous !' });
+    const token = uuidv4();
+    await db.updateAsync({ email: email.toLowerCase() }, { $set: { verifyToken: token } }, {});
+    const verifyUrl = BASE_URL + '/verify/' + token;
+    await transporter.sendMail({
+      from: '"AI-Mazza" <' + process.env.BREVO_SENDER + '>',
+      to: email,
+      subject: '✅ Nouveau lien de confirmation — AI-Mazza',
+      html: `<div style="background:#020510;font-family:Arial;padding:40px;color:#fff;max-width:500px;margin:auto;border:1px solid #00f5ff;border-radius:4px;">
+        <h1 style="color:#00f5ff;letter-spacing:4px;font-size:20px;">AI-MAZZA</h1>
+        <div style="height:1px;background:#00f5ff;margin:16px 0 24px;opacity:0.3;"></div>
+        <a href="${verifyUrl}" style="display:inline-block;background:#00f5ff;color:#020510;padding:14px 32px;text-decoration:none;font-weight:bold;margin:8px 0;border-radius:2px;letter-spacing:2px;font-size:13px;">CONFIRMER MON COMPTE</a>
+        <p style="color:rgba(255,255,255,0.3);font-size:11px;margin-top:24px;">Lien valide 24h.</p>
+      </div>`
+    });
+    res.json({ success: 'Email renvoyé ! Vérifiez votre boîte mail.' });
+  } catch(e) { res.json({ error: 'Erreur envoi email: ' + e.message }); }
+});
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.json({ error: 'Champs manquants' });
+  try {
+    const user = await db.findOneAsync({ email: email.toLowerCase() });
+    if (!user) return res.json({ error: 'Email ou mot de passe incorrect' });
+    if (!user.isVerified) return res.json({ error: 'email_not_verified' });
+    if (user.banned) return res.json({ error: 'Compte banni. Contactez le support.' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.json({ error: 'Email ou mot de passe incorrect' });
+    if (user.role !== 'admin') {
+      const sessionId = uuidv4();
+      activeSessions[user._id] = sessionId;
+      req.session.sessionId = sessionId;
+    }
+    req.session.userId = user._id;
+    req.session.userRole = user.role;
+    res.json({ success: true, redirect: user.role === 'admin' ? '/admin.html' : '/' });
+  } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
+});
+
+app.get('/logout', (req, res) => {
+  if (req.session.userId && req.session.userRole !== 'admin') delete activeSessions[req.session.userId];
+  req.session.destroy(() => res.redirect('/login.html'));
+});
+
+app.get('/me', checkAuth, async (req, res) => {
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user) return res.json({ error: 'Non trouvé' });
+  if (user.role !== 'admin') {
+    if (user.banned) { req.session.destroy(); return res.status(403).json({ error: 'banned' }); }
+    if (!activeSessions[user._id]) {
+      activeSessions[user._id] = req.session.sessionId || uuidv4();
+      req.session.sessionId = activeSessions[user._id];
+    } else if (activeSessions[user._id] !== req.session.sessionId) {
+      req.session.destroy();
+      return res.status(401).json({ error: 'session_conflict' });
+    }
+  }
+  res.json({
+    email: user.email, role: user.role,
+    analysisCount: user.analysisCount,
+    analysisMax: user.analysisMax,
+    subscribed: user.subscribed,
+    paiementEnRetard: isPaiementEnRetard(user),
+    paidUntil: user.paidUntil || null,
+    mt5: user.mt5 ? {
+      connected: true,
+      login: user.mt5.login,
+      server: user.mt5.server,
+      accountType: user.mt5.accountType,
+      capital: user.mt5.capital,
+      currency: user.mt5.currency
+    } : { connected: false }
+  });
+});
+
+app.get('/my-analyses', checkAuth, async (req, res) => {
+  try {
+    const analyses = await analysesDb.findAsync({ userId: req.session.userId });
+    analyses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json(analyses.slice(0, 20));
+  } catch(e) { res.json([]); }
+});
+
+app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
+  try {
+    const { result } = req.body;
+    await analysesDb.updateAsync(
+      { _id: req.params.id, userId: req.session.userId },
+      { $set: { feedbackResult: result } },
+      {}
+    );
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/analyze', checkAuth, uploadMulti.fields([
+  { name: 'imageH1',  maxCount: 1 },
+  { name: 'imageM30', maxCount: 1 },
+  { name: 'imageM15', maxCount: 1 },
+  { name: 'imageM5',  maxCount: 1 },
+  { name: 'imageM1',  maxCount: 1 }
+]), async (req, res) => {
+  const files = req.files || {};
+  const allFiles = [files.imageH1?.[0], files.imageM30?.[0], files.imageM15?.[0], files.imageM5?.[0], files.imageM1?.[0]].filter(Boolean);
+
+  try {
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!user) return res.status(401).json({ error: 'Non connecté' });
+    if (user.banned) {
+      allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+      return res.status(403).json({ error: 'Compte banni' });
+    }
+    if (user.role !== 'admin') {
+      if (activeSessions[user._id] && activeSessions[user._id] !== req.session.sessionId) {
+        allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+        req.session.destroy();
+        return res.status(401).json({ error: 'session_conflict' });
+      }
+      if (isPaiementEnRetard(user)) {
+        allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+        return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme.' });
+      }
+      if (!canAnalyze(user)) {
+        allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+        return res.json({ limitReached: true, redirect: '/abonnement.html' });
       }
     }
 
-    const lotsBox=document.getElementById('lotsBox');
-    if(d.lots&&!decLow.includes('ne pas')){
-      document.getElementById('lotsNum').textContent=d.lots;
-      document.getElementById('lotsRisk').textContent=(d.risquePct||3)+'%';
-      document.getElementById('lotsMontant').textContent='$'+d.montantRisque;
-      lotsBox.style.display='block';
-    } else {lotsBox.style.display='none';}
+    if (allFiles.length === 0) return res.status(400).json({ error: 'Aucune image reçue' });
 
-    document.getElementById('lvEntry').textContent=d.entree||'—';
-    document.getElementById('lvSL').textContent=d.sl||'—';
-    document.getElementById('lvSLpips').textContent=d.slPips?d.slPips+' pips':'';
-    document.getElementById('lvTP1').textContent=d.tp1||'—';
-    document.getElementById('lvTP1pips').textContent=d.tp1Pips?d.tp1Pips+' pips (RR 1:2)':'';
-    document.getElementById('tp1Val').textContent=d.tp1||'—';
-    document.getElementById('tp2Val').textContent=d.tp2||'—';
-    document.getElementById('tp3Val').textContent=d.tp3||'—';
-    document.getElementById('bePrice').textContent=d.entree||'—';
-    document.getElementById('smTendance').textContent=d.tendance||'—';
-    document.getElementById('smConfl').textContent=d.confluence||'—';
-    document.getElementById('smOB').textContent=d.ob||'—';
-    document.getElementById('smFVG').textContent=d.fvg||'—';
-    document.getElementById('smLiq').textContent=d.liquidite||'—';
-    document.getElementById('smConf').textContent=d.confluences||'—';
+    const capital = parseFloat(req.body.capital) || 0;
+    const content = [];
+    const tfNames = { imageH1: 'H1', imageM30: 'M30', imageM15: 'M15', imageM5: 'M5', imageM1: 'M1' };
+    const tfOrder = ['imageH1', 'imageM30', 'imageM15', 'imageM5', 'imageM1'];
 
-    const capRes=document.getElementById('capRes');
-    if(d.capital>0&&d.montantRisque){
-      document.getElementById('capResLbl').textContent='Risque IA — '+(d.risquePct||3)+'% (score '+sc+'/10)';
-      document.getElementById('capResVal').textContent='$'+d.montantRisque;
-      capRes.style.display='block';
-    } else {capRes.style.display='none';}
-
-    document.getElementById('invalTxt').textContent=d.invalidation||'—';
-
-    if(d.analysesLeft!==undefined){
-      const l=d.analysesLeft;
-      const c=document.getElementById('counter');
-      document.getElementById('analysesLeft').textContent=l;
-      c.style.display='block';
-      c.className='counter '+(l>0?'ok':'empty');
+    for (const tfKey of tfOrder) {
+      const file = files[tfKey]?.[0];
+      if (file) {
+        const imageData = fs.readFileSync(file.path);
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: file.mimetype || 'image/png', data: imageData.toString('base64') }
+        });
+        content.push({ type: 'text', text: `[Graphique ${tfNames[tfKey]}]` });
+      }
     }
 
-    document.getElementById('result').classList.add('show');
-    document.getElementById('statusTxt').textContent=decLow.includes('ne pas')?'⚠ NE PAS TRADER':'ANALYSE COMPLÈTE';
+    const tfDisponibles = tfOrder.filter(k => files[k]?.[0]).map(k => tfNames[k]).join(', ');
+    const nbTF = allFiles.length;
+    const hasH1 = !!files.imageH1?.[0];
+    const hasM5 = !!files.imageM5?.[0];
+    const hasM15 = !!files.imageM15?.[0];
+    const hasM1 = !!files.imageM1?.[0];
+    const bonusTF = [hasH1 ? 'H1' : null, hasM5 ? 'M5' : null].filter(Boolean).join(', ');
 
-    if(!decLow.includes('ne pas')){
-      document.getElementById('fbPanel').classList.add('show');
-      document.getElementById('fbThanks').classList.remove('show');
-      document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
+    // ANALYSE CRT KASPER ACTIVEE seulement si M15 + M1 sont fournis
+    const crtKasperActif = hasM15 && hasM1;
+
+    content.push({
+      type: 'text',
+      text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+
+Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.${bonusTF ? `
+TIMEFRAMES BONUS FOURNIS: ${bonusTF} — utilise-les pour affiner l'analyse top-down et le CRT.` : ''}
+Analyse selon la méthode ICT Smart Money avec intégration CRT (Candle Range Theory).
+${hasH1 ? '- H1 fourni : utilise-le comme tendance macro principale pour le top-down' : '- H1 non fourni : déduis la tendance macro depuis M30'}
+${hasM5 ? '- M5 fourni : utilise-le pour affiner l\'entree precise et confirmer le FVG' : '- M5 non fourni : utilise M15 ou M1 pour l\'entree'}
+
+RÈGLES D'ANALYSE:
+- Analyse la tendance, la structure de marché, les Order Blocks et FVG sur les graphiques fournis
+- Avec M30 seul : donne un signal basé sur la tendance principale et les zones clés
+- Avec plusieurs TF : analyse en top-down et vérifie la confluence
+- NE PAS TRADER uniquement si le marché est vraiment en range sans direction ou si le risque est trop élevé
+- Un graphique avec une tendance claire doit donner BUY ou SELL — sois direct et décisif
+
+DÉTECTION CRT (Candle Range Theory) — RANGE ASIATIQUE:
+- Identifier le range asiatique sur M30 : bougies formées entre 20h00 et 08h00 (heure Paris)
+- Le range asiatique = zone de consolidation entre le HIGH et le LOW de cette session
+- CRT valide = le prix est en train de casser ou vient de casser ce range
+- BUY CRT : cassure du HIGH du range asiatique vers le haut
+- SELL CRT : cassure du LOW du range asiatique vers le bas
+- Si CRT non aligné avec le signal → réduire le score de 1 point et mentionner l'invalidité
+- Si CRT aligné → bonus de +1 point sur le score et signaler la confluence
+${crtKasperActif ? `
+═══════════════════════════════════════════════════════════════
+🎯 ANALYSE CRT KASPER KARL ACTIVÉE (M15 + M1 fournis)
+═══════════════════════════════════════════════════════════════
+EN PLUS de l'analyse ICT classique ci-dessus, applique LA MÉTHODE KASPER KARL
+UNIQUEMENT sur les 3 dernières bougies du M15 (jamais M1 ni M30).
+
+⚠️ RÈGLE CRITIQUE : Le pattern CRT Kasper ne se détecte QUE sur M15.
+NE JAMAIS extrapoler un "mini CRT" vu sur M1 ou M5 comme un pattern valide.
+Si aucun pattern Kasper clair sur M15 → crtKasper = "NON_DETECTE".
+
+PATTERN CRT KASPER (3 dernières bougies M15 UNIQUEMENT) :
+• Bougie 1 (KEY CANDLE) : bougie de référence avec un HIGH et un LOW clairs
+• Bougie 2 (MANIPULATION/SWEEP) :
+   - Sa MÈCHE dépasse un extrême de la bougie 1 (sweep de liquidité)
+   - MAIS son CORPS (close) ferme DANS le range de la bougie 1 (fausse cassure)
+• Bougie 3 (DISTRIBUTION/BREAK) :
+   - Ferme au-delà de l'extrême OPPOSÉ de la bougie 1 = CONFIRMATION
+   - DOIT avoir un corps significatif (pas une doji) dans la direction du break
+
+CRT BULLISH = Bougie 2 sweep le LOW + Bougie 3 close NETTEMENT au-dessus du HIGH
+CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 close NETTEMENT en-dessous du LOW
+
+⚠️ CRT SOFT accepté en plus du STRICT :
+- Bougie 3 petite mais ferme de l'autre côté → CRT SOFT valide (+1 score)
+- CRT STRICT = break net et clair → +2 score
+- CRT SOFT = effleure mais ferme de l'autre côté → +1 score
+
+UTILISATION DU M1 (entrée précise CRT) :
+- Une fois le pattern CRT détecté sur M15, regarde le M1 pour le timing d'entrée
+- Cherche un retest du niveau cassé (high/low de la key candle M15)
+- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 M15 (pas plus loin)
+  → Exemple BUY : SL = low de bougie 2 M15 - buffer
+  → Exemple SELL : SL = high de bougie 2 M15 + buffer
+
+INTÉGRATION INTELLIGENTE CRT KASPER + ICT + STRUCTURE M30 :
+
+⚠️ STRUCTURE M30 — guide mais ne bloque pas :
+- M30 dans la direction → bonus +1 point
+- M30 contre → -1 point (pas de blocage total)
+- Si CRT Kasper détecté → on trade même si M30 légèrement contre
+
+⚠️ REBOND FAIBLE — prudence mais pas de blocage :
+- Rebond faible sans CRT → réduire score de 1
+- CRT Kasper détecté sur un rebond → signal valide quand même
+
+ARBRE DE DÉCISION :
+1. CRT + ICT + M30 alignés → SETUP A+ (score 9-10)
+2. CRT + ICT + M30 neutre → bon setup (score 7-8)
+3. CRT + ICT + M30 contre → score 6-7, trade quand même
+4. CRT seul (sans ICT confirmation) → score 5, trade avec prudence (signal limite)
+5. ICT seul sans CRT → score 6-7 si structure claire
+6. Ni CRT ni ICT → NE PAS TRADER (score < 5)
+
+PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
+- SI CRT Kasper détecté → utiliser les niveaux CRT pour l'entrée et le SL
+  (SL plus serré et précis, évite les SL "au feeling" qui se font taper)
+- SINON → utiliser les niveaux ICT classiques (OB, FVG, structure)
+═══════════════════════════════════════════════════════════════` : ''}
+
+⚠️ VÉRIFICATION RAPIDE :
+1. Tendance M30 dans le sens ? → si non : -1 point
+2. Zone Discount/Premium respectée ? → si non : -1 point
+3. Setup CRT ou ICT détecté ? → si non ET score < 5 → NE PAS TRADER
+Blocker seulement si score final < 5 ET aucun pattern clair.
+
+
+🎯 ═══════════════════════════════════════════════════════════════
+ENTRÉE SNIPER OBLIGATOIRE — JAMAIS D'ENTRÉE AU MARCHÉ
+═══════════════════════════════════════════════════════════════
+Tu es un SNIPER, pas un mitrailleur. L'entrée doit être CHIRURGICALE.
+
+⚠️ CONTEXTE CLIENT : Le trader place TOUJOURS des ordres LIMIT.
+L'entrée que tu donnes doit donc être un NIVEAU RÉALISTE que le prix
+atteindra probablement. Ton job c'est de choisir le MEILLEUR niveau
+possible, pas "un niveau pas loin du prix actuel".
+
+❌ INTERDIT — ne JAMAIS faire :
+- Donner un prix "presque comme le prix actuel" pour que ça touche vite
+- Choisir un niveau sans signification technique juste parce qu'il est proche
+- Donner une entrée en plein milieu d'une zone (ni support ni résistance)
+- "Market order" au prix du moment
+
+✅ OBLIGATOIRE — toujours faire :
+Le prix d'entrée DOIT coïncider avec un NIVEAU TECHNIQUE MAJEUR
+visible clairement sur les graphiques :
+
+POUR UN BUY — l'entrée doit être sur :
+• Retest de la KEY CANDLE (high de bougie 1 CRT) ← préféré si CRT détecté
+• Retest d'un Order Block haussier clair (bas d'une bougie impulsive haussière visible)
+• Retest d'un FVG haussier identifiable (gap entre 3 bougies)
+• Retest d'un breakout de structure (ancien high devenu support)
+• Retest d'une EMA ou MA significative (20, 50, 200)
+• Support horizontal testé plusieurs fois (visible par des mèches à ce niveau)
+
+POUR UN SELL — l'entrée doit être sur :
+• Retest de la KEY CANDLE (low de bougie 1 CRT)
+• Retest d'un Order Block baissier clair
+• Retest d'un FVG baissier
+• Retest d'un breakout baissier (ancien low devenu résistance)
+• Retest d'une EMA ou MA significative
+• Résistance horizontale testée plusieurs fois
+
+⚠️ TEST DE VALIDATION DU NIVEAU D'ENTRÉE :
+Avant de valider le niveau d'entrée X, pose-toi ces 2 questions :
+1. Est-ce que je peux EXPLIQUER pourquoi le prix devrait réagir PILE à ce niveau ?
+2. Est-ce que ce niveau est VISIBLE clairement sur au moins 2 timeframes ?
+Si tu ne peux pas répondre OUI aux 2 → le niveau est trop faible, CHOISIS EN UN AUTRE
+ou "NE PAS TRADER" si aucun niveau valable n'existe.
+
+RÈGLES CHIFFRÉES :
+- Le prix d'entrée DOIT être à au moins 0.1% (environ 5$ pour XAUUSD à 4700) du prix actuel
+- Sauf exception : si le prix est LITTÉRALEMENT sur un niveau technique clé à l'instant T
+- Dans ce cas, le mentionner explicitement dans le champ "entreeType"
+
+COMMENT CALCULER L'ENTRÉE :
+1. Identifie TOUS les niveaux techniques visibles sur les graphiques
+2. Pour BUY : trouve le support le plus PROCHE ET LE PLUS FORT en-dessous du prix
+3. Pour SELL : trouve la résistance la plus PROCHE ET LA PLUS FORTE au-dessus
+4. Le meilleur niveau = celui qui a été testé PLUSIEURS FOIS ou qui a une confluence
+   (ex: OB + FVG + EMA qui se croisent au même endroit)
+5. Place l'entrée PILE sur ce niveau (ordre LIMIT)
+6. Si aucun niveau FORT mais CRT détecté → utiliser les niveaux CRT comme référence
+
+VALIDITÉ DE L'ENTRÉE :
+- L'entrée doit rester valide MAX 2 heures (bougies M15 évoluent vite)
+- Si le prix s'éloigne trop du niveau d'entrée → signal expiré
+- L'IA doit indiquer si l'entrée est "immédiate" (prix déjà au niveau) ou "en attente"
+
+SL DOIT ÊTRE EXTRÊMEMENT SERRÉ :
+- BUY : SL juste sous le low de la zone d'entrée (OB, key candle, etc.) - 2-3$ buffer max
+- SELL : SL juste au-dessus du high de la zone - 2-3$ buffer max
+- Avec entrée sniper, SL typique XAUUSD = 3-8$ (vs 10-15$ en entrée marché)
+- R:R cible minimum 1:3, idéal 1:4 ou 1:5
+═══════════════════════════════════════════════════════════════
+🔥 ═══════════════════════════════════════════════════════════════
+CONFLUENCE CRT + FVG + ORDER BLOCK = SETUP A+ (ICT PRO)
+═══════════════════════════════════════════════════════════════
+Quand un CRT Kasper se forme, la bougie 3 (celle qui CASSE l'extrême
+opposé) crée souvent un FVG ET un Order Block au même endroit.
+C'est LE setup le plus puissant en ICT/SMC. À chercher en priorité.
+
+📐 DÉFINITIONS PRÉCISES :
+
+ORDER BLOCK (OB) — Zone où le smart money a accumulé/distribué :
+• OB BULLISH = la DERNIÈRE bougie BAISSIÈRE avant un mouvement haussier impulsif
+  → Zone d'entrée BUY = entre le HIGH et le LOW de cette bougie rouge
+• OB BEARISH = la DERNIÈRE bougie HAUSSIÈRE avant un mouvement baissier impulsif
+  → Zone d'entrée SELL = entre le HIGH et le LOW de cette bougie verte
+• Plus la bougie OB est petite et l'impulsion suivante grande, plus le OB est puissant
+
+FVG (Fair Value Gap) — Imbalance dans le prix :
+• FVG BULLISH = sur 3 bougies consécutives, le LOW de la bougie 3 > HIGH de la bougie 1
+  → Le gap entre HIGH bougie 1 et LOW bougie 3 = FVG haussier (à combler)
+• FVG BEARISH = HIGH bougie 3 < LOW bougie 1
+  → Gap entre LOW bougie 1 et HIGH bougie 3 = FVG baissier
+• Le prix RETOURNE souvent combler les FVG avant de continuer
+
+🎯 COMMENT COMBINER CRT + FVG + OB :
+
+ÉTAPE 1 — Identifier le CRT Kasper sur M15 (3 bougies)
+ÉTAPE 2 — Sur la bougie 3 (la bougie de BREAK), identifier :
+   • L'OB = la dernière bougie OPPOSÉE à la direction du break
+     (pour CRT BULLISH = la dernière bougie rouge avant le break vert)
+     (pour CRT BEARISH = la dernière bougie verte avant le break rouge)
+   • Le FVG = le gap créé par la bougie 3 (si elle est forte)
+
+ÉTAPE 3 — Vérifier la CONFLUENCE :
+   • Le OB et le FVG sont-ils sur la MÊME ZONE de prix ?
+   • Cette zone correspond-elle au RETEST de la key candle CRT ?
+   • Si OUI aux 3 → SETUP A+ (3 confluences alignées)
+
+🎯 PLACEMENT OPTIMAL avec confluence CRT + FVG + OB :
+
+POUR UN BUY (CRT BULLISH) :
+• Entrée 1 (idéale) : haut du FVG bullish (zone haute du gap)
+• Entrée 2 (alternative) : haut de l'OB bullish (zone haute de la dernière bougie rouge)
+• Entrée 3 (sécurisée) : key candle high CRT (retest du break)
+→ Choisis le niveau le PLUS PROCHE du prix actuel parmi ces 3
+
+• SL : sous le LOW de l'OB - 2-3 pips de buffer
+  (si l'OB est cassé, le setup est invalidé, donc SL logique)
+• TP1 : avant la prochaine zone de liquidité (R:R 1:2 min)
+• TP2 : sur le high majeur précédent (R:R 1:3)
+
+POUR UN SELL (CRT BEARISH) :
+• Entrée 1 (idéale) : bas du FVG bearish
+• Entrée 2 (alternative) : bas de l'OB bearish
+• Entrée 3 (sécurisée) : key candle low CRT
+• SL : au-dessus du HIGH de l'OB + buffer
+
+📊 SCORING DE LA CONFLUENCE :
+• CRT + FVG + OB tous alignés → score 9-10 (setup A+, lot boost autorisé)
+• CRT + (FVG ou OB) → score 7-8 (très bon setup)
+• CRT seul sans FVG ni OB clair → score 5-6 (setup correct mais moins fiable)
+• OB + FVG sans CRT → score 6-7 (setup ICT classique, valide)
+
+⚠️ RÈGLES IMPORTANTES :
+• Le FVG doit être FRAIS (pas déjà comblé une 1ère fois)
+• L'OB doit être proche du prix actuel (pas à 50+ pips)
+• Si plusieurs OB visibles, prends celui le plus PROCHE de l'entrée CRT
+• Privilégie TOUJOURS la zone où FVG + OB se chevauchent (=double confluence)
+═══════════════════════════════════════════════════════════════
+
+🛡️ ═══════════════════════════════════════════════════════════════
+PROTECTION ANTI-LIQUIDITÉ — CRITICAL POUR ÉVITER LES SL TAPÉS
+═══════════════════════════════════════════════════════════════
+Le smart money chasse SYSTÉMATIQUEMENT la liquidité avant de partir
+dans la vraie direction. Ton job : placer le SL et le TP de manière
+à NE PAS être pris dans cette chasse.
+
+🚨 LIQUIDITÉ = zones où ya des stops loss accumulés :
+• EQUAL LOWS (plusieurs bougies avec le même low) → liquidité basse
+• EQUAL HIGHS (plusieurs bougies avec le même high) → liquidité haute
+• Mèches multiples au même niveau → stops accumulés
+• Round numbers ($4700, $4750, $4800 sur XAUUSD) → liquidité psychologique
+• Anciens swing high/low évidents → magnet à stops
+• Niveaux pré-news (avant CPI/NFP) → liquidité juteuse
+
+⚠️ RÈGLES DE PLACEMENT DU SL :
+1. AVANT de placer le SL, identifie TOUTES les zones de liquidité
+   en-dessous (pour BUY) ou au-dessus (pour SELL) du prix d'entrée
+2. Le SL ne doit JAMAIS être placé :
+   • PILE sur un equal low/high évident
+   • JUSTE au-dessus/sous un round number ($4700 par ex)
+   • Au "milieu de nulle part" sans support technique
+3. Le SL doit être placé :
+   • DERRIÈRE une zone de liquidité (qu'on laisse être chassée d'abord)
+   • OU à un niveau structurel évident (low/high majeur protégé)
+   • Avec 2-3 pips de buffer de sécurité
+
+EXEMPLE BUY XAUUSD :
+- Entrée : 4720 (sur OB)
+- Y a 3 mèches qui ont touché 4715 (equal lows) = liquidité
+- ❌ MAUVAIS SL : 4714 (juste sous l'equal low → va se faire taper en chasse)
+- ✅ BON SL : 4711 (DERRIÈRE l'equal low + buffer → la chasse à 4715
+  va se faire mais ton SL tient, puis ça repart en BUY)
+
+⚠️ RÈGLES DE PLACEMENT DU TP :
+1. AVANT de placer le TP, identifie les zones de liquidité opposées
+   qui vont attirer le prix
+2. Le TP doit être placé :
+   • LÉGÈREMENT AVANT une grosse zone de liquidité (pour prendre les profits
+     avant que le prix se fasse rejeter)
+   • OU PILE sur une zone de liquidité majeure (le smart money va y aller)
+3. Le TP ne doit JAMAIS être placé :
+   • Juste APRÈS une zone de liquidité forte (le prix va rejeter avant)
+   • Sur un niveau "rond" sans signification technique
+
+EXEMPLE BUY XAUUSD :
+- Entrée 4720, prix actuel 4722
+- Y a un swing high majeur à 4750 + equal highs vers 4748 = liquidité haute
+- ✅ TP1 : 4744 (avant la liquidité, profits sécurisés)
+- ✅ TP2 : 4750 (sur le swing high, le smart money y va)
+- ❌ TP3 : 4760 (au-delà → risque de rejet sur la liquidité)
+
+🎯 LOGIQUE FINALE DU PLACEMENT :
+- Entrée = sur niveau technique (OB/FVG/key candle/EMA)
+- SL = DERRIÈRE la liquidité la plus proche (pas dessus !)
+- TP1 = AVANT la prochaine liquidité opposée (R:R min 1:2)
+- TP2 = SUR la zone de liquidité opposée majeure (R:R 1:3)
+- TP3 = optionnel, sur le prochain niveau structurel
+
+⚠️ AVERTISSEMENT CRITIQUE :
+Si tu ne peux pas placer un SL "safe" (toujours derrière une liquidité majeure),
+augmente le SL pour passer derrière la liquidité, OU réduis la taille du trade
+mentale, OU NE PAS TRADER si la zone est trop dangereuse.
+═══════════════════════════════════════════════════════════════
+
+Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks:
+
+{
+  "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
+  "confiance": "XX%",
+  "score": <0 à 10>,
+  "tendance": "<tendance principale M30>",
+  "tendanceH1": "<H1 ou 'Non fourni'>",
+  "tendanceM15": "<M15 ou 'Non fourni'>",
+  "tendanceM5": "<M5 ou 'Non fourni'>",
+  "tendanceM1": "<M1 ou 'Non fourni'>",
+  "confluence": "<alignement TF>",
+  "entree": "<prix d'entrée précis — DOIT être sur un niveau technique, PAS au marché>",
+  "entreeType": "<LIMIT ou MARKET>",
+  "entreeLevel": "<description du niveau: 'Retest OB H1 à 4675', 'Key candle M15 low', 'FVG M30 haussier', etc.>",
+  "entreeStatut": "<IMMEDIATE si prix déjà au niveau, EN_ATTENTE si le prix doit revenir>",
+  "sl": "<stop loss — min 15 pips sur XAU/USD${crtKasperActif ? ', mais si CRT Kasper détecté: SL = juste au-delà du sweep bougie 2' : ''}>",
+  "slPips": <pips SL — min 15 sur XAU/USD>,
+  "tp1": "<TP1>",
+  "tp1Pips": <slPips × 2>,
+  "tp2": "<TP2>",
+  "tp2Pips": <slPips × 3>,
+  "tp3": "<TP3>",
+  "tp3Pips": <slPips × 4>,
+  "crt": "OUI" ou "NON" ou "NEUTRE",
+  "crtDetail": "<explication CRT: range asiatique détecté, cassure confirmée ou non, impact sur le signal>",
+  ${crtKasperActif ? `"crtKasper": "DETECTE_BULLISH" ou "DETECTE_BEARISH" ou "NON_DETECTE",
+  "crtKasperDetail": "<si détecté: décris le pattern 3 bougies M15 - key candle / sweep / break, et précise comment ça affine l'entrée et le SL>",
+  "crtKasperImpact": "<impact sur le placement final: SL plus serré, entrée plus précise, etc.>",` : ''}
+  "rangeHaut": "<prix du HIGH du range asiatique si détecté, sinon 'Non détecté'>",
+  "rangeBas": "<prix du LOW du range asiatique si détecté, sinon 'Non détecté'>",
+  "manipulation": "OUI" ou "NON",
+  "manipulationDetail": "<détail manipulation ou 'Aucune'>",
+  "ob": "<Order Block: prix exact de la zone OB + direction (haussier/baissier) ou 'Aucun OB clair'>",
+  "fvg": "<Fair Value Gap: prix exact du gap + direction ou 'Aucun FVG visible'>",
+  "obFvgConfluence": "<OUI si OB et FVG se chevauchent + niveau de prix concerné, NON sinon>",
+  "confluenceCrtObFvg": "<si CRT Kasper détecté: décris si CRT + OB + FVG sont alignés sur la même zone — SETUP A+ ou pas>",
+  "liquidite": "<zones liquidité>",
+  "confluences": "<confluences SMC>",
+  "invalidation": "<invalidation du setup>",
+  "instrument": "<ex: XAUUSD, EURUSD, NAS100>",
+  "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
+  "montantRisque": ${capital ? `<$${capital} × risquePct / 100>` : 'null'},
+  "capital": ${capital || 0}
+}
+
+RÈGLES ABSOLUES:
+- BUY: SL sous l'entrée, TP au dessus
+- SELL: SL au dessus, TP en dessous
+- TP1=RR 1:2, TP2=RR 1:3, TP3=RR 1:4
+- score 8-10=excellent, 6-7=moyen, 0-5=NE PAS TRADER
+- Chiffres précis, décision claire`
+    });
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content }]
+    });
+
+    allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+
+    let parsed;
+    try {
+      const text = response.content[0].text.trim();
+      const clean = text.replace(/```json|```/g, '').trim();
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('Pas de JSON trouvé');
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch(e) {
+      return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
-    loadHist();
-    setTimeout(()=>document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'}),200);
+    // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR ─────────────────
+    if (parsed.entree && parsed.sl && parsed.decision !== 'NE PAS TRADER') {
+      const entree = parseFloat(parsed.entree);
+      const sl = parseFloat(parsed.sl);
+      const isBuy = parsed.decision === 'BUY';
+      if (entree && sl) {
+        const dist = Math.abs(entree - sl);
+        const slCorrige = isBuy ? entree - dist : entree + dist;
+        const tp1 = isBuy ? entree + dist * 2 : entree - dist * 2;
+        const tp2 = isBuy ? entree + dist * 3 : entree - dist * 3;
+        const tp3 = isBuy ? entree + dist * 4 : entree - dist * 4;
+        parsed.sl = slCorrige.toFixed(2);
+        parsed.tp1 = tp1.toFixed(2);
+        parsed.tp2 = tp2.toFixed(2);
+        parsed.tp3 = tp3.toFixed(2);
+        parsed.slPips = Math.round(dist * 10) / 10;
+        parsed.tp1Pips = Math.round(dist * 2 * 10) / 10;
+        parsed.tp2Pips = Math.round(dist * 3 * 10) / 10;
+        parsed.tp3Pips = Math.round(dist * 4 * 10) / 10;
+      }
+    }
 
-  }catch(e){
-    document.getElementById('statusTxt').textContent='ERREUR SERVEUR';
-    console.error(e);
+    // ─── CALCUL LOTS CÔTÉ SERVEUR (garanti) ──────────────────
+    if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {
+      const score = parsed.score || 0;
+      const risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
+      parsed.risquePct = risquePct;
+      parsed.lots = calculerLots(capital, risquePct, parsed.slPips, parsed.instrument || '');
+      parsed.montantRisque = (capital * risquePct / 100).toFixed(2);
+    }
+
+    const analysisId = uuidv4();
+
+    await analysesDb.insertAsync({
+      _id: analysisId,
+      userId: req.session.userId,
+      decision: parsed.decision,
+      entry: parsed.entree,
+      sl: parsed.sl,
+      tp: parsed.tp1,
+      tp2: parsed.tp2,
+      tp3: parsed.tp3,
+      score: parsed.score,
+      instrument: parsed.instrument,
+      lots: parsed.lots,
+      manipulation: parsed.manipulation,
+      crt: parsed.crt,
+      rangeHaut: parsed.rangeHaut,
+      rangeBas: parsed.rangeBas,
+      feedbackResult: null,
+      createdAt: new Date()
+    });
+
+    if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
+    const analysesLeft = analysesRestantes(user);
+
+    res.json({ ...parsed, analysesLeft, analysisId });
+
+  } catch (err) {
+    allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e){} });
+    res.status(500).json({ error: 'Erreur: ' + err.message });
+  }
+});
+
+app.get('/admin/users', checkAdmin, async (req, res) => {
+  try {
+    const users = await db.findAsync({ role: { $ne: 'admin' } });
+    res.json(users.map(u => ({
+      _id: u._id, email: u.email, role: u.role,
+      isVerified: u.isVerified,
+      analysisCount: u.analysisCount || 0,
+      analysisMax: typeof u.analysisMax === 'number' ? u.analysisMax : 2,
+      subscribed: u.subscribed,
+      banned: u.banned || false,
+      paymentStatus: u.paymentStatus || 'pending',
+      paymentNote: u.paymentNote || '',
+      plan: u.plan || 'free',
+      paidUntil: u.paidUntil || null,
+      paiementEnRetard: isPaiementEnRetard(u),
+      createdAt: u.createdAt,
+      online: !!activeSessions[u._id]
+    })));
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.get('/admin/stats', checkAdmin, async (req, res) => {
+  try {
+    const users = await db.findAsync({ role: { $ne: 'admin' } });
+    res.json({
+      total: users.length,
+      verified: users.filter(u => u.isVerified).length,
+      paid: users.filter(u => u.paymentStatus === 'paid').length,
+      pending: users.filter(u => u.paymentStatus === 'pending').length,
+      banned: users.filter(u => u.banned).length,
+      enRetard: users.filter(u => isPaiementEnRetard(u)).length,
+      online: Object.keys(activeSessions).length
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
+  try {
+    const { status, plan, note } = req.body;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const subscribed = status === 'paid';
+    let analysisMax = 2;
+    if (subscribed) {
+      if (plan === 'starter') analysisMax = 30;
+      else if (plan === 'premium') analysisMax = 150;
+      else if (plan === 'elite') analysisMax = 300;
+      else analysisMax = 30;
+    }
+    let paidUntil = null;
+    if (subscribed) {
+      const now = new Date();
+      const nextSunday = new Date(now);
+      const day = now.getDay();
+      const daysUntilSunday = day === 0 ? 7 : 7 - day;
+      nextSunday.setDate(now.getDate() + daysUntilSunday);
+      nextSunday.setHours(23, 59, 59, 999);
+      paidUntil = nextSunday.toISOString();
+    }
+    await db.updateAsync({ _id: req.params.id }, {
+      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax, analysisCount: 0, paidUntil }
+    }, {});
+    res.json({ success: true, paidUntil, analysisMax });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/add-one/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: current + 1 } }, {});
+    res.json({ success: true, analysisMax: current + 1 });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/remove-one/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: Math.max(0, current - 1) } }, {});
+    res.json({ success: true, analysisMax: Math.max(0, current - 1) });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/add-analyses/:id', checkAdmin, async (req, res) => {
+  try {
+    const n = parseInt(req.body.amount) || 10;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: current + n } }, {});
+    res.json({ success: true, analysisMax: current + n });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/remove-analyses/:id', checkAdmin, async (req, res) => {
+  try {
+    const n = parseInt(req.body.amount) || 10;
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const current = typeof user.analysisMax === 'number' ? user.analysisMax : 2;
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: Math.max(0, current - n) } }, {});
+    res.json({ success: true, analysisMax: Math.max(0, current - n) });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/ban/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Introuvable' });
+    const newBan = !user.banned;
+    await db.updateAsync({ _id: req.params.id }, { $set: { banned: newBan } }, {});
+    if (newBan) delete activeSessions[req.params.id];
+    res.json({ success: true, banned: newBan });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/restrict/:id', checkAdmin, async (req, res) => {
+  try {
+    await db.updateAsync({ _id: req.params.id }, { $set: { analysisMax: 0, subscribed: false } }, {});
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.post('/admin/kick/:id', checkAdmin, async (req, res) => {
+  try {
+    delete activeSessions[req.params.id];
+    res.json({ success: true });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 🔌 ROUTES METAAPI — CONNEXION MT5 DU CLIENT
+// ═══════════════════════════════════════════════════════════════════
+
+// Helper : chercher un compte MetaApi existant par login (evite les doublons)
+async function findMetaApiAccountByLogin(login) {
+  if (!metaApi) throw new Error('MetaApi non configure');
+  const accounts = await metaApi.metatraderAccountApi.getAccounts();
+  return accounts.find(a => String(a.login) === String(login));
+}
+
+// Helper : chiffrer + sauvegarder credentials MT5 d'un user
+async function saveMT5Credentials(userId, mt5Data) {
+  const encryptedPassword = encryptStr(mt5Data.password);
+  await db.updateAsync(
+    { _id: userId },
+    { $set: {
+      mt5: {
+        login: String(mt5Data.login),
+        passwordEnc: encryptedPassword,
+        server: mt5Data.server,
+        accountType: mt5Data.accountType || 'demo',
+        metaApiAccountId: mt5Data.metaApiAccountId,
+        capital: mt5Data.capital || null,
+        currency: mt5Data.currency || 'USD',
+        connectedAt: new Date().toISOString()
+      }
+    }}
+  );
+}
+
+// ─── POST /mt5/connect : connecter le compte MT5 du client ──────────
+app.post('/mt5/connect', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure cote serveur' });
+
+  const { login, password, server, accountType } = req.body;
+  if (!login || !password || !server) {
+    return res.status(400).json({ error: 'Login, password et serveur sont requis' });
   }
 
-  btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
-  document.getElementById('loadBar').classList.remove('on');
-  document.getElementById('loadTxt').classList.remove('on');
-}
-</script>
-</body>
-</html>
+  try {
+    console.log('[MT5-CONNECT] User ' + req.session.userId + ' connecte MT5 ' + login + ' / ' + server);
+
+    // 1. Chercher le compte dans MetaApi (evite les doublons)
+    let account = await findMetaApiAccountByLogin(login);
+
+    // 2. Sinon, creer le compte
+    if (!account) {
+      console.log('[MT5-CONNECT] Compte non trouve dans MetaApi, creation...');
+      account = await metaApi.metatraderAccountApi.createAccount({
+        name: 'AIM-' + login,
+        type: 'cloud',
+        login: String(login),
+        password: password,
+        server: server,
+        platform: 'mt5',
+        magic: 12345,
+        application: 'MetaApi',
+        copyFactoryRoles: []
+      });
+    }
+
+    // 3. Deploy le compte (le connecte au broker)
+    console.log('[MT5-CONNECT] Deploy en cours...');
+    await account.deploy();
+
+    // 4. Attendre que le compte soit connecte (max 60s)
+    await account.waitConnected();
+
+    // 5. Recuperer la connexion + l'etat du compte
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    const accountInfo = await connection.getAccountInformation();
+    console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
+
+    // 6. Sauvegarder les credentials chiffres
+    await saveMT5Credentials(req.session.userId, {
+      login,
+      password,
+      server,
+      accountType: accountType || 'demo',
+      metaApiAccountId: account.id,
+      capital: accountInfo.balance,
+      currency: accountInfo.currency
+    });
+
+    // 7. UNDEPLOY immediatement pour economiser MetaApi
+    // Le compte sera redeploye uniquement quand le client clique "Placer l'ordre"
+    console.log('[MT5-CONNECT] Undeploy pour economiser...');
+    await account.undeploy();
+
+    res.json({
+      success: true,
+      capital: accountInfo.balance,
+      currency: accountInfo.currency,
+      login: accountInfo.login,
+      server: accountInfo.server,
+      name: accountInfo.name
+    });
+  } catch (err) {
+    console.error('[MT5-CONNECT] Erreur:', err.message);
+    res.status(500).json({
+      error: 'Connexion echouee',
+      details: err.message.includes('Invalid')
+        ? 'Identifiants MT5 invalides'
+        : err.message.includes('connection')
+        ? 'Impossible de se connecter au broker — verifie le serveur MT5'
+        : err.message
+    });
+  }
+});
+
+// ─── POST /mt5/disconnect : deconnecter le compte MT5 ───────────────
+app.post('/mt5/disconnect', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  try {
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $unset: { mt5: true } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /mt5/status : etat de la connexion MT5 du user ─────────────
+app.get('/mt5/status', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user || !user.mt5) return res.json({ connected: false });
+  res.json({
+    connected: true,
+    login: user.mt5.login,
+    server: user.mt5.server,
+    accountType: user.mt5.accountType,
+    capital: user.mt5.capital,
+    currency: user.mt5.currency,
+    connectedAt: user.mt5.connectedAt
+  });
+});
+
+// ─── POST /mt5/refresh-capital : refresh capital depuis MT5 ─────────
+// Deploy le compte temporairement pour recuperer le capital actuel
+app.post('/mt5/refresh-capital', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
+
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user || !user.mt5 || !user.mt5.metaApiAccountId) {
+    return res.status(404).json({ error: 'MT5 non connecte' });
+  }
+
+  try {
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    await account.deploy();
+    await account.waitConnected();
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    const info = await connection.getAccountInformation();
+    await account.undeploy();
+
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $set: { 'mt5.capital': info.balance, 'mt5.currency': info.currency } }
+    );
+
+    res.json({ capital: info.balance, currency: info.currency });
+  } catch (err) {
+    console.error('[MT5-REFRESH] Erreur:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /mt5/place-order : placer un ordre LIMIT (deploy on-demand) ─
+app.post('/mt5/place-order', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
+
+  const { symbol, direction, volume, entryPrice, sl, tp } = req.body;
+  if (!symbol || !direction || !volume || !entryPrice || !sl) {
+    return res.status(400).json({ error: 'Donnees ordre incompletes' });
+  }
+
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user || !user.mt5 || !user.mt5.metaApiAccountId) {
+    return res.status(404).json({ error: 'MT5 non connecte. Connecte ton compte d\'abord.' });
+  }
+
+  let account;
+  try {
+    console.log('[MT5-ORDER] Place ' + direction + ' ' + symbol + ' ' + volume + ' lots @ ' + entryPrice);
+
+    account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    await account.deploy();
+    await account.waitConnected();
+
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    // Determiner type d'ordre LIMIT
+    const tickInfo = await connection.getSymbolPrice(symbol);
+    const currentPrice = tickInfo.bid;
+    const isBuy = String(direction).toUpperCase().includes('BUY');
+
+    let orderType;
+    if (isBuy) {
+      orderType = parseFloat(entryPrice) < currentPrice ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_BUY_STOP';
+    } else {
+      orderType = parseFloat(entryPrice) > currentPrice ? 'ORDER_TYPE_SELL_LIMIT' : 'ORDER_TYPE_SELL_STOP';
+    }
+
+    // Placer l'ordre
+    const result = isBuy
+      ? (orderType === 'ORDER_TYPE_BUY_LIMIT'
+          ? await connection.createLimitBuyOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
+          : await connection.createStopBuyOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }))
+      : (orderType === 'ORDER_TYPE_SELL_LIMIT'
+          ? await connection.createLimitSellOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
+          : await connection.createStopSellOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }));
+
+    console.log('[MT5-ORDER] Ordre place ! ID:', result.orderId);
+
+    // UNDEPLOY immediatement pour economiser
+    await account.undeploy();
+
+    res.json({
+      success: true,
+      orderId: result.orderId,
+      orderType,
+      message: 'Ordre place sur ton MT5 ✓'
+    });
+  } catch (err) {
+    console.error('[MT5-ORDER] Erreur:', err.message);
+    // Tenter de undeploy meme en cas d'erreur
+    if (account) {
+      try { await account.undeploy(); } catch(e) {}
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /analyses/:id/place-order : tracker l'usage du bouton ─────
+app.post('/analyses/:id/place-order', async (req, res) => {
+  try {
+    await analysesDb.updateAsync(
+      { _id: req.params.id },
+      { $set: {
+        orderPlaced: true,
+        placeMethod: req.body.method || 'unknown',
+        orderId: req.body.orderId || null,
+        placedAt: new Date().toISOString()
+      }}
+    );
+    res.json({ ok: true });
+  } catch(e) {
+    res.json({ ok: false });
+  }
+});
+
+if (!fs.existsSync(path.join(__dirname, 'uploads'))) fs.mkdirSync(path.join(__dirname, 'uploads'));
+
+app.listen(port, () => {
+  console.log('✅ Serveur lancé sur http://localhost:' + port);
+});

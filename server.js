@@ -8,7 +8,48 @@ const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+
+// ─── METAAPI POUR CONNEXION MT5 ────────────────────────────────────
+let MetaApi = null;
+try {
+  MetaApi = require('metaapi.cloud-sdk').default;
+} catch(e) {
+  console.warn('[MetaApi] SDK non installé. Run: npm install metaapi.cloud-sdk');
+}
+const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
+  ? new MetaApi(process.env.METAAPI_TOKEN)
+  : null;
+
+// ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
+// La cle est dans MT5_ENCRYPT_KEY (32 chars) — DOIT etre dans .env / Render
+const ENCRYPT_KEY = (process.env.MT5_ENCRYPT_KEY || '').padEnd(32, '0').slice(0, 32);
+const IV_LENGTH = 16;
+
+function encryptStr(text) {
+  if (!text) return null;
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv);
+  let encrypted = cipher.update(String(text), 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+function decryptStr(payload) {
+  if (!payload || typeof payload !== 'string' || !payload.includes(':')) return null;
+  try {
+    const [ivHex, encryptedHex] = payload.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv);
+    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch(e) {
+    console.error('[CRYPTO] Erreur dechiffrement:', e.message);
+    return null;
+  }
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -322,7 +363,15 @@ app.get('/me', checkAuth, async (req, res) => {
     analysisMax: user.analysisMax,
     subscribed: user.subscribed,
     paiementEnRetard: isPaiementEnRetard(user),
-    paidUntil: user.paidUntil || null
+    paidUntil: user.paidUntil || null,
+    mt5: user.mt5 ? {
+      connected: true,
+      login: user.mt5.login,
+      server: user.mt5.server,
+      accountType: user.mt5.accountType,
+      capital: user.mt5.capital,
+      currency: user.mt5.currency
+    } : { connected: false }
   });
 });
 
@@ -971,6 +1020,271 @@ app.post('/admin/kick/:id', checkAdmin, async (req, res) => {
     delete activeSessions[req.params.id];
     res.json({ success: true });
   } catch(e) { res.json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 🔌 ROUTES METAAPI — CONNEXION MT5 DU CLIENT
+// ═══════════════════════════════════════════════════════════════════
+
+// Helper : chercher un compte MetaApi existant par login (evite les doublons)
+async function findMetaApiAccountByLogin(login) {
+  if (!metaApi) throw new Error('MetaApi non configure');
+  const accounts = await metaApi.metatraderAccountApi.getAccounts();
+  return accounts.find(a => String(a.login) === String(login));
+}
+
+// Helper : chiffrer + sauvegarder credentials MT5 d'un user
+async function saveMT5Credentials(userId, mt5Data) {
+  const encryptedPassword = encryptStr(mt5Data.password);
+  await db.updateAsync(
+    { _id: userId },
+    { $set: {
+      mt5: {
+        login: String(mt5Data.login),
+        passwordEnc: encryptedPassword,
+        server: mt5Data.server,
+        accountType: mt5Data.accountType || 'demo',
+        metaApiAccountId: mt5Data.metaApiAccountId,
+        capital: mt5Data.capital || null,
+        currency: mt5Data.currency || 'USD',
+        connectedAt: new Date().toISOString()
+      }
+    }}
+  );
+}
+
+// ─── POST /mt5/connect : connecter le compte MT5 du client ──────────
+app.post('/mt5/connect', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure cote serveur' });
+
+  const { login, password, server, accountType } = req.body;
+  if (!login || !password || !server) {
+    return res.status(400).json({ error: 'Login, password et serveur sont requis' });
+  }
+
+  try {
+    console.log('[MT5-CONNECT] User ' + req.session.userId + ' connecte MT5 ' + login + ' / ' + server);
+
+    // 1. Chercher le compte dans MetaApi (evite les doublons)
+    let account = await findMetaApiAccountByLogin(login);
+
+    // 2. Sinon, creer le compte
+    if (!account) {
+      console.log('[MT5-CONNECT] Compte non trouve dans MetaApi, creation...');
+      account = await metaApi.metatraderAccountApi.createAccount({
+        name: 'AIM-' + login,
+        type: 'cloud',
+        login: String(login),
+        password: password,
+        server: server,
+        platform: 'mt5',
+        magic: 12345,
+        application: 'MetaApi',
+        copyFactoryRoles: []
+      });
+    }
+
+    // 3. Deploy le compte (le connecte au broker)
+    console.log('[MT5-CONNECT] Deploy en cours...');
+    await account.deploy();
+
+    // 4. Attendre que le compte soit connecte (max 60s)
+    await account.waitConnected();
+
+    // 5. Recuperer la connexion + l'etat du compte
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    const accountInfo = await connection.getAccountInformation();
+    console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
+
+    // 6. Sauvegarder les credentials chiffres
+    await saveMT5Credentials(req.session.userId, {
+      login,
+      password,
+      server,
+      accountType: accountType || 'demo',
+      metaApiAccountId: account.id,
+      capital: accountInfo.balance,
+      currency: accountInfo.currency
+    });
+
+    // 7. UNDEPLOY immediatement pour economiser MetaApi
+    // Le compte sera redeploye uniquement quand le client clique "Placer l'ordre"
+    console.log('[MT5-CONNECT] Undeploy pour economiser...');
+    await account.undeploy();
+
+    res.json({
+      success: true,
+      capital: accountInfo.balance,
+      currency: accountInfo.currency,
+      login: accountInfo.login,
+      server: accountInfo.server,
+      name: accountInfo.name
+    });
+  } catch (err) {
+    console.error('[MT5-CONNECT] Erreur:', err.message);
+    res.status(500).json({
+      error: 'Connexion echouee',
+      details: err.message.includes('Invalid')
+        ? 'Identifiants MT5 invalides'
+        : err.message.includes('connection')
+        ? 'Impossible de se connecter au broker — verifie le serveur MT5'
+        : err.message
+    });
+  }
+});
+
+// ─── POST /mt5/disconnect : deconnecter le compte MT5 ───────────────
+app.post('/mt5/disconnect', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  try {
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $unset: { mt5: true } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /mt5/status : etat de la connexion MT5 du user ─────────────
+app.get('/mt5/status', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user || !user.mt5) return res.json({ connected: false });
+  res.json({
+    connected: true,
+    login: user.mt5.login,
+    server: user.mt5.server,
+    accountType: user.mt5.accountType,
+    capital: user.mt5.capital,
+    currency: user.mt5.currency,
+    connectedAt: user.mt5.connectedAt
+  });
+});
+
+// ─── POST /mt5/refresh-capital : refresh capital depuis MT5 ─────────
+// Deploy le compte temporairement pour recuperer le capital actuel
+app.post('/mt5/refresh-capital', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
+
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user || !user.mt5 || !user.mt5.metaApiAccountId) {
+    return res.status(404).json({ error: 'MT5 non connecte' });
+  }
+
+  try {
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    await account.deploy();
+    await account.waitConnected();
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    const info = await connection.getAccountInformation();
+    await account.undeploy();
+
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $set: { 'mt5.capital': info.balance, 'mt5.currency': info.currency } }
+    );
+
+    res.json({ capital: info.balance, currency: info.currency });
+  } catch (err) {
+    console.error('[MT5-REFRESH] Erreur:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /mt5/place-order : placer un ordre LIMIT (deploy on-demand) ─
+app.post('/mt5/place-order', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
+
+  const { symbol, direction, volume, entryPrice, sl, tp } = req.body;
+  if (!symbol || !direction || !volume || !entryPrice || !sl) {
+    return res.status(400).json({ error: 'Donnees ordre incompletes' });
+  }
+
+  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!user || !user.mt5 || !user.mt5.metaApiAccountId) {
+    return res.status(404).json({ error: 'MT5 non connecte. Connecte ton compte d\'abord.' });
+  }
+
+  let account;
+  try {
+    console.log('[MT5-ORDER] Place ' + direction + ' ' + symbol + ' ' + volume + ' lots @ ' + entryPrice);
+
+    account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    await account.deploy();
+    await account.waitConnected();
+
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    // Determiner type d'ordre LIMIT
+    const tickInfo = await connection.getSymbolPrice(symbol);
+    const currentPrice = tickInfo.bid;
+    const isBuy = String(direction).toUpperCase().includes('BUY');
+
+    let orderType;
+    if (isBuy) {
+      orderType = parseFloat(entryPrice) < currentPrice ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_BUY_STOP';
+    } else {
+      orderType = parseFloat(entryPrice) > currentPrice ? 'ORDER_TYPE_SELL_LIMIT' : 'ORDER_TYPE_SELL_STOP';
+    }
+
+    // Placer l'ordre
+    const result = isBuy
+      ? (orderType === 'ORDER_TYPE_BUY_LIMIT'
+          ? await connection.createLimitBuyOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
+          : await connection.createStopBuyOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }))
+      : (orderType === 'ORDER_TYPE_SELL_LIMIT'
+          ? await connection.createLimitSellOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
+          : await connection.createStopSellOrder(symbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }));
+
+    console.log('[MT5-ORDER] Ordre place ! ID:', result.orderId);
+
+    // UNDEPLOY immediatement pour economiser
+    await account.undeploy();
+
+    res.json({
+      success: true,
+      orderId: result.orderId,
+      orderType,
+      message: 'Ordre place sur ton MT5 ✓'
+    });
+  } catch (err) {
+    console.error('[MT5-ORDER] Erreur:', err.message);
+    // Tenter de undeploy meme en cas d'erreur
+    if (account) {
+      try { await account.undeploy(); } catch(e) {}
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /analyses/:id/place-order : tracker l'usage du bouton ─────
+app.post('/analyses/:id/place-order', async (req, res) => {
+  try {
+    await analysesDb.updateAsync(
+      { _id: req.params.id },
+      { $set: {
+        orderPlaced: true,
+        placeMethod: req.body.method || 'unknown',
+        orderId: req.body.orderId || null,
+        placedAt: new Date().toISOString()
+      }}
+    );
+    res.json({ ok: true });
+  } catch(e) {
+    res.json({ ok: false });
+  }
 });
 
 if (!fs.existsSync(path.join(__dirname, 'uploads'))) fs.mkdirSync(path.join(__dirname, 'uploads'));
