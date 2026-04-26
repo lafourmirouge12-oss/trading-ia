@@ -626,9 +626,9 @@ CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 close NETTEMENT en-dessous du LO
 UTILISATION DU M1 (entrée précise CRT) :
 - Une fois le pattern CRT détecté sur M15, regarde le M1 pour le timing d'entrée
 - Cherche un retest du niveau cassé (high/low de la key candle M15)
-- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 M15 (pas plus loin)
-  → Exemple BUY : SL = low de bougie 2 M15 - buffer
-  → Exemple SELL : SL = high de bougie 2 M15 + buffer
+- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 M15 + 5-10$ buffer minimum
+  → Exemple BUY : SL = low de bougie 2 M15 - buffer (min 5$)
+  → Exemple SELL : SL = high de bougie 2 M15 + buffer (min 5$)
 
 INTÉGRATION INTELLIGENTE CRT KASPER + ICT + STRUCTURE M30 :
 
@@ -724,10 +724,11 @@ VALIDITÉ DE L'ENTRÉE :
 - Si le prix s'éloigne trop du niveau d'entrée → signal expiré
 - L'IA doit indiquer si l'entrée est "immédiate" (prix déjà au niveau) ou "en attente"
 
-SL DOIT ÊTRE EXTRÊMEMENT SERRÉ :
-- BUY : SL juste sous le low de la zone d'entrée (OB, key candle, etc.) - 2-3$ buffer max
-- SELL : SL juste au-dessus du high de la zone - 2-3$ buffer max
-- Avec entrée sniper, SL typique XAUUSD = 3-8$ (vs 10-15$ en entrée marché)
+SL DOIT ÊTRE PRÉCIS MAIS PAS TROP SERRÉ :
+- BUY : SL juste sous le low de la zone d'entrée (OB, key candle, etc.) - 5-10$ buffer minimum
+- SELL : SL juste au-dessus du high de la zone - 5-10$ buffer minimum
+- Avec entrée sniper, SL typique XAUUSD = 8-20$ (jamais moins de 5$, le marché est volatil)
+- Un SL trop serré (< 5$) = se faire sortir par le spread ou une micro-mèche → INTERDIT
 - R:R cible minimum 1:3, idéal 1:4 ou 1:5
 ═══════════════════════════════════════════════════════════════
 🔥 ═══════════════════════════════════════════════════════════════
@@ -880,8 +881,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "entreeType": "<LIMIT ou MARKET>",
   "entreeLevel": "<description du niveau: 'Retest OB H1 à 4675', 'Key candle M15 low', 'FVG M30 haussier', etc.>",
   "entreeStatut": "<IMMEDIATE si prix déjà au niveau, EN_ATTENTE si le prix doit revenir>",
-  "sl": "<stop loss — min 15 pips sur XAU/USD${crtKasperActif ? ', mais si CRT Kasper détecté: SL = juste au-delà du sweep bougie 2' : ''}>",
-  "slPips": <pips SL — min 15 sur XAU/USD>,
+  "sl": "<stop loss — min 50 pips sur XAU/USD (= min $5 de distance)${crtKasperActif ? ', mais si CRT Kasper détecté: SL = juste au-delà du sweep bougie 2 (min 30 pips quand même)' : ''}>",
+  "slPips": <pips SL — min 50 sur XAU/USD>,
   "tp1": "<TP1>",
   "tp1Pips": <slPips × 2>,
   "tp2": "<TP2>",
@@ -1251,7 +1252,12 @@ app.post('/mt5/connect', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure cote serveur' });
 
-  const { login, password, server, accountType } = req.body;
+  const { login, password, accountType } = req.body;
+  // Normalisation du nom de serveur : "VTMarkets-Live6" → "VTMarkets-Live 6"
+  // MetaApi exige un espace avant le chiffre final (ex: "VTMarkets-Live 6")
+  let server = (req.body.server || '').trim();
+  server = server.replace(/([A-Za-z])(\d+)$/, '$1 $2');
+
   if (!login || !password || !server) {
     return res.status(400).json({ error: 'Login, password et serveur sont requis' });
   }
