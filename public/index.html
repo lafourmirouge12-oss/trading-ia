@@ -684,7 +684,7 @@
       <input type="file" id="fileM30" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
       <div class="tf-label">M30</div>
-      <div class="tf-sub">Tendance principale</div>
+      <div class="tf-sub">Biais + OB HTF</div>
       <div class="tf-placeholder" id="placeholderM30">
         <div class="tf-icon">📊</div>
         <div class="tf-add">Importer</div>
@@ -696,7 +696,7 @@
       <input type="file" id="fileM15" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
       <div class="tf-label">M15</div>
-      <div class="tf-sub">Confirmation setup</div>
+      <div class="tf-sub">B1 · B2 · B3 pattern CRT</div>
       <div class="tf-placeholder" id="placeholderM15">
         <div class="tf-icon">📈</div>
         <div class="tf-add">Importer</div>
@@ -708,7 +708,7 @@
       <input type="file" id="fileM1" accept="image/*" hidden/>
       <div class="tf-check">✓</div>
       <div class="tf-label">M1</div>
-      <div class="tf-sub">Entrée précise</div>
+      <div class="tf-sub">Entrée FVG précise</div>
       <div class="tf-placeholder" id="placeholderM1">
         <div class="tf-icon">🎯</div>
         <div class="tf-add">Importer</div>
@@ -719,7 +719,7 @@
   </div>
 
   <!-- TF OPTIONNELS H1 + M5 -->
-  <div class="tf-optional-label">◈ Optionnel — Enrichit l'analyse CRT</div>
+  <div class="tf-optional-label">◈ Optionnel — H1 biais macro · M5 confirmation FVG</div>
   <div class="tf-grid-bonus">
     <div class="tf-block optional" id="blockH1" onclick="document.getElementById('fileH1').click()">
       <input type="file" id="fileH1" accept="image/*" hidden/>
@@ -1262,7 +1262,7 @@ async function loadHist(){
       const decClass=dec.includes('buy')?'buy':dec.includes('sell')?'sell':'skip';
       const fbClass=a.feedbackResult?a.feedbackResult:'';
       const manipBadge=a.manipulation==='OUI'?' ⚠️':'';
-      const crtBadge=a.crt==='OUI'?' 📐✅':a.crt==='NON'?' 📐❌':'';
+      const crtBadge=a.crt==='OUI'?(a.crtType==='STRICT'?' 📐⚡STRICT':' 📐✅SOFT'):a.crt==='NON'?' 📐❌':'';
       return`<div class="hi ${fbClass}">
         <div class="hi-head">
           <span class="hi-dec ${decClass}">${a.decision||'—'}${a.instrument?' — '+a.instrument:''}${manipBadge}${crtBadge}</span>
@@ -1314,11 +1314,11 @@ async function analyze(){
   fd.append('capital',cap);
   const fileH1 = document.getElementById('fileH1')?.files[0];
   const fileM5 = document.getElementById('fileM5')?.files[0];
-  if(fileH1)  fd.append('imageH1', fileH1);
-  fd.append('imageM30',fileM30);
-  if(fileM15) fd.append('imageM15',fileM15);
-  if(fileM5)  fd.append('imageM5', fileM5);
-  if(fileM1)  fd.append('imageM1',fileM1);
+  if(fileH1)  fd.append('imageH1', fileH1);   // H1 en premier = biais HTF
+  fd.append('imageM30',fileM30);               // M30 = setup principal
+  if(fileM15) fd.append('imageM15',fileM15);  // M15 = pattern CRT
+  if(fileM5)  fd.append('imageM5', fileM5);   // M5 = timing entrée
+  if(fileM1)  fd.append('imageM1',fileM1);    // M1 = entrée précise
 
   try{
     const r=await fetch('/analyze',{method:'POST',body:fd});
@@ -1377,12 +1377,28 @@ async function analyze(){
     const crtBox=document.getElementById('crtBox');
     if(d.crt){
       const crtVal=(d.crt||'').toUpperCase();
+      const crtType=(d.crtType||'').toUpperCase();
       const isOui=crtVal==='OUI';
       const isNon=crtVal==='NON';
       crtBox.className='crt-box '+(isOui?'oui':isNon?'non':'neutre')+' show';
-      document.getElementById('crtIcon').textContent=isOui?'📐✅':isNon?'📐❌':'📐';
-      document.getElementById('crtTitle').textContent=isOui?'◈ CRT CONFIRMÉ — RANGE ASIATIQUE ALIGNÉ':isNon?'◈ CRT NON ALIGNÉ — PRUDENCE':'◈ RANGE ASIATIQUE — CRT NEUTRE';
+
+      // Icone selon STRICT ou SOFT
+      document.getElementById('crtIcon').textContent=isOui?(crtType==='STRICT'?'📐⚡':'📐✅'):isNon?'📐❌':'📐';
+
+      // Titre avec badge STRICT / SOFT
+      let crtTitre;
+      if(isOui){
+        crtTitre = crtType==='STRICT'
+          ? '◈ PATTERN CRT STRICT ⚡ — SETUP A+'
+          : '◈ PATTERN CRT SOFT ✅ — BON SETUP';
+      } else if(isNon){
+        crtTitre = '◈ PAS DE PATTERN CRT — SETUP ICT SEUL';
+      } else {
+        crtTitre = '◈ CRT NEUTRE — CONTEXTE MITIGÉ';
+      }
+      document.getElementById('crtTitle').textContent=crtTitre;
       document.getElementById('crtDetail').textContent=d.crtDetail||'—';
+
       const rangeHaut=d.rangeHaut&&d.rangeHaut!=='Non détecté'?d.rangeHaut:null;
       const rangeBas=d.rangeBas&&d.rangeBas!=='Non détecté'?d.rangeBas:null;
       if(rangeHaut||rangeBas){
