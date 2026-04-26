@@ -22,6 +22,118 @@ const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
   ? new MetaApi(process.env.METAAPI_TOKEN)
   : null;
 
+// ═══════════════════════════════════════════════════════════════════
+// 🛡️ WATCHDOG MetaApi — undeploy auto après 5 min max
+// ═══════════════════════════════════════════════════════════════════
+// Stocke chaque deploy avec timestamp pour forcer l'undeploy si oublié
+// Évite que MetaApi facture en arrière-plan en cas de crash/bug
+
+const deployTracker = {}; // { accountId: { deployedAt: ms, login: string } }
+const MAX_DEPLOY_MS = 5 * 60 * 1000; // 5 minutes max
+
+// Marquer un compte comme deployé
+function trackDeploy(accountId, login) {
+  if (!accountId) return;
+  deployTracker[accountId] = {
+    deployedAt: Date.now(),
+    login: login || 'unknown'
+  };
+  console.log('[WATCHDOG] Deploy tracked: ' + accountId + ' (' + login + ')');
+}
+
+// Marquer un compte comme undeployé (le retire du tracker)
+function trackUndeploy(accountId) {
+  if (deployTracker[accountId]) {
+    const elapsed = Math.round((Date.now() - deployTracker[accountId].deployedAt) / 1000);
+    console.log('[WATCHDOG] Undeploy tracked: ' + accountId + ' (apres ' + elapsed + 's)');
+    delete deployTracker[accountId];
+  }
+}
+
+// Watchdog principal : verifie toutes les 60s qu'aucun compte n'est deployé > 5 min
+async function watchdogCheck() {
+  if (!metaApi) return;
+  const now = Date.now();
+  const expired = Object.entries(deployTracker).filter(
+    ([id, data]) => (now - data.deployedAt) > MAX_DEPLOY_MS
+  );
+
+  if (expired.length === 0) return;
+
+  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 5 min → undeploy force');
+
+  for (const [accountId, data] of expired) {
+    try {
+      const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+      if (account && account.state !== 'UNDEPLOYED') {
+        await account.undeploy();
+        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ')');
+      }
+    } catch (err) {
+      console.log('[WATCHDOG] Erreur undeploy ' + accountId + ':', err.message);
+    } finally {
+      delete deployTracker[accountId];
+    }
+  }
+}
+
+// Scan au demarrage : trouve tous les comptes encore deployés et les arrete
+// (au cas ou le serveur a redemarre sans avoir fait undeploy)
+async function watchdogBootScan() {
+  if (!metaApi) return;
+  console.log('[WATCHDOG] Boot scan en cours...');
+  try {
+    const accountsApi = metaApi.metatraderAccountApi;
+    let allAccounts = [];
+
+    // Chercher tous les comptes (avec pagination si dispo)
+    if (typeof accountsApi.getAccountsWithInfiniteScrollPagination === 'function') {
+      let page = 0;
+      while (page < 50) {
+        try {
+          const resp = await accountsApi.getAccountsWithInfiniteScrollPagination({
+            limit: 100, offset: page * 100
+          });
+          const items = resp.items || resp || [];
+          if (items.length === 0) break;
+          allAccounts.push(...items);
+          if (items.length < 100) break;
+          page++;
+        } catch(e) { break; }
+      }
+    } else if (typeof accountsApi.getAccounts === 'function') {
+      allAccounts = await accountsApi.getAccounts({});
+    }
+
+    // Filtrer ceux qui sont deployes (utilise par AI-Mazza, ID commence par 'AIM-')
+    const aimDeployed = allAccounts.filter(a =>
+      String(a.name || '').startsWith('AIM-') &&
+      a.state !== 'UNDEPLOYED'
+    );
+
+    if (aimDeployed.length > 0) {
+      console.log('[WATCHDOG] Boot: ' + aimDeployed.length + ' compte(s) AIM trouves deployes → undeploy');
+      for (const acc of aimDeployed) {
+        try {
+          await acc.undeploy();
+          console.log('[WATCHDOG] Boot undeploy: ' + acc.login);
+        } catch(e) {}
+      }
+    } else {
+      console.log('[WATCHDOG] Boot: aucun compte AIM deploye, tout est propre ✅');
+    }
+  } catch(err) {
+    console.log('[WATCHDOG] Boot scan erreur:', err.message);
+  }
+}
+
+// Lancer le watchdog toutes les 60 secondes
+if (metaApi) {
+  setInterval(watchdogCheck, 60 * 1000);
+  // Boot scan apres 30s (laisse le temps au serveur de se stabiliser)
+  setTimeout(watchdogBootScan, 30 * 1000);
+}
+
 // ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
 // La cle est dans MT5_ENCRYPT_KEY (32 chars) — DOIT etre dans .env / Render
 const ENCRYPT_KEY = (process.env.MT5_ENCRYPT_KEY || '').padEnd(32, '0').slice(0, 32);
@@ -1027,10 +1139,49 @@ app.post('/admin/kick/:id', checkAdmin, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 
 // Helper : chercher un compte MetaApi existant par login (evite les doublons)
+// Utilise la pagination moderne avec fallback sur l'ancienne API
 async function findMetaApiAccountByLogin(login) {
   if (!metaApi) throw new Error('MetaApi non configure');
-  const accounts = await metaApi.metatraderAccountApi.getAccounts();
-  return accounts.find(a => String(a.login) === String(login));
+  const accountsApi = metaApi.metatraderAccountApi;
+  const loginStr = String(login);
+
+  // Methode moderne : getAccountsWithInfiniteScrollPagination (MetaApi v29+)
+  if (typeof accountsApi.getAccountsWithInfiniteScrollPagination === 'function') {
+    let page = 0;
+    while (page < 50) { // max 5000 comptes
+      try {
+        const resp = await accountsApi.getAccountsWithInfiniteScrollPagination({
+          limit: 100,
+          offset: page * 100
+        });
+        const items = resp.items || resp || [];
+        if (items.length === 0) break;
+        const found = items.find(a => String(a.login) === loginStr);
+        if (found) return found;
+        if (items.length < 100) break;
+        page++;
+      } catch(e) {
+        console.log('[METAAPI] Pagination erreur:', e.message);
+        break;
+      }
+    }
+    return null;
+  }
+
+  // Fallback : ancienne API getAccounts
+  if (typeof accountsApi.getAccounts === 'function') {
+    const accounts = await accountsApi.getAccounts({});
+    return accounts.find(a => String(a.login) === loginStr);
+  }
+
+  // Fallback ultime : getAccountsWithClassicScrollPagination
+  if (typeof accountsApi.getAccountsWithClassicScrollPagination === 'function') {
+    const resp = await accountsApi.getAccountsWithClassicScrollPagination({ limit: 1000 });
+    const items = resp.items || resp || [];
+    return items.find(a => String(a.login) === loginStr);
+  }
+
+  throw new Error('Aucune methode getAccounts disponible dans MetaApi SDK');
 }
 
 // Helper : chiffrer + sauvegarder credentials MT5 d'un user
@@ -1054,6 +1205,8 @@ async function saveMT5Credentials(userId, mt5Data) {
 }
 
 // ─── POST /mt5/connect : connecter le compte MT5 du client ──────────
+// Réutilise les comptes MetaApi existants (créés par le bot ou par le site)
+// Permet aussi de changer de compte (écrase l'ancienne connexion proprement)
 app.post('/mt5/connect', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure cote serveur' });
@@ -1063,44 +1216,69 @@ app.post('/mt5/connect', async (req, res) => {
     return res.status(400).json({ error: 'Login, password et serveur sont requis' });
   }
 
+  let account;
   try {
     console.log('[MT5-CONNECT] User ' + req.session.userId + ' connecte MT5 ' + login + ' / ' + server);
 
-    // 1. Chercher le compte dans MetaApi (evite les doublons)
-    let account = await findMetaApiAccountByLogin(login);
+    // ─── Étape 1 : Chercher un compte existant dans MetaApi ─────────
+    // (ce login peut deja avoir un compte MetaApi cree par le bot Telegram
+    //  ou par une connexion precedente du site → on REUTILISE, pas de doublon)
+    account = await findMetaApiAccountByLogin(login);
 
-    // 2. Sinon, creer le compte
-    if (!account) {
-      console.log('[MT5-CONNECT] Compte non trouve dans MetaApi, creation...');
-      account = await metaApi.metatraderAccountApi.createAccount({
-        name: 'AIM-' + login,
-        type: 'cloud',
-        login: String(login),
-        password: password,
-        server: server,
-        platform: 'mt5',
-        magic: 12345,
-        application: 'MetaApi',
-        copyFactoryRoles: []
-      });
+    if (account) {
+      console.log('[MT5-CONNECT] Compte existant trouve: ' + account.id + ' (reutilise)');
+    } else {
+      // ─── Étape 2 : Pas de compte trouve → en creer un nouveau ─────
+      console.log('[MT5-CONNECT] Compte non trouve, creation...');
+      try {
+        account = await metaApi.metatraderAccountApi.createAccount({
+          name: 'AIM-' + login + '-' + (accountType || 'demo'),
+          type: 'cloud',
+          login: String(login),
+          password: password,
+          server: server,
+          platform: 'mt5',
+          magic: 12345,
+          application: 'MetaApi'
+        });
+      } catch(createErr) {
+        // Race condition possible : un autre process a peut-etre cree le compte
+        // → on retente la recherche
+        console.log('[MT5-CONNECT] Erreur creation, retry recherche:', createErr.message);
+        account = await findMetaApiAccountByLogin(login);
+        if (!account) throw createErr;
+      }
     }
 
-    // 3. Deploy le compte (le connecte au broker)
+    // ─── Étape 3 : Deploy le compte (le connecte au broker) ────────
     console.log('[MT5-CONNECT] Deploy en cours...');
-    await account.deploy();
+    try {
+      await account.deploy();
+      trackDeploy(account.id, login);
+    } catch(deployErr) {
+      // Peut deja etre deployed (utilise par le bot p.ex.) → c'est OK
+      if (!String(deployErr.message).includes('already')) {
+        console.log('[MT5-CONNECT] Deploy warning:', deployErr.message);
+      }
+      trackDeploy(account.id, login); // tracker quand meme au cas ou
+    }
 
-    // 4. Attendre que le compte soit connecte (max 60s)
-    await account.waitConnected();
+    // ─── Étape 4 : Attendre que le compte soit connecte ────────────
+    try {
+      await account.waitConnected({ timeoutInSeconds: 120 });
+    } catch(waitErr) {
+      console.log('[MT5-CONNECT] WaitConnected timeout, on tente quand meme...');
+    }
 
-    // 5. Recuperer la connexion + l'etat du compte
+    // ─── Étape 5 : Récupérer la connexion + capital ────────────────
     const connection = account.getRPCConnection();
     await connection.connect();
-    await connection.waitSynchronized();
+    await connection.waitSynchronized({ timeoutInSeconds: 60 });
 
     const accountInfo = await connection.getAccountInformation();
     console.log('[MT5-CONNECT] Connecte ! Capital: ' + accountInfo.balance + ' ' + accountInfo.currency);
 
-    // 6. Sauvegarder les credentials chiffres
+    // ─── Étape 6 : Sauvegarder les credentials chiffres ────────────
     await saveMT5Credentials(req.session.userId, {
       login,
       password,
@@ -1111,10 +1289,17 @@ app.post('/mt5/connect', async (req, res) => {
       currency: accountInfo.currency
     });
 
-    // 7. UNDEPLOY immediatement pour economiser MetaApi
-    // Le compte sera redeploye uniquement quand le client clique "Placer l'ordre"
-    console.log('[MT5-CONNECT] Undeploy pour economiser...');
-    await account.undeploy();
+    // ─── Étape 7 : UNDEPLOY immediatement (economie MetaApi) ───────
+    // Sauf si le bot l'utilise, il restera deploye de toute facon
+    try {
+      console.log('[MT5-CONNECT] Undeploy pour economiser...');
+      await account.undeploy();
+      trackUndeploy(account.id);
+    } catch(undeployErr) {
+      // Peut etre utilise ailleurs (par le bot) → ignore
+      console.log('[MT5-CONNECT] Undeploy ignore (compte peut-etre utilise ailleurs)');
+      // On garde dans le tracker → le watchdog s'en chargera apres 5 min
+    }
 
     res.json({
       success: true,
@@ -1122,7 +1307,8 @@ app.post('/mt5/connect', async (req, res) => {
       currency: accountInfo.currency,
       login: accountInfo.login,
       server: accountInfo.server,
-      name: accountInfo.name
+      name: accountInfo.name,
+      reused: !!account // true si on a reutilise un compte existant
     });
   } catch (err) {
     console.error('[MT5-CONNECT] Erreur:', err.message);
@@ -1134,6 +1320,25 @@ app.post('/mt5/connect', async (req, res) => {
         ? 'Impossible de se connecter au broker — verifie le serveur MT5'
         : err.message
     });
+  }
+});
+
+// ─── POST /mt5/switch : changer de compte MT5 ────────────────────────
+// Deconnecte l'ancien (sans toucher au compte MetaApi qui peut etre utilise par bot)
+// Puis ouvre le formulaire de reconnexion cote frontend
+app.post('/mt5/switch', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  try {
+    // On garde le compte MetaApi (peut servir au bot) mais on supprime juste
+    // les credentials de l'utilisateur cote site
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $unset: { mt5: true } }
+    );
+    console.log('[MT5-SWITCH] User ' + req.session.userId + ' a switch de compte');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1181,12 +1386,14 @@ app.post('/mt5/refresh-capital', async (req, res) => {
   try {
     const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
     await account.deploy();
+    trackDeploy(account.id, user.mt5.login);
     await account.waitConnected();
     const connection = account.getRPCConnection();
     await connection.connect();
     await connection.waitSynchronized();
     const info = await connection.getAccountInformation();
     await account.undeploy();
+    trackUndeploy(account.id);
 
     await db.updateAsync(
       { _id: req.session.userId },
@@ -1221,6 +1428,7 @@ app.post('/mt5/place-order', async (req, res) => {
 
     account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
     await account.deploy();
+    trackDeploy(account.id, user.mt5.login);
     await account.waitConnected();
 
     const connection = account.getRPCConnection();
@@ -1252,6 +1460,7 @@ app.post('/mt5/place-order', async (req, res) => {
 
     // UNDEPLOY immediatement pour economiser
     await account.undeploy();
+    trackUndeploy(account.id);
 
     res.json({
       success: true,
@@ -1263,7 +1472,10 @@ app.post('/mt5/place-order', async (req, res) => {
     console.error('[MT5-ORDER] Erreur:', err.message);
     // Tenter de undeploy meme en cas d'erreur
     if (account) {
-      try { await account.undeploy(); } catch(e) {}
+      try {
+        await account.undeploy();
+        trackUndeploy(account.id);
+      } catch(e) {}
     }
     res.status(500).json({ error: err.message });
   }

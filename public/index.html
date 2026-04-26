@@ -292,11 +292,12 @@
 
     <!-- BLOC SI MT5 CONNECTE : affiche le capital + bouton refresh -->
     <div class="box" id="mt5ConnectedBox" style="display:none;">
-      <div class="box-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="box-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <span>◈ MT5 connecté <span id="mt5TypeBadge" style="font-size:9px;padding:2px 6px;border:1px solid var(--green);color:var(--green);margin-left:6px;">DÉMO</span></span>
         <span style="font-size:9px;letter-spacing:1px;">
           <a href="#" onclick="refreshCapital();return false;" style="color:var(--cyan);text-decoration:none;margin-right:10px;">↻ Refresh</a>
-          <a href="#" onclick="disconnectMT5();return false;" style="color:rgba(255,48,96,0.7);text-decoration:none;">× Déconnecter</a>
+          <a href="#" onclick="switchMT5();return false;" style="color:var(--gold);text-decoration:none;margin-right:10px;">⇄ Changer</a>
+          <a href="#" onclick="disconnectMT5();return false;" style="color:rgba(255,48,96,0.7);text-decoration:none;">× Déco</a>
         </span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px;">
@@ -670,6 +671,22 @@ async function disconnectMT5() {
   }
 }
 
+async function switchMT5() {
+  if (!confirm('Changer de compte MT5 ?\n\nL\'ancien compte sera déconnecté. Tu pourras connecter un nouveau compte (réel ou démo) juste après.')) return;
+  try {
+    const r = await fetch('/mt5/switch', { method: 'POST' });
+    const data = await r.json();
+    if (data.success) {
+      // Reload — l'utilisateur verra le formulaire de reconnexion
+      location.reload();
+    } else {
+      alert('Erreur : ' + (data.error || 'inconnue'));
+    }
+  } catch(e) {
+    alert('Erreur réseau');
+  }
+}
+
 async function refreshCapital() {
   const capEl = document.getElementById('mt5Capital');
   const oldVal = capEl.textContent;
@@ -844,65 +861,6 @@ function fallbackCopy(text) {
   ta.select();
   try { document.execCommand('copy'); } catch(e) {}
   document.body.removeChild(ta);
-}
-
-// ─── CONNEXION MT5 ──────────────────────────────────────────
-async function connectMT5(){
-  const login    = document.getElementById('mt5Login').value.trim();
-  const password = document.getElementById('mt5Password').value;
-  const server   = document.getElementById('mt5Server').value.trim();
-  const accType  = document.querySelector('input[name="mt5Type"]:checked').value;
-  const status   = document.getElementById('mt5ConnectStatus');
-
-  if(!login||!password||!server){
-    status.textContent='⚠ Tous les champs sont requis';
-    status.style.color='var(--red)';
-    return;
-  }
-
-  status.textContent='⏳ Connexion en cours... (peut prendre 30-60s)';
-  status.style.color='var(--cyan)';
-
-  try{
-    const r = await fetch('/mt5/connect',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({login,password,server,accountType:accType})
-    });
-    const d = await r.json();
-    if(d.success){
-      status.textContent='✓ Connecté ! Capital: '+d.currency+' '+d.capital;
-      status.style.color='var(--green)';
-      setTimeout(()=>window.location.reload(),1200);
-    } else {
-      status.textContent='✗ '+(d.details||d.error||'Erreur');
-      status.style.color='var(--red)';
-    }
-  } catch(e){
-    status.textContent='✗ Erreur réseau';
-    status.style.color='var(--red)';
-  }
-}
-
-async function disconnectMT5(){
-  if(!confirm('Déconnecter ton MT5 ? Tes identifiants chiffrés seront supprimés.')) return;
-  await fetch('/mt5/disconnect',{method:'POST'});
-  window.location.reload();
-}
-
-async function refreshCapital(){
-  const cap = document.getElementById('mt5Capital');
-  cap.textContent='⏳';
-  try{
-    const r = await fetch('/mt5/refresh-capital',{method:'POST'});
-    const d = await r.json();
-    if(d.capital){
-      cap.textContent='$'+d.capital;
-      if(document.getElementById('capInput')) document.getElementById('capInput').value=d.capital;
-    } else {
-      cap.textContent='✗ Erreur';
-    }
-  } catch(e){ cap.textContent='✗ Erreur'; }
 }
 
 async function sendFb(res){
