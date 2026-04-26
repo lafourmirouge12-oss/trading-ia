@@ -198,6 +198,322 @@
       color:var(--green);
       background:linear-gradient(135deg, rgba(0,255,136,0.15), rgba(0,255,136,0.05));
     }
+
+    /* ─── MT5 CONNECT — DESIGN PREMIUM ───────────────────────── */
+    .mt5-card{
+      position:relative;
+      background:linear-gradient(135deg, rgba(0,15,40,0.95), rgba(15,5,40,0.95));
+      border:1px solid rgba(0,245,255,0.25);
+      border-radius:6px;
+      padding:24px 22px;
+      margin-bottom:18px;
+      overflow:hidden;
+    }
+    .mt5-card::before{
+      content:'';
+      position:absolute;
+      top:0;left:0;right:0;
+      height:1px;
+      background:linear-gradient(90deg, transparent, var(--cyan), transparent);
+      animation:mt5Scan 4s ease-in-out infinite;
+    }
+    @keyframes mt5Scan{
+      0%,100%{opacity:0.3;}
+      50%{opacity:1;}
+    }
+    .mt5-card-corner{
+      position:absolute;width:14px;height:14px;
+      border:1px solid var(--cyan);
+    }
+    .mt5-card-corner.tl{top:-1px;left:-1px;border-right:none;border-bottom:none;}
+    .mt5-card-corner.tr{top:-1px;right:-1px;border-left:none;border-bottom:none;}
+    .mt5-card-corner.bl{bottom:-1px;left:-1px;border-right:none;border-top:none;}
+    .mt5-card-corner.br{bottom:-1px;right:-1px;border-left:none;border-top:none;}
+    .mt5-title{
+      font-family:'Orbitron',monospace;
+      font-size:13px;
+      font-weight:700;
+      letter-spacing:3px;
+      text-transform:uppercase;
+      background:linear-gradient(135deg, #fff 0%, var(--cyan) 50%, var(--purple) 100%);
+      -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;
+      background-clip:text;
+      margin-bottom:6px;
+    }
+    .mt5-subtitle{
+      font-size:11px;
+      color:rgba(255,255,255,0.5);
+      letter-spacing:1px;
+      margin-bottom:18px;
+      line-height:1.5;
+    }
+    .mt5-fields{display:grid;gap:12px;margin-bottom:14px;}
+    .mt5-fields-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+    @media(max-width:480px){
+      .mt5-fields-row{grid-template-columns:1fr;}
+    }
+    .mt5-field{position:relative;}
+    .mt5-field-label{
+      display:block;
+      font-family:'Orbitron',monospace;
+      font-size:8px;
+      letter-spacing:2px;
+      color:rgba(0,245,255,0.6);
+      text-transform:uppercase;
+      margin-bottom:6px;
+    }
+    .mt5-input{
+      width:100%;
+      background:rgba(0,245,255,0.04);
+      border:1px solid rgba(0,245,255,0.2);
+      border-radius:3px;
+      padding:12px 14px;
+      color:#fff;
+      font-family:'Rajdhani',sans-serif;
+      font-size:15px;
+      transition:all 0.3s;
+      outline:none;
+      -webkit-appearance:none;
+      box-sizing:border-box;
+    }
+    .mt5-input:focus{
+      border-color:var(--cyan);
+      box-shadow:0 0 12px rgba(0,245,255,0.15);
+      background:rgba(0,245,255,0.07);
+    }
+    .mt5-input::placeholder{color:rgba(255,255,255,0.25);}
+    .mt5-radio-group{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      margin-bottom:14px;
+    }
+    .mt5-radio-label{
+      cursor:pointer;
+      padding:10px 14px;
+      border:1px solid rgba(0,245,255,0.15);
+      background:rgba(0,245,255,0.03);
+      border-radius:3px;
+      font-family:'Orbitron',monospace;
+      font-size:10px;
+      letter-spacing:2px;
+      color:rgba(255,255,255,0.5);
+      text-align:center;
+      transition:all 0.3s;
+      text-transform:uppercase;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+    }
+    .mt5-radio-label input{display:none;}
+    .mt5-radio-label.demo:has(input:checked){
+      border-color:var(--green);
+      background:rgba(0,255,136,0.08);
+      color:var(--green);
+      box-shadow:0 0 12px rgba(0,255,136,0.15);
+    }
+    .mt5-radio-label.real:has(input:checked){
+      border-color:var(--gold);
+      background:rgba(255,215,0,0.08);
+      color:var(--gold);
+      box-shadow:0 0 12px rgba(255,215,0,0.15);
+    }
+    .mt5-radio-dot{
+      width:8px;height:8px;border-radius:50%;
+      background:currentColor;
+      opacity:0.8;
+    }
+    .mt5-connect-btn{
+      width:100%;
+      padding:16px;
+      background:linear-gradient(135deg, rgba(0,245,255,0.12), rgba(128,0,255,0.12));
+      border:1px solid var(--cyan);
+      color:var(--cyan);
+      font-family:'Orbitron',monospace;
+      font-size:12px;
+      font-weight:700;
+      letter-spacing:3px;
+      text-transform:uppercase;
+      cursor:pointer;
+      transition:all 0.3s;
+      border-radius:3px;
+      clip-path:polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+      position:relative;
+      overflow:hidden;
+    }
+    .mt5-connect-btn:hover{
+      background:linear-gradient(135deg, rgba(0,245,255,0.22), rgba(128,0,255,0.22));
+      box-shadow:0 0 25px rgba(0,245,255,0.4);
+      letter-spacing:4px;
+    }
+    .mt5-connect-btn:disabled{opacity:0.6;cursor:wait;}
+    .mt5-status{
+      margin-top:12px;
+      padding:10px 12px;
+      font-family:'Orbitron',monospace;
+      font-size:10px;
+      letter-spacing:1.5px;
+      text-align:center;
+      border-radius:2px;
+      transition:all 0.3s;
+      min-height:14px;
+    }
+    .mt5-status.info{
+      background:rgba(0,245,255,0.06);
+      border:1px solid rgba(0,245,255,0.15);
+      color:var(--cyan);
+    }
+    .mt5-status.success{
+      background:rgba(0,255,136,0.08);
+      border:1px solid rgba(0,255,136,0.25);
+      color:var(--green);
+    }
+    .mt5-status.error{
+      background:rgba(255,48,96,0.08);
+      border:1px solid rgba(255,48,96,0.25);
+      color:var(--red);
+    }
+    .mt5-secure-note{
+      margin-top:14px;
+      padding:8px 10px;
+      font-size:9px;
+      letter-spacing:1.5px;
+      color:rgba(0,255,136,0.6);
+      font-family:'Orbitron',monospace;
+      text-align:center;
+      border-left:2px solid rgba(0,255,136,0.3);
+      background:rgba(0,255,136,0.03);
+    }
+    /* CONNECTED STATE */
+    .mt5-connected-card{
+      position:relative;
+      background:linear-gradient(135deg, rgba(0,40,20,0.5), rgba(0,15,40,0.95));
+      border:1px solid rgba(0,255,136,0.3);
+      border-radius:6px;
+      padding:22px;
+      margin-bottom:18px;
+      overflow:hidden;
+    }
+    .mt5-connected-card::before{
+      content:'';
+      position:absolute;
+      top:0;left:0;right:0;
+      height:1px;
+      background:linear-gradient(90deg, transparent, var(--green), transparent);
+    }
+    .mt5-connected-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-bottom:16px;
+    }
+    .mt5-connected-title{
+      font-family:'Orbitron',monospace;
+      font-size:11px;
+      letter-spacing:2px;
+      color:var(--green);
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .mt5-connected-title::before{
+      content:'';
+      width:8px;height:8px;border-radius:50%;
+      background:var(--green);
+      box-shadow:0 0 8px var(--green);
+      animation:pulseDot 2s ease-in-out infinite;
+    }
+    @keyframes pulseDot{
+      0%,100%{opacity:1;}50%{opacity:0.4;}
+    }
+    .mt5-type-badge{
+      font-family:'Orbitron',monospace;
+      font-size:8px;
+      padding:3px 8px;
+      letter-spacing:2px;
+      border-radius:2px;
+      border:1px solid;
+    }
+    .mt5-type-badge.demo{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.05);}
+    .mt5-type-badge.real{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);box-shadow:0 0 8px rgba(255,215,0,0.2);}
+    .mt5-actions{display:flex;gap:10px;font-size:9px;letter-spacing:1.5px;font-family:'Orbitron',monospace;}
+    .mt5-action-link{
+      color:rgba(0,245,255,0.7);
+      text-decoration:none;
+      padding:4px 8px;
+      border:1px solid transparent;
+      border-radius:2px;
+      transition:all 0.3s;
+      cursor:pointer;
+    }
+    .mt5-action-link:hover{
+      border-color:rgba(0,245,255,0.4);
+      color:var(--cyan);
+      background:rgba(0,245,255,0.05);
+    }
+    .mt5-action-link.warn{color:rgba(255,215,0,0.7);}
+    .mt5-action-link.warn:hover{color:var(--gold);border-color:rgba(255,215,0,0.4);background:rgba(255,215,0,0.05);}
+    .mt5-action-link.danger{color:rgba(255,48,96,0.7);}
+    .mt5-action-link.danger:hover{color:var(--red);border-color:rgba(255,48,96,0.4);background:rgba(255,48,96,0.05);}
+    .mt5-info-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:18px;
+    }
+    @media(max-width:480px){
+      .mt5-info-grid{grid-template-columns:1fr;gap:12px;}
+    }
+    .mt5-info-block{display:flex;flex-direction:column;gap:4px;}
+    .mt5-info-label{
+      font-family:'Orbitron',monospace;
+      font-size:8px;
+      letter-spacing:2px;
+      color:rgba(255,255,255,0.4);
+      text-transform:uppercase;
+    }
+    .mt5-info-value-big{
+      font-size:28px;
+      font-weight:700;
+      color:var(--green);
+      font-family:'Orbitron',monospace;
+      letter-spacing:1px;
+      text-shadow:0 0 15px rgba(0,255,136,0.3);
+    }
+    .mt5-info-value{
+      font-size:14px;
+      color:var(--cyan);
+      font-family:'Orbitron',monospace;
+      letter-spacing:1px;
+    }
+    .mt5-info-sub{
+      font-size:10px;
+      opacity:0.5;
+      letter-spacing:1px;
+      font-family:'Orbitron',monospace;
+    }
+    .mt5-fallback-link{
+      display:block;
+      text-align:center;
+      margin-top:10px;
+      font-family:'Orbitron',monospace;
+      font-size:10px;
+      letter-spacing:2px;
+      color:var(--cyan);
+      text-decoration:none;
+      padding:8px;
+      border:1px solid rgba(0,245,255,0.15);
+      border-radius:3px;
+      transition:all 0.3s;
+    }
+    .mt5-fallback-link:hover{
+      border-color:rgba(0,245,255,0.4);
+      background:rgba(0,245,255,0.05);
+      box-shadow:0 0 15px rgba(0,245,255,0.15);
+    }
     .place-mt5-btn.error{
       border-color:var(--red);
       color:var(--red);
@@ -263,66 +579,102 @@
   <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
 
   <div class="panel">
-    <!-- BLOC SI MT5 NON CONNECTE : invite a se connecter -->
-    <div class="box" id="mt5ConnectBox" style="display:none;">
-      <div class="box-title" style="color:var(--gold);">◈ Connecte ton MT5 (capital auto + placement direct)</div>
-      <div style="font-size:11px;opacity:0.7;letter-spacing:1px;margin:8px 0 14px;">
-        Une seule fois — ton capital sera récupéré automatiquement et tu pourras placer tes ordres en 1 clic.
+    <!-- ═══ MT5 NON CONNECTE — design premium cyber ═══ -->
+    <div class="mt5-card" id="mt5ConnectBox" style="display:none;">
+      <div class="mt5-card-corner tl"></div>
+      <div class="mt5-card-corner tr"></div>
+      <div class="mt5-card-corner bl"></div>
+      <div class="mt5-card-corner br"></div>
+
+      <div class="mt5-title">◈ Connexion MetaTrader 5</div>
+      <div class="mt5-subtitle">
+        Connecte ton MT5 une seule fois → capital récupéré automatiquement
+        et placement direct des ordres en 1 clic.
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-        <input type="number" id="mt5Login" class="cap-input" placeholder="Login MT5" style="width:100%;"/>
-        <input type="password" id="mt5Password" class="cap-input" placeholder="Mot de passe MT5" style="width:100%;"/>
+
+      <div class="mt5-fields">
+        <div class="mt5-fields-row">
+          <div class="mt5-field">
+            <label class="mt5-field-label">Login MT5</label>
+            <input type="number" id="mt5Login" class="mt5-input" placeholder="Ex: 1094122" autocomplete="off"/>
+          </div>
+          <div class="mt5-field">
+            <label class="mt5-field-label">Mot de passe</label>
+            <input type="password" id="mt5Password" class="mt5-input" placeholder="••••••••" autocomplete="new-password"/>
+          </div>
+        </div>
+        <div class="mt5-field">
+          <label class="mt5-field-label">Serveur Broker</label>
+          <input type="text" id="mt5Server" class="mt5-input" placeholder="Ex: VTMarkets-Demo, FTMO-Server, etc." autocomplete="off"/>
+        </div>
       </div>
-      <input type="text" id="mt5Server" class="cap-input" placeholder="Serveur (ex: VTMarkets-Demo)" style="width:100%;margin-bottom:8px;"/>
-      <div style="display:flex;gap:14px;font-size:10px;letter-spacing:1px;margin-bottom:14px;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="radio" name="mt5Type" value="demo" checked/> DÉMO
+
+      <div class="mt5-radio-group">
+        <label class="mt5-radio-label demo">
+          <input type="radio" name="mt5Type" value="demo" checked/>
+          <span class="mt5-radio-dot"></span>
+          DÉMO
         </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="radio" name="mt5Type" value="real"/> RÉEL
+        <label class="mt5-radio-label real">
+          <input type="radio" name="mt5Type" value="real"/>
+          <span class="mt5-radio-dot"></span>
+          RÉEL
         </label>
       </div>
-      <button class="place-mt5-btn" onclick="connectMT5()">
-        <span style="font-size:18px;">🔌</span>
-        <span class="place-mt5-label">Connecter mon MT5</span>
-        <span class="place-mt5-sub">Mot de passe chiffré, jamais accessible en clair</span>
+
+      <button class="mt5-connect-btn" onclick="connectMT5()" id="mt5ConnectBtn">
+        ◆ Connecter mon compte MT5 ◆
       </button>
-      <div id="mt5ConnectStatus" style="margin-top:10px;font-size:10px;letter-spacing:1px;text-align:center;"></div>
-    </div>
 
-    <!-- BLOC SI MT5 CONNECTE : affiche le capital + bouton refresh -->
-    <div class="box" id="mt5ConnectedBox" style="display:none;">
-      <div class="box-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <span>◈ MT5 connecté <span id="mt5TypeBadge" style="font-size:9px;padding:2px 6px;border:1px solid var(--green);color:var(--green);margin-left:6px;">DÉMO</span></span>
-        <span style="font-size:9px;letter-spacing:1px;">
-          <a href="#" onclick="refreshCapital();return false;" style="color:var(--cyan);text-decoration:none;margin-right:10px;">↻ Refresh</a>
-          <a href="#" onclick="switchMT5();return false;" style="color:var(--gold);text-decoration:none;margin-right:10px;">⇄ Changer</a>
-          <a href="#" onclick="disconnectMT5();return false;" style="color:rgba(255,48,96,0.7);text-decoration:none;">× Déco</a>
-        </span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px;">
-        <div>
-          <div style="font-size:9px;letter-spacing:1px;opacity:0.5;">CAPITAL</div>
-          <div style="font-size:24px;font-weight:600;color:var(--green);" id="mt5Capital">—</div>
-        </div>
-        <div>
-          <div style="font-size:9px;letter-spacing:1px;opacity:0.5;">COMPTE</div>
-          <div style="font-size:14px;color:var(--cyan);" id="mt5LoginDisplay">—</div>
-          <div style="font-size:10px;opacity:0.5;" id="mt5ServerDisplay">—</div>
-        </div>
+      <div class="mt5-status" id="mt5ConnectStatus"></div>
+
+      <div class="mt5-secure-note">
+        🔒 CHIFFREMENT AES-256 · TES IDENTIFIANTS NE SONT JAMAIS LISIBLES EN CLAIR
       </div>
     </div>
 
-    <!-- BLOC FALLBACK : capital manuel si MT5 pas connecte -->
+    <!-- ═══ MT5 CONNECTE — affichage capital ═══ -->
+    <div class="mt5-connected-card" id="mt5ConnectedBox" style="display:none;">
+      <div class="mt5-card-corner tl"></div>
+      <div class="mt5-card-corner tr"></div>
+      <div class="mt5-card-corner bl"></div>
+      <div class="mt5-card-corner br"></div>
+
+      <div class="mt5-connected-header">
+        <div class="mt5-connected-title">
+          MT5 CONNECTÉ
+          <span class="mt5-type-badge demo" id="mt5TypeBadge">DÉMO</span>
+        </div>
+        <div class="mt5-actions">
+          <a class="mt5-action-link" onclick="refreshCapital();return false;">↻ Refresh</a>
+          <a class="mt5-action-link warn" onclick="switchMT5();return false;">⇄ Changer</a>
+          <a class="mt5-action-link danger" onclick="disconnectMT5();return false;">× Déco</a>
+        </div>
+      </div>
+
+      <div class="mt5-info-grid">
+        <div class="mt5-info-block">
+          <div class="mt5-info-label">CAPITAL</div>
+          <div class="mt5-info-value-big" id="mt5Capital">—</div>
+        </div>
+        <div class="mt5-info-block">
+          <div class="mt5-info-label">COMPTE</div>
+          <div class="mt5-info-value" id="mt5LoginDisplay">—</div>
+          <div class="mt5-info-sub" id="mt5ServerDisplay">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ FALLBACK manuel si MT5 pas connecté ═══ -->
     <div class="box" id="capitalManualBox">
       <div class="box-title">◈ Capital MetaTrader — Obligatoire</div>
       <div class="cap-row">
         <span class="cap-sym">$</span>
         <input type="number" class="cap-input" id="capInput" placeholder="Ex: 600" min="1" step="any"/>
       </div>
-      <div style="margin-top:8px;font-size:10px;opacity:0.5;letter-spacing:1px;text-align:center;">
-        💡 <a href="#" onclick="document.getElementById('mt5ConnectBox').style.display='block';this.parentElement.parentElement.style.display='none';return false;" style="color:var(--cyan);">Connecte ton MT5</a> pour récupérer ton capital automatiquement
-      </div>
+      <a href="#" class="mt5-fallback-link" onclick="showMT5Connect();return false;">
+        ◆ Connecte ton MT5 pour automatiser le capital + placement ◆
+      </a>
     </div>
   </div>
 
@@ -584,8 +936,10 @@ fetch('/me').then(r=>r.json()).then(u=>{
     const badge=document.getElementById('mt5TypeBadge');
     if(u.mt5.accountType==='real'){
       badge.textContent='RÉEL';
-      badge.style.color='var(--gold)';
-      badge.style.borderColor='var(--gold)';
+      badge.className='mt5-type-badge real';
+    } else {
+      badge.textContent='DÉMO';
+      badge.className='mt5-type-badge demo';
     }
     // Pre-remplir le capital cache pour les analyses
     if(document.getElementById('capInput')){
@@ -620,21 +974,32 @@ setupUpload('fileH1','previewH1','placeholderH1','blockH1');
 setupUpload('fileM5','previewM5','placeholderM5','blockM5');
 
 // ─── CONNEXION MT5 ─────────────────────────────────────────────
+function showMT5Connect() {
+  document.getElementById('mt5ConnectBox').style.display = 'block';
+  document.getElementById('capitalManualBox').style.display = 'none';
+  setTimeout(() => {
+    document.getElementById('mt5ConnectBox').scrollIntoView({behavior:'smooth', block:'center'});
+  }, 100);
+}
+
 async function connectMT5() {
   const login    = document.getElementById('mt5Login').value.trim();
   const password = document.getElementById('mt5Password').value.trim();
   const server   = document.getElementById('mt5Server').value.trim();
   const accountType = document.querySelector('input[name="mt5Type"]:checked').value;
   const status = document.getElementById('mt5ConnectStatus');
+  const btn = document.getElementById('mt5ConnectBtn');
 
   if (!login || !password || !server) {
-    status.textContent = '⚠ Tous les champs sont requis';
-    status.style.color = 'var(--red)';
+    status.textContent = '⚠ TOUS LES CHAMPS SONT REQUIS';
+    status.className = 'mt5-status error';
     return;
   }
 
-  status.textContent = '◈ Connexion en cours... (peut prendre 30-60s)';
-  status.style.color = 'var(--cyan)';
+  btn.disabled = true;
+  btn.textContent = '◆ CONNEXION EN COURS... ◆';
+  status.textContent = '◈ Connexion au broker via MetaApi... (30-60s)';
+  status.className = 'mt5-status info';
 
   try {
     const r = await fetch('/mt5/connect', {
@@ -645,19 +1010,23 @@ async function connectMT5() {
     const data = await r.json();
 
     if (!r.ok || data.error) {
-      status.textContent = '❌ ' + (data.details || data.error || 'Erreur');
-      status.style.color = 'var(--red)';
+      status.textContent = '❌ ' + (data.details || data.error || 'Erreur de connexion');
+      status.className = 'mt5-status error';
+      btn.disabled = false;
+      btn.textContent = '◆ Connecter mon compte MT5 ◆';
       return;
     }
 
-    status.textContent = '✓ Connecté ! Capital : $' + data.capital + ' ' + data.currency;
-    status.style.color = 'var(--green)';
+    status.textContent = '✓ CONNECTÉ ! CAPITAL: $' + data.capital + ' ' + data.currency;
+    status.className = 'mt5-status success';
 
     // Recharger la page pour afficher le bloc MT5 connecte
     setTimeout(() => location.reload(), 1500);
   } catch (e) {
-    status.textContent = '❌ Erreur réseau : ' + e.message;
-    status.style.color = 'var(--red)';
+    status.textContent = '❌ ERREUR RÉSEAU : ' + e.message;
+    status.className = 'mt5-status error';
+    btn.disabled = false;
+    btn.textContent = '◆ Connecter mon compte MT5 ◆';
   }
 }
 
