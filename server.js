@@ -920,7 +920,8 @@ RÈGLES ABSOLUES:
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      max_tokens: 2500,
+      system: 'Tu es un assistant trading. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
 
@@ -928,12 +929,51 @@ RÈGLES ABSOLUES:
 
     let parsed;
     try {
-      const text = response.content[0].text.trim();
-      const clean = text.replace(/```json|```/g, '').trim();
-      const jsonMatch = clean.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('Pas de JSON trouvé');
-      parsed = JSON.parse(jsonMatch[0]);
+      const rawText = response.content[0].text.trim();
+      console.log('[IA RAW]', rawText.substring(0, 400));
+
+      // Strategie 1 : parse direct si la reponse est deja du JSON propre
+      try {
+        parsed = JSON.parse(rawText);
+      } catch(_) {
+        // Strategie 2 : nettoyage puis extraction entre { et }
+        let clean = rawText
+          .replace(/```json\s*/gi, '')
+          .replace(/```\s*/g, '')
+          .replace(/^\s*[^{]*/s, '') // supprimer tout avant le premier {
+          .trim();
+
+        const first = clean.indexOf('{');
+        const last  = clean.lastIndexOf('}');
+
+        if (first === -1 || last === -1) {
+          // Strategie 3 : chercher dans le texte original sans nettoyage
+          const fRaw = rawText.indexOf('{');
+          const lRaw = rawText.lastIndexOf('}');
+          if (fRaw === -1 || lRaw === -1) {
+            console.error('[PARSING] Reponse IA sans JSON:', rawText.substring(0, 300));
+            throw new Error('Pas de JSON dans la reponse IA');
+          }
+          clean = rawText.substring(fRaw, lRaw + 1);
+        } else {
+          clean = clean.substring(first, last + 1);
+        }
+
+        try {
+          parsed = JSON.parse(clean);
+        } catch(e1) {
+          // Strategie 4 : reparation des erreurs courantes
+          const fixed = clean
+            .replace(/,\s*}/g, '}')           // trailing comma
+            .replace(/,\s*]/g, ']')
+            .replace(/:\s*undefined/g, ':null') // undefined → null
+            .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":'); // cles sans guillemets
+          parsed = JSON.parse(fixed);
+        }
+      }
     } catch(e) {
+      console.error('[PARSING ERREUR]', e.message);
+      console.error('[PARSING RAW]', response.content?.[0]?.text?.substring(0, 500));
       return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
