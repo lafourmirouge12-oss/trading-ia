@@ -182,7 +182,8 @@ const transporter = nodemailer.createTransport({
 
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
 const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
-const leconsDb = new Datastore({ filename: path.join(__dirname, 'lecons.db'), autoload: true });
+const tradesActifsDb = new Datastore({ filename: path.join(__dirname, 'trades-actifs.db'), autoload: true });
+const notificationsDb = new Datastore({ filename: path.join(__dirname, 'notifications.db'), autoload: true });
 const activeSessions = {};
 
 app.use(express.urlencoded({ extended: true }));
@@ -479,26 +480,52 @@ async function reajusterEntreeSiNecessaire(parsed, userId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SYSTÈME POST-MORTEM : surveille les trades perdants et apprend
+// 🔔 SYSTÈME DE NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════════
+async function creerNotification(userId, type, titre, message, data = {}) {
+  try {
+    const notif = {
+      _id: uuidv4(),
+      userId,
+      type, // 'tp_partiel_auto', 'tp_partiel_alerte', 'sl_atteint', 'info'
+      titre,
+      message,
+      data,
+      lue: false,
+      createdAt: new Date()
+    };
+    await notificationsDb.insertAsync(notif);
+    console.log('[NOTIF] ' + type + ' pour user ' + userId + ' : ' + titre);
+    return notif;
+  } catch(err) {
+    console.log('[NOTIF] Erreur:', err.message);
+    return null;
+  }
+}
 
-// Surveille les positions fermées en perte et flag les analyses correspondantes
-async function surveillerTradesPerdants() {
+// ═══════════════════════════════════════════════════════════════════
+// 🎯 SURVEILLANCE TP PARTIELS + AUTO-EXÉCUTION
+// ═══════════════════════════════════════════════════════════════════
+// Pour chaque trade actif, on vérifie :
+//   1. Si TP1 atteint et position pas encore réduite → on ferme 50% auto
+//   2. Si TP2 atteint et reste de la position → on ferme tout auto
+//   3. Notification envoyée au client après chaque action
+async function surveillerTpPartiels() {
   if (!metaApi) return;
   try {
-    // Récupérer les analyses récentes (dernières 7 jours) avec un trade exécuté et pas encore analysées en post-mortem
+    // Récupérer toutes les analyses actives (BUY/SELL avec un trade détecté)
     const dateLimit = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const analysesAVerifier = await analysesDb.findAsync({
+    const analysesActives = await analysesDb.findAsync({
       createdAt: { $gte: dateLimit },
       decision: { $in: ['BUY', 'SELL'] },
-      postMortemStatut: { $exists: false }
+      tpStatut: { $ne: 'TERMINE' } // pas encore complètement fermé par notre système
     });
 
-    if (analysesAVerifier.length === 0) return;
+    if (!analysesActives.length) return;
 
-    // Grouper par utilisateur pour limiter les connexions MetaAPI
+    // Grouper par user pour limiter les connexions MetaAPI
     const parUser = {};
-    for (const a of analysesAVerifier) {
+    for (const a of analysesActives) {
       if (!parUser[a.userId]) parUser[a.userId] = [];
       parUser[a.userId].push(a);
     }
@@ -509,99 +536,140 @@ async function surveillerTradesPerdants() {
         if (!user || !user.mt5 || !user.mt5.metaApiAccountId) continue;
 
         const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-        let deployedHere = false;
-        if (account.state === 'UNDEPLOYED') {
-          await account.deploy();
-          trackDeploy(account.id, user.mt5.login);
-          deployedHere = true;
-          await account.waitConnected();
-        }
+        if (account.state !== 'DEPLOYED') continue; // on ne deploy pas pour économiser
+
         const connection = account.getRPCConnection();
         await connection.connect();
         await connection.waitSynchronized();
 
-        // Récupérer l'historique des deals des 7 derniers jours
-        const deals = await connection.getDealsByTimeRange(dateLimit, new Date());
+        const positions = await connection.getPositions();
+        if (!positions || !positions.length) continue;
 
         for (const analyse of parUser[userId]) {
-          // Trouver un deal correspondant à cette analyse (même symbole, même direction, date après création)
-          const symbole = (analyse.instrument || 'XAUUSD').toUpperCase();
-          const dealsCorrespondants = (deals || []).filter(d => {
-            if (!d.symbol || !d.profit) return false;
-            const symbolMatch = d.symbol.toUpperCase().includes(symbole) || symbole.includes(d.symbol.toUpperCase().replace(/-.*/, ''));
-            const dateMatch = new Date(d.time) > new Date(analyse.createdAt);
-            const directionMatch = (analyse.decision === 'BUY' && d.type === 'DEAL_TYPE_SELL') || (analyse.decision === 'SELL' && d.type === 'DEAL_TYPE_BUY');
-            // Note: un deal de fermeture est de type opposé à l'ouverture
-            return symbolMatch && dateMatch && directionMatch;
+          // Trouver la position MT5 correspondante (même symbole, même direction)
+          const symbAnalyse = (analyse.instrument || 'XAUUSD').toUpperCase();
+          const positionsCorrespondantes = positions.filter(p => {
+            if (!p.symbol) return false;
+            const sym = p.symbol.toUpperCase();
+            const symMatch = sym.includes(symbAnalyse) || symbAnalyse.includes(sym.replace(/-.*/, ''));
+            const dirMatch = (analyse.decision === 'BUY' && p.type === 'POSITION_TYPE_BUY')
+                          || (analyse.decision === 'SELL' && p.type === 'POSITION_TYPE_SELL');
+            // Position ouverte après l'analyse
+            const dateMatch = !p.time || new Date(p.time) >= new Date(analyse.createdAt);
+            return symMatch && dirMatch && dateMatch;
           });
 
-          if (dealsCorrespondants.length === 0) continue;
+          if (!positionsCorrespondantes.length) continue;
+          // Prendre celle dont le prix d'entrée est le plus proche de l'analyse
+          positionsCorrespondantes.sort((a, b) => {
+            const da = Math.abs(parseFloat(a.openPrice) - parseFloat(analyse.entry || a.openPrice));
+            const db = Math.abs(parseFloat(b.openPrice) - parseFloat(analyse.entry || b.openPrice));
+            return da - db;
+          });
+          const pos = positionsCorrespondantes[0];
 
-          // Prendre le deal le plus proche temporellement de l'analyse
-          dealsCorrespondants.sort((a, b) => new Date(a.time) - new Date(b.time));
-          const deal = dealsCorrespondants[0];
-          const profit = parseFloat(deal.profit);
+          const prixActuel = pos.currentPrice;
+          const isBuy = analyse.decision === 'BUY';
+          const tp1 = parseFloat(analyse.tp);   // TP1 = 1:2
+          const tp2 = parseFloat(analyse.tp2);  // TP2 = 1:3
+          const volumeInitial = analyse.volumeInitial || pos.volume; // si pas stocké, prendre actuel
 
-          if (profit < 0) {
-            // Trade perdant → marquer pour post-mortem
+          // Stocker volumeInitial à la première détection pour savoir le 50%
+          if (!analyse.volumeInitial) {
             await analysesDb.updateAsync(
               { _id: analyse._id },
-              { $set: {
-                postMortemStatut: 'requis',
-                tradeProfit: profit,
-                tradeClotureTemps: deal.time,
-                tradeDealId: deal.id
-              }}
-            );
-            console.log('[POSTMORTEM] Trade perdant détecté pour analyse ' + analyse._id + ' : ' + profit + '$');
-          } else {
-            // Trade gagnant ou breakeven → on marque juste comme traité
-            await analysesDb.updateAsync(
-              { _id: analyse._id },
-              { $set: { postMortemStatut: 'gagnant', tradeProfit: profit }}
+              { $set: { volumeInitial: pos.volume, mt5PositionId: pos.id }}
             );
           }
-        }
 
-        if (deployedHere) {
-          try { await account.undeploy(); trackUndeploy(account.id); } catch(e) {}
+          // === CHECK TP1 ATTEINT ===
+          const tp1Atteint = isBuy ? prixActuel >= tp1 : prixActuel <= tp1;
+
+          if (tp1Atteint && !analyse.tp1Execute) {
+            // Calculer 50% du volume initial à fermer
+            const volumeAFermer = +(volumeInitial * 0.5).toFixed(2);
+            // Si le client a déjà réduit la position lui-même, on adapte
+            const aDejaReduit = pos.volume < volumeInitial * 0.95; // tolérance 5%
+
+            if (aDejaReduit) {
+              // Le client a déjà fait son TP partiel, on marque juste comme fait
+              await analysesDb.updateAsync(
+                { _id: analyse._id },
+                { $set: { tp1Execute: 'manuel', tp1ExecuteLe: new Date() }}
+              );
+              console.log('[TP] User ' + userId + ' a déjà réduit la position de ' + analyse.instrument);
+            } else {
+              // Le client n'a rien fait, on ferme 50% auto
+              try {
+                await connection.closePositionPartially(pos.id, volumeAFermer);
+                await analysesDb.updateAsync(
+                  { _id: analyse._id },
+                  { $set: { tp1Execute: 'auto', tp1ExecuteLe: new Date(), tp1VolumeFerme: volumeAFermer }}
+                );
+                // Déplacer le SL au breakeven (entrée) pour sécuriser le reste
+                try {
+                  await connection.modifyPosition(pos.id, parseFloat(pos.openPrice), parseFloat(pos.takeProfit) || tp2);
+                  console.log('[TP] SL déplacé au breakeven pour ' + pos.symbol);
+                } catch(e) { console.log('[TP] Erreur déplacement SL:', e.message); }
+
+                await creerNotification(
+                  userId,
+                  'tp_partiel_auto',
+                  '🎯 TP1 atteint — 50% fermé automatiquement',
+                  `${pos.symbol} ${analyse.decision} : TP1 (${tp1}) atteint. J'ai fermé ${volumeAFermer} lots (50%) et déplacé ton SL au breakeven (${pos.openPrice}). Le reste laisse courir vers TP2 (${tp2}).`,
+                  { analyseId: analyse._id, symbol: pos.symbol, tp1, volumeFerme: volumeAFermer, slBreakeven: pos.openPrice }
+                );
+                console.log('[TP] ✓ TP1 auto exécuté pour ' + pos.symbol + ' (50% = ' + volumeAFermer + ' lots)');
+              } catch(err) {
+                console.log('[TP] Erreur fermeture partielle:', err.message);
+                await creerNotification(
+                  userId,
+                  'tp_partiel_alerte',
+                  '⚠️ TP1 atteint mais erreur fermeture auto',
+                  `${pos.symbol} : TP1 (${tp1}) atteint mais je n'ai pas pu fermer 50% automatiquement. Ferme manuellement sur MT5.`,
+                  { analyseId: analyse._id, error: err.message }
+                );
+              }
+            }
+          }
+
+          // === CHECK TP2 ATTEINT ===
+          const tp2Atteint = isBuy ? prixActuel >= tp2 : prixActuel <= tp2;
+
+          if (tp2Atteint && analyse.tp1Execute && !analyse.tp2Execute) {
+            try {
+              // Fermer tout ce qui reste
+              await connection.closePosition(pos.id);
+              await analysesDb.updateAsync(
+                { _id: analyse._id },
+                { $set: { tp2Execute: 'auto', tp2ExecuteLe: new Date(), tpStatut: 'TERMINE' }}
+              );
+              await creerNotification(
+                userId,
+                'tp_partiel_auto',
+                '✅ TP2 atteint — Position fermée complètement',
+                `${pos.symbol} ${analyse.decision} : TP2 (${tp2}) atteint. J'ai fermé le reste de la position. Trade terminé !`,
+                { analyseId: analyse._id, symbol: pos.symbol, tp2 }
+              );
+              console.log('[TP] ✓ TP2 auto exécuté pour ' + pos.symbol);
+            } catch(err) {
+              console.log('[TP] Erreur fermeture totale:', err.message);
+            }
+          }
         }
       } catch(err) {
-        console.log('[POSTMORTEM] Erreur user ' + userId + ' : ' + err.message);
+        if (!err.message.includes('not found')) {
+          console.log('[TP] Erreur user ' + userId + ' : ' + err.message);
+        }
       }
     }
   } catch(err) {
-    console.log('[POSTMORTEM] Erreur surveillance:', err.message);
+    console.log('[TP] Erreur globale:', err.message);
   }
 }
 
-// Lancer la surveillance toutes les 2 minutes
-setInterval(surveillerTradesPerdants, 2 * 60 * 1000);
-
-// Récupère les leçons à injecter dans le prompt (toutes les leçons, max 10 plus récentes par user)
-async function getLeconsPourPrompt(userId) {
-  try {
-    const lecons = await leconsDb.findAsync({ userId });
-    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const top = lecons.slice(0, 10);
-    if (top.length === 0) return '';
-    let txt = '\n═══════════════════════════════════════════════════════════════\n';
-    txt += '📚 LEÇONS APPRISES DES TRADES PERDANTS PRÉCÉDENTS — À RESPECTER\n';
-    txt += '═══════════════════════════════════════════════════════════════\n';
-    txt += 'Voici les erreurs commises sur des trades précédents qui ont touché le SL.\n';
-    txt += 'AVANT de proposer ce nouveau trade, vérifie que tu ne refais PAS la même erreur :\n\n';
-    top.forEach((l, i) => {
-      txt += `${i + 1}. [${l.setupType || 'Setup'}] ${l.lecon}\n`;
-      if (l.signalManque) txt += `   Signal qu'il fallait voir : ${l.signalManque}\n`;
-      txt += '\n';
-    });
-    txt += '═══════════════════════════════════════════════════════════════\n';
-    return txt;
-  } catch(err) {
-    console.log('[LECONS] Erreur récupération:', err.message);
-    return '';
-  }
-}
+// Lancer la surveillance toutes les 5 minutes
+setInterval(surveillerTpPartiels, 5 * 60 * 1000);
 
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
@@ -793,147 +861,42 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// ─── ROUTES POST-MORTEM ─────────────────────────────────────────────
-
-// Liste les analyses qui attendent un post-mortem (trades perdants)
-app.get('/postmortem/pending', checkAuth, async (req, res) => {
+// ─── ROUTES NOTIFICATIONS ───────────────────────────────────────────
+app.get('/notifications', checkAuth, async (req, res) => {
   try {
-    const enAttente = await analysesDb.findAsync({
-      userId: req.session.userId,
-      postMortemStatut: 'requis'
-    });
-    enAttente.sort((a, b) => new Date(b.tradeClotureTemps || b.createdAt) - new Date(a.tradeClotureTemps || a.createdAt));
-    res.json({ count: enAttente.length, analyses: enAttente });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
+    const notifs = await notificationsDb.findAsync({ userId: req.session.userId });
+    notifs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const nonLues = notifs.filter(n => !n.lue).length;
+    res.json({ count: notifs.length, nonLues, notifications: notifs.slice(0, 50) });
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-// Soumet un screen pour analyse post-mortem d'un trade perdant
-app.post('/postmortem/:analysisId', checkAuth, upload.single('screen'), async (req, res) => {
+app.post('/notifications/:id/lue', checkAuth, async (req, res) => {
   try {
-    const analyse = await analysesDb.findOneAsync({
-      _id: req.params.analysisId,
-      userId: req.session.userId
-    });
-    if (!analyse) return res.status(404).json({ error: 'Analyse introuvable' });
-    if (analyse.postMortemStatut !== 'requis') return res.status(400).json({ error: 'Pas de post-mortem requis pour ce trade' });
-    if (!req.file) return res.status(400).json({ error: 'Screen manquant' });
-
-    // Lire le screen en base64
-    const imageData = fs.readFileSync(req.file.path);
-    const base64Image = imageData.toString('base64');
-    const mimeType = req.file.mimetype || 'image/png';
-
-    // Construire le prompt post-mortem avec le contexte de l'analyse originale
-    const promptText = `Tu es un trader expert Smart Money ICT. On va analyser un trade qui a touché le SL pour comprendre l'erreur.
-
-CONTEXTE DU TRADE PERDANT :
-- Instrument : ${analyse.instrument || 'XAUUSD'}
-- Direction : ${analyse.decision}
-- Entrée : ${analyse.entry}
-- SL : ${analyse.sl}
-- TP1 : ${analyse.tp}
-- Score initial : ${analyse.score}/10
-- Range asiatique au moment de l'analyse : ${analyse.rangeBas || '?'} - ${analyse.rangeHaut || '?'}
-- Manipulation détectée à l'analyse : ${analyse.manipulation || 'non précisé'}
-- CRT au moment de l'analyse : ${analyse.crt || 'non précisé'}
-- Perte : ${analyse.tradeProfit}$
-- Date analyse : ${new Date(analyse.createdAt).toLocaleString('fr-FR')}
-- Date clôture : ${analyse.tradeClotureTemps ? new Date(analyse.tradeClotureTemps).toLocaleString('fr-FR') : 'inconnue'}
-
-L'utilisateur t'envoie un screen du graphique au moment où le SL a été touché.
-
-TA MISSION :
-1. Analyse le screen et identifie CE QUI A FOIRÉ
-2. Identifie LE SIGNAL qu'il fallait voir avant pour éviter ce trade
-3. Formule une LEÇON courte et actionnable (1-2 phrases max) qui sera utilisée pour les futures analyses
-
-Réponds UNIQUEMENT en JSON valide, sans texte avant ni après :
-{
-  "ce_qui_a_foire": "explication courte de l'erreur (1 phrase)",
-  "signal_manque": "le signal qu'il fallait voir avant (1 phrase concrète)",
-  "lecon": "règle actionnable à respecter dans les futures analyses (1 phrase impérative)",
-  "setup_type": "type de setup (ex: CRT Kasper, OB+FVG, Range asiatique, etc.)"
-}`;
-
-    const response = await anthropic.messages.create({
-      model: 'claude-opus-4-5',
-      max_tokens: 800,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image }},
-          { type: 'text', text: promptText }
-        ]
-      }]
-    });
-
-    // Nettoyer le fichier uploadé
-    try { fs.unlinkSync(req.file.path); } catch(e) {}
-
-    const rawText = response.content[0].text.trim();
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(500).json({ error: 'Réponse IA non parseable', raw: rawText });
-
-    let leconParsed;
-    try {
-      leconParsed = JSON.parse(jsonMatch[0]);
-    } catch(e) {
-      return res.status(500).json({ error: 'JSON invalide', raw: rawText });
-    }
-
-    // Stocker la leçon
-    const leconId = uuidv4();
-    await leconsDb.insertAsync({
-      _id: leconId,
-      userId: req.session.userId,
-      analyseId: analyse._id,
-      instrument: analyse.instrument,
-      direction: analyse.decision,
-      perte: analyse.tradeProfit,
-      ceQuiAFoire: leconParsed.ce_qui_a_foire,
-      signalManque: leconParsed.signal_manque,
-      lecon: leconParsed.lecon,
-      setupType: leconParsed.setup_type,
-      createdAt: new Date()
-    });
-
-    // Marquer l'analyse comme post-mortem fait
-    await analysesDb.updateAsync(
-      { _id: analyse._id },
-      { $set: { postMortemStatut: 'analyse', leconId }}
+    await notificationsDb.updateAsync(
+      { _id: req.params.id, userId: req.session.userId },
+      { $set: { lue: true }}
     );
-
-    console.log('[POSTMORTEM] Leçon enregistrée pour analyse ' + analyse._id);
-    res.json({ success: true, lecon: leconParsed });
-
-  } catch(err) {
-    if (req.file) try { fs.unlinkSync(req.file.path); } catch(e) {}
-    console.log('[POSTMORTEM] Erreur:', err.message);
-    res.status(500).json({ error: 'Erreur post-mortem : ' + err.message });
-  }
-});
-
-// Liste toutes les leçons du user (pour affichage sur le site)
-app.get('/postmortem/lecons', checkAuth, async (req, res) => {
-  try {
-    const lecons = await leconsDb.findAsync({ userId: req.session.userId });
-    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    res.json({ count: lecons.length, lecons });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Supprimer une leçon (si l'user juge qu'elle est mauvaise)
-app.delete('/postmortem/lecons/:leconId', checkAuth, async (req, res) => {
-  try {
-    await leconsDb.removeAsync({ _id: req.params.leconId, userId: req.session.userId });
     res.json({ success: true });
-  } catch(err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/notifications/all-lues', checkAuth, async (req, res) => {
+  try {
+    await notificationsDb.updateAsync(
+      { userId: req.session.userId, lue: false },
+      { $set: { lue: true }},
+      { multi: true }
+    );
+    res.json({ success: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/notifications/:id', checkAuth, async (req, res) => {
+  try {
+    await notificationsDb.removeAsync({ _id: req.params.id, userId: req.session.userId });
+    res.json({ success: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/analyze', checkAuth, uploadMulti.fields([
@@ -1031,13 +994,9 @@ Chevauchement Londres/New York, meilleure liquidité. Setups ICT/CRT très fiabl
 Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     }
 
-    // Récupérer les leçons des trades perdants précédents pour ce user
-    const leconsBlock = await getLeconsPourPrompt(req.session.userId);
-
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
-${leconsBlock}
 
 ═══════════════════════════════════════════════════════════════
 🕐 CONTEXTE TEMPOREL — OBLIGATOIRE À RESPECTER
@@ -1388,7 +1347,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 RÈGLES ABSOLUES:
 - BUY: SL sous l'entrée, TP au dessus
 - SELL: SL au dessus, TP en dessous
-- TP1=RR 1:2, TP2=RR 1:3, TP3=RR 1:4
+- TP1=RR 1:2 (50% à fermer), TP2=RR 1:3 (50% restants à fermer), TP3=RR 1:4 (optionnel si laisser courir)
+- STRATÉGIE TP PARTIELS : le client doit fermer 50% à TP1 puis 50% à TP2. Si TP1 atteint et le client n'a pas réduit sa position, MON SYSTÈME ferme automatiquement 50% et déplace le SL au breakeven.
 - score 8-10=excellent, 6-7=moyen, 0-5=NE PAS TRADER
 - Chiffres précis, décision claire`
     });
