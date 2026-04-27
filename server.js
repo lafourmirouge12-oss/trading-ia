@@ -342,6 +342,141 @@ function verifierPiegeRangeAsiatique(parsed) {
   return parsed;
 }
 
+// ─── RÉCUPÈRE LE PRIX ACTUEL VIA METAAPI ────────────────────────────
+// Utilise le compte MT5 du user pour obtenir le bid/ask en live.
+// Retourne null si pas dispo (le réajustement sera skippé).
+async function getPrixActuel(userId, symbole) {
+  if (!metaApi) return null;
+  try {
+    const user = await db.findOneAsync({ _id: userId });
+    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
+
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    let deployedHere = false;
+    if (account.state === 'UNDEPLOYED') {
+      await account.deploy();
+      trackDeploy(account.id, user.mt5.login);
+      deployedHere = true;
+      await account.waitConnected();
+    }
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    // Tester les variantes de symbole (broker peut avoir XAUUSD-VIP, etc.)
+    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+    let prix = null;
+    for (const sfx of suffixes) {
+      try {
+        const tick = await connection.getSymbolPrice(symbole + sfx);
+        if (tick && tick.bid) { prix = (tick.bid + tick.ask) / 2; break; }
+      } catch(e) {}
+    }
+
+    if (deployedHere) {
+      try { await account.undeploy(); trackUndeploy(account.id); } catch(e) {}
+    }
+    return prix;
+  } catch(err) {
+    console.log('[PRIX-ACTUEL] Erreur:', err.message);
+    return null;
+  }
+}
+
+// ─── RÉAJUSTEMENT AUTOMATIQUE DE L'ENTRÉE ───────────────────────────
+// Si l'entrée IA n'est plus valide (dépassée ou trop loin du prix actuel),
+// la fonction cherche un meilleur niveau dans les données techniques de
+// l'analyse (OB, FVG, range, key candle) et replace l'ordre dessus.
+// SL/TP sont recalculés automatiquement pour conserver le même R:R.
+async function reajusterEntreeSiNecessaire(parsed, userId) {
+  if (parsed.decision !== 'BUY' && parsed.decision !== 'SELL') return parsed;
+  if (!parsed.entree || !parsed.sl) return parsed;
+
+  const symbole = (parsed.instrument || 'XAUUSD').toUpperCase();
+  const prixActuel = await getPrixActuel(userId, symbole);
+  if (!prixActuel) {
+    console.log('[REAJUST] Prix actuel indisponible, on garde l\'entrée IA');
+    return parsed;
+  }
+
+  const isBuy = parsed.decision === 'BUY';
+  const entreeIA = parseFloat(parsed.entree);
+  const slIA = parseFloat(parsed.sl);
+  const distSLOriginal = Math.abs(entreeIA - slIA); // on conserve le R:R en gardant cette distance
+
+  // Tolérance : 0.8% du prix pour XAU (~$38 sur 4700), 0.3% pour le reste
+  const tolerancePct = symbole.includes('XAU') || symbole.includes('GOLD') ? 0.008 : 0.003;
+  const tolerance = prixActuel * tolerancePct;
+
+  // L'entrée est-elle dépassée ?
+  // BUY : entrée doit être <= prix actuel (on achète plus bas / au prix). Si entrée > prix → ordre STOP, ok seulement si proche
+  // SELL : entrée doit être >= prix actuel
+  const entreeDepassee = isBuy ? entreeIA < prixActuel - tolerance : entreeIA > prixActuel + tolerance;
+  const entreeTropLoin = Math.abs(entreeIA - prixActuel) > tolerance * 3;
+
+  if (!entreeDepassee && !entreeTropLoin) {
+    console.log('[REAJUST] Entrée IA ' + entreeIA + ' valide vs prix actuel ' + prixActuel.toFixed(2));
+    return parsed;
+  }
+
+  console.log('[REAJUST] Entrée ' + entreeIA + ' invalide (prix actuel ' + prixActuel.toFixed(2) + ') → recherche niveau alternatif');
+
+  // ─── CHERCHER UN NIVEAU ALTERNATIF DANS LE JSON IA ──────────────
+  // L'IA renvoie OB, FVG, range, key candle. On extrait tous les chiffres
+  // mentionnés et on garde ceux qui sont du bon côté du prix actuel.
+  const candidats = [];
+  const ajouterCandidat = (val, source) => {
+    const n = parseFloat(val);
+    if (isNaN(n) || n <= 0) return;
+    // BUY : on veut acheter en-dessous du prix actuel → niveau < prix
+    // SELL : on veut vendre au-dessus → niveau > prix
+    if (isBuy && n < prixActuel - tolerance * 0.3) candidats.push({ prix: n, source });
+    if (!isBuy && n > prixActuel + tolerance * 0.3) candidats.push({ prix: n, source });
+  };
+
+  // Range asiatique
+  if (parsed.rangeBas) ajouterCandidat(parsed.rangeBas, 'Low range asiatique');
+  if (parsed.rangeHaut) ajouterCandidat(parsed.rangeHaut, 'High range asiatique');
+
+  // Extraire les nombres des champs textuels (OB, FVG, etc.)
+  const champsTexte = [parsed.ob, parsed.fvg, parsed.crtKasperDetail, parsed.entreeLevel, parsed.liquidite, parsed.confluences].filter(Boolean);
+  for (const txt of champsTexte) {
+    const matches = String(txt).match(/\d{3,5}(?:\.\d+)?/g) || [];
+    for (const m of matches) ajouterCandidat(m, 'Niveau technique');
+  }
+
+  if (candidats.length === 0) {
+    console.log('[REAJUST] Aucun niveau alternatif trouvé → trade annulé');
+    parsed.decision = 'NE PAS TRADER';
+    parsed.score = Math.min(parsed.score || 5, 4);
+    parsed.reajustAlerte = 'Entrée IA dépassée et aucun niveau alternatif identifiable. Trade annulé pour ne pas chasser le prix.';
+    return parsed;
+  }
+
+  // Choisir le candidat le PLUS PROCHE du prix actuel (= entrée la plus réaliste)
+  candidats.sort((a, b) => Math.abs(a.prix - prixActuel) - Math.abs(b.prix - prixActuel));
+  const meilleur = candidats[0];
+
+  const nouvelleEntree = meilleur.prix;
+  const nouveauSL = isBuy ? nouvelleEntree - distSLOriginal : nouvelleEntree + distSLOriginal;
+  const nouveauTP1 = isBuy ? nouvelleEntree + distSLOriginal * 2 : nouvelleEntree - distSLOriginal * 2;
+  const nouveauTP2 = isBuy ? nouvelleEntree + distSLOriginal * 3 : nouvelleEntree - distSLOriginal * 3;
+  const nouveauTP3 = isBuy ? nouvelleEntree + distSLOriginal * 4 : nouvelleEntree - distSLOriginal * 4;
+
+  parsed.entreeOriginale = parsed.entree;
+  parsed.entree = nouvelleEntree.toFixed(2);
+  parsed.sl = nouveauSL.toFixed(2);
+  parsed.tp1 = nouveauTP1.toFixed(2);
+  parsed.tp2 = nouveauTP2.toFixed(2);
+  parsed.tp3 = nouveauTP3.toFixed(2);
+  parsed.entreeLevel = meilleur.source + ' (réajusté auto)';
+  parsed.entreeStatut = 'EN_ATTENTE';
+  parsed.reajustAlerte = 'Entrée réajustée : ' + parsed.entreeOriginale + ' → ' + parsed.entree + ' (' + meilleur.source + '). Prix actuel: ' + prixActuel.toFixed(2);
+
+  console.log('[REAJUST] OK : ' + parsed.entreeOriginale + ' → ' + parsed.entree + ' (' + meilleur.source + ')');
+  return parsed;
+}
+
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
@@ -1068,6 +1203,9 @@ RÈGLES ABSOLUES:
 
     // ─── ANTI-PIÈGE RANGE ASIATIQUE (vérification post-IA) ────
     parsed = verifierPiegeRangeAsiatique(parsed);
+
+    // ─── RÉAJUSTEMENT AUTO DE L'ENTRÉE (vs prix actuel MetaAPI) ───
+    parsed = await reajusterEntreeSiNecessaire(parsed, req.session.userId);
 
     // ─── CALCUL LOTS CÔTÉ SERVEUR (garanti) ──────────────────
     if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {
