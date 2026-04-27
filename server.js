@@ -317,6 +317,31 @@ function calculerLots(capital, risquePct, slPips, instrument) {
   return Math.max(0.01, lots);
 }
 
+// ─── ANTI-PIÈGE RANGE ASIATIQUE ─────────────────────────────────────
+// Évite d'acheter dans le top 20% du range asiatique ou de vendre dans
+// le bottom 20% (zones de chasse de stops avant cassure de London/NY)
+function verifierPiegeRangeAsiatique(parsed) {
+  if (!parsed.rangeHaut || !parsed.rangeBas || parsed.decision === 'NE PAS TRADER') return parsed;
+
+  const haut = parseFloat(parsed.rangeHaut);
+  const bas = parseFloat(parsed.rangeBas);
+  const entree = parseFloat(parsed.entree);
+  if (isNaN(haut) || isNaN(bas) || isNaN(entree) || haut <= bas) return parsed;
+
+  const zone = (haut - bas) * 0.20;
+  const piegeBuy = parsed.decision === 'BUY' && entree >= haut - zone && entree <= haut;
+  const piegeSell = parsed.decision === 'SELL' && entree <= bas + zone && entree >= bas;
+
+  if (piegeBuy || piegeSell) {
+    console.log('[ANTI-PIEGE] Entree ' + entree + ' dans zone piege range [' + bas + '-' + haut + ']');
+    parsed.decision = 'NE PAS TRADER';
+    parsed.score = 3;
+    parsed.piegeRangeAlerte = 'Entree dans zone de chasse de stops du range asiatique';
+  }
+
+  return parsed;
+}
+
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
@@ -1040,6 +1065,9 @@ RÈGLES ABSOLUES:
         parsed.tp3Pips = Math.round(dist * 4 * 10) / 10;
       }
     }
+
+    // ─── ANTI-PIÈGE RANGE ASIATIQUE (vérification post-IA) ────
+    parsed = verifierPiegeRangeAsiatique(parsed);
 
     // ─── CALCUL LOTS CÔTÉ SERVEUR (garanti) ──────────────────
     if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {
