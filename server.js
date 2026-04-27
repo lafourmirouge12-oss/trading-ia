@@ -182,6 +182,7 @@ const transporter = nodemailer.createTransport({
 
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
 const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
+const leconsDb = new Datastore({ filename: path.join(__dirname, 'lecons.db'), autoload: true });
 const activeSessions = {};
 
 app.use(express.urlencoded({ extended: true }));
@@ -477,6 +478,131 @@ async function reajusterEntreeSiNecessaire(parsed, userId) {
   return parsed;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// SYSTÈME POST-MORTEM : surveille les trades perdants et apprend
+// ═══════════════════════════════════════════════════════════════════
+
+// Surveille les positions fermées en perte et flag les analyses correspondantes
+async function surveillerTradesPerdants() {
+  if (!metaApi) return;
+  try {
+    // Récupérer les analyses récentes (dernières 7 jours) avec un trade exécuté et pas encore analysées en post-mortem
+    const dateLimit = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const analysesAVerifier = await analysesDb.findAsync({
+      createdAt: { $gte: dateLimit },
+      decision: { $in: ['BUY', 'SELL'] },
+      postMortemStatut: { $exists: false }
+    });
+
+    if (analysesAVerifier.length === 0) return;
+
+    // Grouper par utilisateur pour limiter les connexions MetaAPI
+    const parUser = {};
+    for (const a of analysesAVerifier) {
+      if (!parUser[a.userId]) parUser[a.userId] = [];
+      parUser[a.userId].push(a);
+    }
+
+    for (const userId of Object.keys(parUser)) {
+      try {
+        const user = await db.findOneAsync({ _id: userId });
+        if (!user || !user.mt5 || !user.mt5.metaApiAccountId) continue;
+
+        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+        let deployedHere = false;
+        if (account.state === 'UNDEPLOYED') {
+          await account.deploy();
+          trackDeploy(account.id, user.mt5.login);
+          deployedHere = true;
+          await account.waitConnected();
+        }
+        const connection = account.getRPCConnection();
+        await connection.connect();
+        await connection.waitSynchronized();
+
+        // Récupérer l'historique des deals des 7 derniers jours
+        const deals = await connection.getDealsByTimeRange(dateLimit, new Date());
+
+        for (const analyse of parUser[userId]) {
+          // Trouver un deal correspondant à cette analyse (même symbole, même direction, date après création)
+          const symbole = (analyse.instrument || 'XAUUSD').toUpperCase();
+          const dealsCorrespondants = (deals || []).filter(d => {
+            if (!d.symbol || !d.profit) return false;
+            const symbolMatch = d.symbol.toUpperCase().includes(symbole) || symbole.includes(d.symbol.toUpperCase().replace(/-.*/, ''));
+            const dateMatch = new Date(d.time) > new Date(analyse.createdAt);
+            const directionMatch = (analyse.decision === 'BUY' && d.type === 'DEAL_TYPE_SELL') || (analyse.decision === 'SELL' && d.type === 'DEAL_TYPE_BUY');
+            // Note: un deal de fermeture est de type opposé à l'ouverture
+            return symbolMatch && dateMatch && directionMatch;
+          });
+
+          if (dealsCorrespondants.length === 0) continue;
+
+          // Prendre le deal le plus proche temporellement de l'analyse
+          dealsCorrespondants.sort((a, b) => new Date(a.time) - new Date(b.time));
+          const deal = dealsCorrespondants[0];
+          const profit = parseFloat(deal.profit);
+
+          if (profit < 0) {
+            // Trade perdant → marquer pour post-mortem
+            await analysesDb.updateAsync(
+              { _id: analyse._id },
+              { $set: {
+                postMortemStatut: 'requis',
+                tradeProfit: profit,
+                tradeClotureTemps: deal.time,
+                tradeDealId: deal.id
+              }}
+            );
+            console.log('[POSTMORTEM] Trade perdant détecté pour analyse ' + analyse._id + ' : ' + profit + '$');
+          } else {
+            // Trade gagnant ou breakeven → on marque juste comme traité
+            await analysesDb.updateAsync(
+              { _id: analyse._id },
+              { $set: { postMortemStatut: 'gagnant', tradeProfit: profit }}
+            );
+          }
+        }
+
+        if (deployedHere) {
+          try { await account.undeploy(); trackUndeploy(account.id); } catch(e) {}
+        }
+      } catch(err) {
+        console.log('[POSTMORTEM] Erreur user ' + userId + ' : ' + err.message);
+      }
+    }
+  } catch(err) {
+    console.log('[POSTMORTEM] Erreur surveillance:', err.message);
+  }
+}
+
+// Lancer la surveillance toutes les 2 minutes
+setInterval(surveillerTradesPerdants, 2 * 60 * 1000);
+
+// Récupère les leçons à injecter dans le prompt (toutes les leçons, max 10 plus récentes par user)
+async function getLeconsPourPrompt(userId) {
+  try {
+    const lecons = await leconsDb.findAsync({ userId });
+    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const top = lecons.slice(0, 10);
+    if (top.length === 0) return '';
+    let txt = '\n═══════════════════════════════════════════════════════════════\n';
+    txt += '📚 LEÇONS APPRISES DES TRADES PERDANTS PRÉCÉDENTS — À RESPECTER\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    txt += 'Voici les erreurs commises sur des trades précédents qui ont touché le SL.\n';
+    txt += 'AVANT de proposer ce nouveau trade, vérifie que tu ne refais PAS la même erreur :\n\n';
+    top.forEach((l, i) => {
+      txt += `${i + 1}. [${l.setupType || 'Setup'}] ${l.lecon}\n`;
+      if (l.signalManque) txt += `   Signal qu'il fallait voir : ${l.signalManque}\n`;
+      txt += '\n';
+    });
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    return txt;
+  } catch(err) {
+    console.log('[LECONS] Erreur récupération:', err.message);
+    return '';
+  }
+}
+
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
@@ -667,6 +793,149 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
+// ─── ROUTES POST-MORTEM ─────────────────────────────────────────────
+
+// Liste les analyses qui attendent un post-mortem (trades perdants)
+app.get('/postmortem/pending', checkAuth, async (req, res) => {
+  try {
+    const enAttente = await analysesDb.findAsync({
+      userId: req.session.userId,
+      postMortemStatut: 'requis'
+    });
+    enAttente.sort((a, b) => new Date(b.tradeClotureTemps || b.createdAt) - new Date(a.tradeClotureTemps || a.createdAt));
+    res.json({ count: enAttente.length, analyses: enAttente });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Soumet un screen pour analyse post-mortem d'un trade perdant
+app.post('/postmortem/:analysisId', checkAuth, upload.single('screen'), async (req, res) => {
+  try {
+    const analyse = await analysesDb.findOneAsync({
+      _id: req.params.analysisId,
+      userId: req.session.userId
+    });
+    if (!analyse) return res.status(404).json({ error: 'Analyse introuvable' });
+    if (analyse.postMortemStatut !== 'requis') return res.status(400).json({ error: 'Pas de post-mortem requis pour ce trade' });
+    if (!req.file) return res.status(400).json({ error: 'Screen manquant' });
+
+    // Lire le screen en base64
+    const imageData = fs.readFileSync(req.file.path);
+    const base64Image = imageData.toString('base64');
+    const mimeType = req.file.mimetype || 'image/png';
+
+    // Construire le prompt post-mortem avec le contexte de l'analyse originale
+    const promptText = `Tu es un trader expert Smart Money ICT. On va analyser un trade qui a touché le SL pour comprendre l'erreur.
+
+CONTEXTE DU TRADE PERDANT :
+- Instrument : ${analyse.instrument || 'XAUUSD'}
+- Direction : ${analyse.decision}
+- Entrée : ${analyse.entry}
+- SL : ${analyse.sl}
+- TP1 : ${analyse.tp}
+- Score initial : ${analyse.score}/10
+- Range asiatique au moment de l'analyse : ${analyse.rangeBas || '?'} - ${analyse.rangeHaut || '?'}
+- Manipulation détectée à l'analyse : ${analyse.manipulation || 'non précisé'}
+- CRT au moment de l'analyse : ${analyse.crt || 'non précisé'}
+- Perte : ${analyse.tradeProfit}$
+- Date analyse : ${new Date(analyse.createdAt).toLocaleString('fr-FR')}
+- Date clôture : ${analyse.tradeClotureTemps ? new Date(analyse.tradeClotureTemps).toLocaleString('fr-FR') : 'inconnue'}
+
+L'utilisateur t'envoie un screen du graphique au moment où le SL a été touché.
+
+TA MISSION :
+1. Analyse le screen et identifie CE QUI A FOIRÉ
+2. Identifie LE SIGNAL qu'il fallait voir avant pour éviter ce trade
+3. Formule une LEÇON courte et actionnable (1-2 phrases max) qui sera utilisée pour les futures analyses
+
+Réponds UNIQUEMENT en JSON valide, sans texte avant ni après :
+{
+  "ce_qui_a_foire": "explication courte de l'erreur (1 phrase)",
+  "signal_manque": "le signal qu'il fallait voir avant (1 phrase concrète)",
+  "lecon": "règle actionnable à respecter dans les futures analyses (1 phrase impérative)",
+  "setup_type": "type de setup (ex: CRT Kasper, OB+FVG, Range asiatique, etc.)"
+}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 800,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image }},
+          { type: 'text', text: promptText }
+        ]
+      }]
+    });
+
+    // Nettoyer le fichier uploadé
+    try { fs.unlinkSync(req.file.path); } catch(e) {}
+
+    const rawText = response.content[0].text.trim();
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(500).json({ error: 'Réponse IA non parseable', raw: rawText });
+
+    let leconParsed;
+    try {
+      leconParsed = JSON.parse(jsonMatch[0]);
+    } catch(e) {
+      return res.status(500).json({ error: 'JSON invalide', raw: rawText });
+    }
+
+    // Stocker la leçon
+    const leconId = uuidv4();
+    await leconsDb.insertAsync({
+      _id: leconId,
+      userId: req.session.userId,
+      analyseId: analyse._id,
+      instrument: analyse.instrument,
+      direction: analyse.decision,
+      perte: analyse.tradeProfit,
+      ceQuiAFoire: leconParsed.ce_qui_a_foire,
+      signalManque: leconParsed.signal_manque,
+      lecon: leconParsed.lecon,
+      setupType: leconParsed.setup_type,
+      createdAt: new Date()
+    });
+
+    // Marquer l'analyse comme post-mortem fait
+    await analysesDb.updateAsync(
+      { _id: analyse._id },
+      { $set: { postMortemStatut: 'analyse', leconId }}
+    );
+
+    console.log('[POSTMORTEM] Leçon enregistrée pour analyse ' + analyse._id);
+    res.json({ success: true, lecon: leconParsed });
+
+  } catch(err) {
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch(e) {}
+    console.log('[POSTMORTEM] Erreur:', err.message);
+    res.status(500).json({ error: 'Erreur post-mortem : ' + err.message });
+  }
+});
+
+// Liste toutes les leçons du user (pour affichage sur le site)
+app.get('/postmortem/lecons', checkAuth, async (req, res) => {
+  try {
+    const lecons = await leconsDb.findAsync({ userId: req.session.userId });
+    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({ count: lecons.length, lecons });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Supprimer une leçon (si l'user juge qu'elle est mauvaise)
+app.delete('/postmortem/lecons/:leconId', checkAuth, async (req, res) => {
+  try {
+    await leconsDb.removeAsync({ _id: req.params.leconId, userId: req.session.userId });
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/analyze', checkAuth, uploadMulti.fields([
   { name: 'imageH1',  maxCount: 1 },
   { name: 'imageM30', maxCount: 1 },
@@ -762,9 +1031,13 @@ Chevauchement Londres/New York, meilleure liquidité. Setups ICT/CRT très fiabl
 Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     }
 
+    // Récupérer les leçons des trades perdants précédents pour ce user
+    const leconsBlock = await getLeconsPourPrompt(req.session.userId);
+
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+${leconsBlock}
 
 ═══════════════════════════════════════════════════════════════
 🕐 CONTEXTE TEMPOREL — OBLIGATOIRE À RESPECTER
