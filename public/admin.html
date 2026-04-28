@@ -120,6 +120,49 @@
     <div class="stat-card"><div class="stat-num cyan" id="fbWinrate">—%</div><div class="stat-label">Win Rate IA</div></div>
   </div>
 
+  <div class="section-title">◈ Business — MRR & Croissance</div>
+  <div class="winrate-grid">
+    <div class="stat-card"><div class="stat-num gold" id="dMRR">0€</div><div class="stat-label">MRR estimé</div></div>
+    <div class="stat-card"><div class="stat-num cyan" id="dPayants">0</div><div class="stat-label">Clients payants</div></div>
+    <div class="stat-card"><div class="stat-num green" id="dInscrits">0</div><div class="stat-label">Inscrits ce mois</div></div>
+    <div class="stat-card"><div class="stat-num" id="dCroissance">0%</div><div class="stat-label">Croissance vs mois -1</div></div>
+  </div>
+  <div class="winrate-grid" style="margin-top:10px;">
+    <div class="stat-card"><div class="stat-num green" id="dActifs7j">0</div><div class="stat-label">Actifs 7j</div></div>
+    <div class="stat-card"><div class="stat-num blue" id="dActifs30j">0</div><div class="stat-label">Actifs 30j</div></div>
+    <div class="stat-card"><div class="stat-num cyan" id="dAnalyses7j">0</div><div class="stat-label">Analyses 7j</div></div>
+    <div class="stat-card"><div class="stat-num cyan" id="dAnalyses30j">0</div><div class="stat-label">Analyses 30j</div></div>
+  </div>
+
+  <div class="section-title">◈ Apprentissage IA — Mémoire collective</div>
+  <div class="winrate-grid">
+    <div class="stat-card"><div class="stat-num orange" id="aLecons">0</div><div class="stat-label">📚 Leçons apprises</div></div>
+    <div class="stat-card"><div class="stat-num gold" id="aSetups">0</div><div class="stat-label">🏆 Setups gagnants</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openLearningPanel('lecons')"><div class="stat-num cyan">→</div><div class="stat-label">Voir leçons</div></div>
+    <div class="stat-card" style="cursor:pointer;" onclick="openLearningPanel('setups')"><div class="stat-num cyan">→</div><div class="stat-label">Voir setups</div></div>
+  </div>
+
+  <div class="section-title">◈ Top utilisateurs (par activité)</div>
+  <div class="table-wrap" id="topUsersWrap">
+    <table>
+      <thead>
+        <tr><th>Email</th><th>Plan</th><th>Total analyses</th><th>Ce mois</th><th>Dernière activité</th></tr>
+      </thead>
+      <tbody id="topUsersTbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Modal apprentissage IA -->
+  <div id="learningPanel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;padding:20px;overflow-y:auto;">
+    <div style="max-width:900px;margin:20px auto;background:var(--panel);border:1px solid rgba(0,245,255,0.3);border-radius:8px;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div id="learningTitle" style="font-weight:700;font-size:18px;">📚 Leçons apprises</div>
+        <button onclick="closeLearningPanel()" style="background:transparent;border:none;color:#fff;font-size:22px;cursor:pointer;">✕</button>
+      </div>
+      <div id="learningContent" style="max-height:70vh;overflow-y:auto;"></div>
+    </div>
+  </div>
+
   <div class="section-title">◈ Gestion des utilisateurs</div>
   <div class="toolbar">
     <input type="text" class="search-input" id="searchInput" placeholder="Rechercher par email..." oninput="renderUsers()"/>
@@ -224,7 +267,112 @@ async function loadUsers(){
   }catch(e){}
 }
 
-function loadAll(){loadStats();loadFeedback();loadUsers();}
+function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();}
+
+// ─── DASHBOARD AVANCÉ (MRR, croissance, apprentissage IA, top users) ───
+async function loadDashboard(){
+  try{
+    const r = await fetch('/admin/dashboard');
+    const d = await r.json();
+    if(d.error) return;
+
+    // Business
+    document.getElementById('dMRR').textContent = (d.mrr || 0) + '€';
+    document.getElementById('dPayants').textContent = d.clientsPayants || 0;
+    document.getElementById('dInscrits').textContent = d.inscritsCeMois || 0;
+    const cr = d.croissancePct || 0;
+    const crEl = document.getElementById('dCroissance');
+    crEl.textContent = (cr >= 0 ? '+' : '') + cr + '%';
+    crEl.className = 'stat-num ' + (cr >= 0 ? 'green' : 'red');
+
+    // Activité
+    document.getElementById('dActifs7j').textContent = d.actifs7j || 0;
+    document.getElementById('dActifs30j').textContent = d.actifs30j || 0;
+    document.getElementById('dAnalyses7j').textContent = d.analyses7j || 0;
+    document.getElementById('dAnalyses30j').textContent = d.analyses30j || 0;
+
+    // Apprentissage
+    if(d.apprentissage){
+      document.getElementById('aLecons').textContent = d.apprentissage.totalLecons || 0;
+      document.getElementById('aSetups').textContent = d.apprentissage.totalSetupsGagnants || 0;
+    }
+
+    // Top users
+    const tbody = document.getElementById('topUsersTbody');
+    if(d.topUsers && d.topUsers.length){
+      tbody.innerHTML = d.topUsers.map(u => {
+        const date = u.derniereActivite ? new Date(u.derniereActivite).toLocaleDateString('fr-FR') : '—';
+        return `<tr>
+          <td>${u.email || '—'}</td>
+          <td>${u.subscribed ? '✓ ' + (u.plan || 'abonné') : '—'}</td>
+          <td><strong>${u.analyses}</strong></td>
+          <td>${u.analysesCeMois}</td>
+          <td>${date}</td>
+        </tr>`;
+      }).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">Aucune donnée</td></tr>';
+    }
+  } catch(e){ console.log('loadDashboard erreur:', e.message); }
+}
+
+// ─── PANNEAU APPRENTISSAGE IA (modal) ───
+async function openLearningPanel(type){
+  const panel = document.getElementById('learningPanel');
+  const title = document.getElementById('learningTitle');
+  const content = document.getElementById('learningContent');
+  title.textContent = type === 'lecons' ? '📚 Toutes les leçons apprises' : '🏆 Tous les setups gagnants';
+  content.innerHTML = '<div style="text-align:center;padding:30px;color:#888;">Chargement...</div>';
+  panel.style.display = 'block';
+
+  try {
+    const url = type === 'lecons' ? '/admin/lecons' : '/admin/setups-gagnants';
+    const r = await fetch(url);
+    const d = await r.json();
+
+    if(type === 'lecons'){
+      if(!d.lecons || !d.lecons.length){
+        content.innerHTML = '<div style="text-align:center;padding:30px;color:#888;">Aucune leçon enregistrée pour l\'instant.</div>';
+        return;
+      }
+      content.innerHTML = d.lecons.map(l => {
+        const date = new Date(l.createdAt).toLocaleDateString('fr-FR');
+        return `<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:14px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <strong style="color:#fff;">${l.userEmail || '—'} — ${l.instrument || 'XAUUSD'} ${l.direction || ''}</strong>
+            <span style="color:#888;font-size:12px;">${date}</span>
+          </div>
+          <div style="font-size:13px;color:#bbb;margin-bottom:4px;"><strong style="color:#ffb800;">Leçon :</strong> ${l.lecon || '—'}</div>
+          ${l.signalManque ? `<div style="font-size:12px;color:#aaa;font-style:italic;">Signal manqué : ${l.signalManque}</div>` : ''}
+          ${l.perte ? `<div style="font-size:12px;color:#ff5c5c;margin-top:4px;">Perte : ${l.perte.toFixed(2)}$</div>` : ''}
+        </div>`;
+      }).join('');
+    } else {
+      if(!d.setups || !d.setups.length){
+        content.innerHTML = '<div style="text-align:center;padding:30px;color:#888;">Aucun setup gagnant enregistré pour l\'instant.</div>';
+        return;
+      }
+      const noms = ['dim','lun','mar','mer','jeu','ven','sam'];
+      content.innerHTML = d.setups.map(s => {
+        const date = new Date(s.createdAt).toLocaleDateString('fr-FR');
+        return `<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(74,222,128,0.2);border-radius:6px;padding:14px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <strong style="color:#fff;">${s.userEmail || '—'} — ${s.direction} ${s.instrument} ${noms[s.jourSemaine]} ${s.session}</strong>
+            <span style="color:#888;font-size:12px;">${date}</span>
+          </div>
+          <div style="font-size:13px;color:#bbb;">Score initial : <strong>${s.score}/10</strong> · Profit : <strong style="color:#4ade80;">+${s.profit.toFixed(2)}$</strong></div>
+          ${s.entreeLevel ? `<div style="font-size:12px;color:#aaa;font-style:italic;margin-top:4px;">Niveau d'entrée : ${s.entreeLevel}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+  } catch(e) {
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:#ff5c5c;">Erreur de chargement</div>';
+  }
+}
+
+function closeLearningPanel(){
+  document.getElementById('learningPanel').style.display = 'none';
+}
 
 function setFilter(f,btn){
   filter=f;

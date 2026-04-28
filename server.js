@@ -996,6 +996,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Route idle (signal du frontend que l'utilisateur est inactif — pour économiser les ressources)
+app.post('/api/idle', (req, res) => {
+  res.json({ ok: true });
+});
+
 // ═══════════════════════════════════════════════════════════════════
 // 💾 BACKUP AUTO DES DBs (1×/jour, rotation 7 jours)
 // ═══════════════════════════════════════════════════════════════════
@@ -1228,6 +1233,108 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
 });
 
 // ─── ROUTES APPRENTISSAGE IA ────────────────────────────────────────
+// ─── ROUTES POST-MORTEM MANUEL (avec screen du SL touché) ─────
+// Liste les trades perdants en attente d'analyse
+app.get('/postmortem/pending', checkAuth, async (req, res) => {
+  try {
+    const enAttente = await analysesDb.findAsync({
+      userId: req.session.userId,
+      decision: { $in: ['BUY', 'SELL'] },
+      tradeProfit: { $lt: 0 },
+      postMortemScreen: { $exists: false }
+    });
+    enAttente.sort((a, b) => new Date(b.tradeClotureTemps || b.createdAt) - new Date(a.tradeClotureTemps || a.createdAt));
+    res.json({ count: enAttente.length, analyses: enAttente.slice(0, 10) });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+// Upload du screen du SL pour analyse approfondie
+app.post('/postmortem/:analysisId', checkAuth, upload.single('screen'), async (req, res) => {
+  try {
+    const analyse = await analysesDb.findOneAsync({
+      _id: req.params.analysisId,
+      userId: req.session.userId
+    });
+    if (!analyse) return res.status(404).json({ error: 'Analyse introuvable' });
+    if (!req.file) return res.status(400).json({ error: 'Screen manquant' });
+
+    const imageData = fs.readFileSync(req.file.path);
+    const base64Image = imageData.toString('base64');
+    const mimeType = req.file.mimetype || 'image/png';
+
+    const promptText = `Tu es un trader expert ICT. Analyse ce trade qui a touché le SL en regardant le screen.
+
+CONTEXTE :
+- Instrument : ${analyse.instrument || 'XAUUSD'}
+- Direction : ${analyse.decision}
+- Entrée : ${analyse.entry}
+- SL : ${analyse.sl}
+- TP1 : ${analyse.tp}
+- Score initial : ${analyse.score}/10
+- Range asiatique : ${analyse.rangeBas || '?'} - ${analyse.rangeHaut || '?'}
+- Perte : ${analyse.tradeProfit}$
+
+L'utilisateur t'envoie le screen du moment où le SL a été touché.
+
+MISSION :
+1. Regarde le screen et identifie CE QUI A FOIRÉ visuellement
+2. Identifie LE SIGNAL qu'il fallait voir avant pour éviter ce trade
+3. Formule une LEÇON courte et actionnable
+
+Réponds UNIQUEMENT en JSON :
+{
+  "ce_qui_a_foire": "explication courte (1 phrase)",
+  "signal_manque": "le signal à voir avant (1 phrase concrète)",
+  "lecon": "règle impérative pour les futures analyses (1 phrase)",
+  "setup_type": "type de setup (CRT Kasper / OB+FVG / Range asiatique / etc.)"
+}`;
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image }},
+          { type: 'text', text: promptText }
+        ]
+      }]
+    });
+
+    try { fs.unlinkSync(req.file.path); } catch(e) {}
+
+    const raw = response.content[0].text.trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return res.status(500).json({ error: 'Réponse non parseable', raw });
+    const leconParsed = JSON.parse(m[0]);
+
+    const leconId = uuidv4();
+    await leconsDb.insertAsync({
+      _id: leconId,
+      userId: req.session.userId,
+      analyseId: analyse._id,
+      instrument: analyse.instrument,
+      direction: analyse.decision,
+      perte: analyse.tradeProfit,
+      ceQuiAFoire: leconParsed.ce_qui_a_foire,
+      signalManque: leconParsed.signal_manque,
+      lecon: leconParsed.lecon,
+      setupType: leconParsed.setup_type,
+      auto: false,
+      createdAt: new Date()
+    });
+    await analysesDb.updateAsync(
+      { _id: analyse._id },
+      { $set: { postMortemScreen: true, leconId }}
+    );
+    res.json({ success: true, lecon: leconParsed });
+  } catch(err) {
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch(e) {}
+    console.log('[POSTMORTEM] Erreur:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/apprentissage/lecons', checkAuth, async (req, res) => {
   try {
     const lecons = await leconsDb.findAsync({ userId: req.session.userId });
@@ -1868,6 +1975,141 @@ app.get('/admin/users', checkAdmin, async (req, res) => {
       createdAt: u.createdAt,
       online: !!activeSessions[u._id]
     })));
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ─── ROUTES ADMIN AVANCÉES ──────────────────────────────────────────
+
+// Statistiques de feedback (TP/SL/En cours + Win Rate IA)
+app.get('/admin/feedback', checkAdmin, async (req, res) => {
+  try {
+    const all = await analysesDb.findAsync({});
+    const tp = all.filter(a => a.feedbackResult === 'tp').length;
+    const sl = all.filter(a => a.feedbackResult === 'sl').length;
+    const pending = all.filter(a => a.feedbackResult === 'pending').length;
+    const total = tp + sl;
+    const winrate = total > 0 ? Math.round((tp / total) * 100) : 0;
+    res.json({ tp, sl, pending, winrate, totalAnalyses: all.length });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Dashboard avancé : MRR, croissance, churn, win rate global, top users
+app.get('/admin/dashboard', checkAdmin, async (req, res) => {
+  try {
+    const users = await db.findAsync({ role: { $ne: 'admin' } });
+    const analyses = await analysesDb.findAsync({});
+    const now = new Date();
+    const debutMois = new Date(now.getFullYear(), now.getMonth(), 1);
+    const debutMoisDernier = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const finMoisDernier = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    const il_y_a_7j = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const il_y_a_30j = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // MRR (clients abonnés × prix moyen — adapter selon tarif)
+    const payants = users.filter(u => u.subscribed && u.paymentStatus === 'paid');
+    const prixMoyen = parseFloat(process.env.PRIX_ABONNEMENT) || 50;
+    const mrr = payants.length * prixMoyen;
+
+    // Croissance mensuelle
+    const inscritsCeMois = users.filter(u => u.createdAt && new Date(u.createdAt) >= debutMois).length;
+    const inscritsMoisDernier = users.filter(u => u.createdAt && new Date(u.createdAt) >= debutMoisDernier && new Date(u.createdAt) <= finMoisDernier).length;
+    const croissancePct = inscritsMoisDernier > 0
+      ? Math.round(((inscritsCeMois - inscritsMoisDernier) / inscritsMoisDernier) * 100)
+      : 0;
+
+    // Activité
+    const actifs7j = users.filter(u => u.lastLogin && new Date(u.lastLogin) >= il_y_a_7j).length;
+    const actifs30j = users.filter(u => u.lastLogin && new Date(u.lastLogin) >= il_y_a_30j).length;
+
+    // Win rate global plateforme (basé sur feedback)
+    const tradesAvecFb = analyses.filter(a => a.feedbackResult === 'tp' || a.feedbackResult === 'sl');
+    const tradesGagnants = analyses.filter(a => a.feedbackResult === 'tp');
+    const winRateGlobal = tradesAvecFb.length > 0
+      ? Math.round((tradesGagnants.length / tradesAvecFb.length) * 100)
+      : 0;
+
+    // Apprentissage IA — totaux globaux
+    const totalLecons = await leconsDb.countAsync({});
+    const totalSetupsGagnants = await setupsGagnantsDb.countAsync({});
+
+    // Top 5 users par activité
+    const statsParUser = users.map(u => {
+      const userAnalyses = analyses.filter(a => a.userId === u._id);
+      return {
+        id: u._id,
+        email: u.email,
+        analyses: userAnalyses.length,
+        analysesCeMois: userAnalyses.filter(a => new Date(a.createdAt) >= debutMois).length,
+        derniereActivite: u.lastLogin || u.createdAt,
+        plan: u.plan || 'aucun',
+        subscribed: !!u.subscribed
+      };
+    });
+    const topUsers = [...statsParUser].sort((a, b) => b.analyses - a.analyses).slice(0, 5);
+
+    // Analyses 7j / 30j
+    const analyses7j = analyses.filter(a => new Date(a.createdAt) >= il_y_a_7j).length;
+    const analyses30j = analyses.filter(a => new Date(a.createdAt) >= il_y_a_30j).length;
+
+    res.json({
+      mrr,
+      clientsPayants: payants.length,
+      prixMoyen,
+      inscritsCeMois,
+      inscritsMoisDernier,
+      croissancePct,
+      actifs7j,
+      actifs30j,
+      winRateGlobal,
+      tradesAvecFb: tradesAvecFb.length,
+      analyses7j,
+      analyses30j,
+      apprentissage: {
+        totalLecons,
+        totalSetupsGagnants
+      },
+      topUsers
+    });
+  } catch(e) {
+    console.log('[ADMIN-DASHBOARD]', e.message);
+    res.json({ error: e.message });
+  }
+});
+
+// Liste des leçons globales (toutes confondues, vue admin)
+app.get('/admin/lecons', checkAdmin, async (req, res) => {
+  try {
+    const lecons = await leconsDb.findAsync({});
+    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // Joindre l'email du user
+    const users = await db.findAsync({});
+    const usersMap = {};
+    users.forEach(u => { usersMap[u._id] = u.email; });
+    res.json({
+      count: lecons.length,
+      lecons: lecons.slice(0, 30).map(l => ({
+        ...l,
+        userEmail: usersMap[l.userId] || 'inconnu'
+      }))
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Liste des setups gagnants globaux
+app.get('/admin/setups-gagnants', checkAdmin, async (req, res) => {
+  try {
+    const setups = await setupsGagnantsDb.findAsync({});
+    setups.sort((a, b) => b.profit - a.profit);
+    const users = await db.findAsync({});
+    const usersMap = {};
+    users.forEach(u => { usersMap[u._id] = u.email; });
+    res.json({
+      count: setups.length,
+      setups: setups.slice(0, 30).map(s => ({
+        ...s,
+        userEmail: usersMap[s.userId] || 'inconnu'
+      }))
+    });
   } catch(e) { res.json({ error: e.message }); }
 });
 

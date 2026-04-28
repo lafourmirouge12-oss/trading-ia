@@ -603,6 +603,176 @@
     .hfb.pend:hover,.hfb.pend.on{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,0.08);}
     .hi-empty{text-align:center;color:rgba(255,255,255,0.2);font-size:12px;padding:20px;}
     @media(max-width:480px){h1{font-size:18px;}.nav-logo{font-size:11px;}.nav-logout,.nav-link{font-size:8px;padding:6px 10px;}.lots-num{font-size:32px;}.tf-grid{grid-template-columns:1fr;}}
+/* ═══ POST-MORTEM ═══ */
+.postmortem-banner {
+  max-width: 900px;
+  margin: 14px auto;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, rgba(255, 184, 0, 0.08), rgba(255, 100, 50, 0.05));
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(255, 140, 0, 0.1);
+}
+.pm-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.pm-title { font-weight: 700; color: #ffb800; font-size: 16px; }
+.pm-close { background: transparent; border: none; color: #ccc; font-size: 18px; cursor: pointer; padding: 0 6px; }
+.pm-close:hover { color: #fff; }
+.pm-subtitle { color: #aaa; font-size: 13px; margin-bottom: 12px; line-height: 1.4; }
+.pm-list { display: flex; flex-direction: column; gap: 8px; }
+.pm-trade-item {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.pm-trade-item:hover { background: rgba(255,184,0,0.08); border-color: rgba(255,184,0,0.3); }
+.pm-trade-info { display: flex; flex-direction: column; gap: 2px; }
+.pm-trade-symbol { font-weight: 600; color: #fff; font-size: 14px; }
+.pm-trade-detail { color: #888; font-size: 12px; }
+.pm-trade-loss { color: #ff5c5c; font-weight: 700; font-size: 14px; }
+.pm-trade-arrow { color: #ffb800; font-size: 18px; }
+
+/* Modal */
+.pm-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.pm-modal-content {
+  background: #161616; border: 1px solid rgba(255,184,0,0.3); border-radius: 14px;
+  padding: 22px; max-width: 500px; width: 100%; max-height: 90vh; overflow-y: auto;
+}
+.pm-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.pm-modal-title { font-weight: 700; color: #fff; font-size: 17px; }
+.pm-modal-info {
+  background: rgba(255,255,255,0.04); border-radius: 8px; padding: 10px 12px;
+  font-size: 13px; color: #ccc; margin-bottom: 14px; line-height: 1.5;
+}
+.pm-upload-zone {
+  border: 2px dashed rgba(255,184,0,0.4); border-radius: 10px;
+  padding: 30px 16px; text-align: center; cursor: pointer; margin-bottom: 14px;
+  transition: all 0.2s;
+}
+.pm-upload-zone:hover { border-color: #ffb800; background: rgba(255,184,0,0.05); }
+.pm-upload-icon { font-size: 32px; margin-bottom: 8px; }
+.pm-upload-text { color: #fff; font-weight: 500; margin-bottom: 4px; }
+.pm-upload-hint { color: #777; font-size: 12px; }
+.pm-preview { max-width: 100%; max-height: 300px; border-radius: 6px; }
+.pm-submit-btn {
+  width: 100%; padding: 12px; background: linear-gradient(135deg, #ffb800, #ff8800);
+  border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 14px;
+  cursor: pointer; transition: all 0.2s;
+}
+.pm-submit-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,184,0,0.3); }
+.pm-submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pm-result {
+  background: rgba(0, 200, 100, 0.08); border: 1px solid rgba(0,200,100,0.3);
+  border-radius: 8px; padding: 14px; margin-top: 14px; color: #fff;
+}
+.pm-result-title { font-weight: 700; color: #4ade80; margin-bottom: 8px; font-size: 14px; }
+.pm-result-line { font-size: 13px; line-height: 1.5; margin-bottom: 6px; }
+.pm-result-label { color: #888; font-weight: 600; }
+
+/* ═══ ALERTES SERVEUR (anti-piège, réajust, momentum) ═══ */
+.server-alerts { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.server-alert {
+  background: rgba(255, 184, 0, 0.08);
+  border: 1px solid rgba(255, 184, 0, 0.4);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.4;
+}
+.server-alert.danger {
+  background: rgba(255, 80, 80, 0.08);
+  border-color: rgba(255, 80, 80, 0.4);
+}
+.server-alert.info {
+  background: rgba(80, 180, 255, 0.08);
+  border-color: rgba(80, 180, 255, 0.4);
+}
+.server-alert-icon { font-size: 18px; flex-shrink: 0; }
+.server-alert-content { flex: 1; }
+.server-alert-title { font-weight: 700; margin-bottom: 3px; color: #fff; }
+.server-alert-msg { color: #ccc; }
+
+/* ═══ Boutons accès leçons & setups ═══ */
+.learning-bar {
+  max-width: 900px;
+  margin: 14px auto;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.learning-btn {
+  background: linear-gradient(135deg, rgba(80,180,255,0.12), rgba(80,180,255,0.05));
+  border: 1px solid rgba(80,180,255,0.35);
+  color: #80c8ff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.learning-btn:hover {
+  background: rgba(80,180,255,0.18);
+  border-color: rgba(80,180,255,0.6);
+  transform: translateY(-1px);
+}
+.learning-btn .badge {
+  background: rgba(80,180,255,0.25);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Modal liste générique */
+.list-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.list-modal-content {
+  background: #161616; border: 1px solid rgba(80,180,255,0.3); border-radius: 14px;
+  padding: 22px; max-width: 600px; width: 100%; max-height: 85vh; overflow-y: auto;
+}
+.list-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.list-modal-title { font-weight: 700; color: #fff; font-size: 17px; }
+.list-empty {
+  text-align: center; color: #777; padding: 30px 10px; font-size: 14px;
+}
+.list-item {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.list-item-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.list-item-title { font-weight: 700; color: #fff; font-size: 13px; }
+.list-item-date { color: #777; font-size: 11px; }
+.list-item-body { color: #bbb; font-size: 13px; line-height: 1.5; }
+.list-item-detail { color: #888; font-size: 12px; margin-top: 4px; font-style: italic; }
+.list-item-profit { color: #4ade80; font-weight: 700; }
+.list-item-loss { color: #ff5c5c; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -626,6 +796,70 @@
   </div>
 
   <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
+
+  <!-- ═══ POST-MORTEM : analyser les trades perdants pour faire évoluer l'IA ═══ -->
+  <div class="postmortem-banner" id="postmortemBanner" style="display:none;">
+    <div class="pm-header">
+      <div class="pm-title">📚 L'IA veut apprendre de tes trades perdants</div>
+      <button class="pm-close" onclick="hidePostMortem()">✕</button>
+    </div>
+    <div class="pm-subtitle">Montre-lui le screen du moment où le SL a été touché. Elle analysera ce qui a foiré et retiendra la leçon pour les prochaines analyses.</div>
+    <div class="pm-list" id="pmList"></div>
+  </div>
+
+  <!-- Modal upload screen post-mortem -->
+  <div class="pm-modal" id="pmModal" style="display:none;">
+    <div class="pm-modal-content">
+      <div class="pm-modal-header">
+        <div class="pm-modal-title">Analyser ce trade perdant</div>
+        <button class="pm-close" onclick="closePmModal()">✕</button>
+      </div>
+      <div class="pm-modal-info" id="pmModalInfo"></div>
+      <div class="pm-upload-zone" id="pmUploadZone" onclick="document.getElementById('pmFile').click()">
+        <input type="file" id="pmFile" accept="image/*" hidden onchange="onPmFileChange(event)"/>
+        <div class="pm-upload-placeholder" id="pmUploadPlaceholder">
+          <div class="pm-upload-icon">📸</div>
+          <div class="pm-upload-text">Clique pour uploader le screen du SL</div>
+          <div class="pm-upload-hint">PNG / JPG</div>
+        </div>
+        <img id="pmPreview" class="pm-preview" style="display:none;" alt=""/>
+      </div>
+      <button class="pm-submit-btn" id="pmSubmitBtn" onclick="submitPostMortem()" disabled>Envoyer à l'IA</button>
+      <div class="pm-result" id="pmResult" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Barre d'accès aux apprentissages ═══ -->
+  <div class="learning-bar">
+    <button class="learning-btn" onclick="openLeconsModal()">
+      📚 Mes leçons <span class="badge" id="leconsBadge">0</span>
+    </button>
+    <button class="learning-btn" onclick="openSetupsModal()">
+      🏆 Mes setups gagnants <span class="badge" id="setupsBadge">0</span>
+    </button>
+  </div>
+
+  <!-- Modal Mes leçons -->
+  <div class="list-modal" id="leconsModal" style="display:none;">
+    <div class="list-modal-content">
+      <div class="list-modal-header">
+        <div class="list-modal-title">📚 Tes leçons apprises</div>
+        <button class="pm-close" onclick="closeLeconsModal()">✕</button>
+      </div>
+      <div id="leconsList"></div>
+    </div>
+  </div>
+
+  <!-- Modal Mes setups gagnants -->
+  <div class="list-modal" id="setupsModal" style="display:none;">
+    <div class="list-modal-content">
+      <div class="list-modal-header">
+        <div class="list-modal-title">🏆 Tes meilleurs setups</div>
+        <button class="pm-close" onclick="closeSetupsModal()">✕</button>
+      </div>
+      <div id="setupsList"></div>
+    </div>
+  </div>
 
   <div class="panel">
     <!-- ═══ MT5 NON CONNECTE — design premium cyber ═══ -->
@@ -816,6 +1050,9 @@
       <span class="conf" id="confTxt"></span>
     </div>
 
+    <!-- ═══ ALERTES SERVEUR (anti-piège, réajust, momentum, drawdown) ═══ -->
+    <div class="server-alerts" id="serverAlerts"></div>
+
     <!-- BLOC SESSION -->
     <div class="session-box" id="sessionBox">
       <div class="session-header">
@@ -968,8 +1205,6 @@
     <div id="histList"><div class="hi-empty">Aucune analyse pour l'instant</div></div>
   </div>
 
-</div>
-
 <script>
 let currentId = null;
 let lastAnalysis = null;
@@ -1064,6 +1299,9 @@ fetch('/me').then(r=>r.json()).then(u=>{
     a.href='/admin.html';a.className='nav-link admin';a.textContent='◈ Admin';
     document.getElementById('navRight').insertBefore(a,document.getElementById('navRight').firstChild);
   }
+
+  // Charger les trades perdants en attente d'analyse post-mortem
+  loadPendingPostMortems();
 
   // ─── Affichage MT5 connecte ou pas ────────────────────────────
   if(u.mt5 && u.mt5.connected){
@@ -1509,6 +1747,35 @@ async function analyze(){
     document.getElementById('decTxt').textContent=decLow.includes('buy')?'▲ BUY':decLow.includes('sell')?'▼ SELL':'⚠ NE PAS TRADER';
     document.getElementById('confTxt').textContent=d.confiance?'Confiance '+d.confiance:'';
 
+    // ─── ALERTES SERVEUR (anti-piège, réajust, momentum, drawdown) ───
+    const alertsEl = document.getElementById('serverAlerts');
+    alertsEl.innerHTML = '';
+    const alerts = [];
+    if (d.piegeRangeAlerte) {
+      alerts.push({ type: 'danger', icon: '🚫', title: 'Piège range asiatique détecté', msg: d.piegeRangeAlerte });
+    }
+    if (d.reajustAlerte) {
+      alerts.push({ type: 'info', icon: '🎯', title: 'Entrée réajustée par le serveur', msg: d.reajustAlerte });
+    }
+    if (d.momentumAlerte) {
+      alerts.push({ type: 'danger', icon: '⚡', title: 'Momentum contraire détecté', msg: d.momentumAlerte });
+    }
+    if (d.lotDynamiqueAlerte) {
+      alerts.push({ type: 'info', icon: '💰', title: 'Lot ajusté (drawdown jour)', msg: d.lotDynamiqueAlerte });
+    }
+    alerts.forEach(a => {
+      const div = document.createElement('div');
+      div.className = 'server-alert ' + a.type;
+      div.innerHTML = `
+        <div class="server-alert-icon">${a.icon}</div>
+        <div class="server-alert-content">
+          <div class="server-alert-title">${a.title}</div>
+          <div class="server-alert-msg">${a.msg}</div>
+        </div>
+      `;
+      alertsEl.appendChild(div);
+    });
+
     const sc=d.score||0;
     const scEl=document.getElementById('scoreTxt');
     scEl.textContent=sc+'/10';
@@ -1646,6 +1913,207 @@ async function analyze(){
   document.getElementById('loadBar').classList.remove('on');
   document.getElementById('loadTxt').classList.remove('on');
 }
+// ═══ POST-MORTEM : analyse des trades perdants ═══
+let currentPmAnalysisId = null;
+let currentPmFile = null;
+
+async function loadPendingPostMortems() {
+  try {
+    const r = await fetch('/postmortem/pending');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.count) return;
+    const banner = document.getElementById('postmortemBanner');
+    const list = document.getElementById('pmList');
+    list.innerHTML = '';
+    data.analyses.forEach(a => {
+      const item = document.createElement('div');
+      item.className = 'pm-trade-item';
+      item.onclick = () => openPmModal(a);
+      const date = new Date(a.tradeClotureTemps || a.createdAt);
+      const dateStr = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) + ' ' + date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      item.innerHTML = `
+        <div class="pm-trade-info">
+          <div class="pm-trade-symbol">${a.instrument || 'XAUUSD'} ${a.decision}</div>
+          <div class="pm-trade-detail">Entrée ${a.entry} · ${dateStr}</div>
+        </div>
+        <div class="pm-trade-loss">${a.tradeProfit ? a.tradeProfit.toFixed(2) + '$' : 'Perte'}</div>
+        <div class="pm-trade-arrow">→</div>
+      `;
+      list.appendChild(item);
+    });
+    banner.style.display = 'block';
+  } catch(e) { console.log('Erreur loadPendingPostMortems:', e); }
+}
+
+function openPmModal(analyse) {
+  currentPmAnalysisId = analyse._id;
+  currentPmFile = null;
+  const modal = document.getElementById('pmModal');
+  const info = document.getElementById('pmModalInfo');
+  info.innerHTML = `
+    <strong>${analyse.instrument || 'XAUUSD'} ${analyse.decision}</strong><br>
+    Entrée: ${analyse.entry} · SL: ${analyse.sl} · TP: ${analyse.tp}<br>
+    Score initial: ${analyse.score}/10 · Perte: <span style="color:#ff5c5c;">${analyse.tradeProfit ? analyse.tradeProfit.toFixed(2) + '$' : '?'}</span>
+  `;
+  document.getElementById('pmPreview').style.display = 'none';
+  document.getElementById('pmUploadPlaceholder').style.display = 'block';
+  document.getElementById('pmSubmitBtn').disabled = true;
+  document.getElementById('pmResult').style.display = 'none';
+  document.getElementById('pmFile').value = '';
+  modal.style.display = 'flex';
+}
+
+function closePmModal() {
+  document.getElementById('pmModal').style.display = 'none';
+  currentPmAnalysisId = null;
+  currentPmFile = null;
+}
+
+function hidePostMortem() {
+  document.getElementById('postmortemBanner').style.display = 'none';
+}
+
+function onPmFileChange(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  currentPmFile = file;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    document.getElementById('pmPreview').src = ev.target.result;
+    document.getElementById('pmPreview').style.display = 'block';
+    document.getElementById('pmUploadPlaceholder').style.display = 'none';
+    document.getElementById('pmSubmitBtn').disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitPostMortem() {
+  if (!currentPmAnalysisId || !currentPmFile) return;
+  const btn = document.getElementById('pmSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Analyse en cours...';
+  const fd = new FormData();
+  fd.append('screen', currentPmFile);
+  try {
+    const r = await fetch('/postmortem/' + currentPmAnalysisId, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok || data.error) {
+      alert('Erreur : ' + (data.error || 'inconnue'));
+      btn.disabled = false;
+      btn.textContent = 'Envoyer à l\'IA';
+      return;
+    }
+    const result = document.getElementById('pmResult');
+    const l = data.lecon;
+    result.innerHTML = `
+      <div class="pm-result-title">✓ Leçon enregistrée — l'IA s'améliore</div>
+      <div class="pm-result-line"><span class="pm-result-label">Ce qui a foiré :</span> ${l.ce_qui_a_foire}</div>
+      <div class="pm-result-line"><span class="pm-result-label">Signal manqué :</span> ${l.signal_manque}</div>
+      <div class="pm-result-line"><span class="pm-result-label">Leçon retenue :</span> ${l.lecon}</div>
+    `;
+    result.style.display = 'block';
+    btn.style.display = 'none';
+    setTimeout(() => { closePmModal(); loadPendingPostMortems(); loadLearningBadges(); }, 5000);
+  } catch(e) {
+    alert('Erreur réseau : ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Envoyer à l\'IA';
+  }
+}
+
+// ═══ MES LEÇONS & SETUPS GAGNANTS ═══
+async function loadLearningBadges() {
+  try {
+    const [lr, sr] = await Promise.all([
+      fetch('/apprentissage/lecons').then(r => r.json()).catch(() => ({ count: 0 })),
+      fetch('/apprentissage/setups-gagnants').then(r => r.json()).catch(() => ({ count: 0 }))
+    ]);
+    document.getElementById('leconsBadge').textContent = lr.count || 0;
+    document.getElementById('setupsBadge').textContent = sr.count || 0;
+  } catch(e) {}
+}
+
+async function openLeconsModal() {
+  const modal = document.getElementById('leconsModal');
+  const list = document.getElementById('leconsList');
+  list.innerHTML = '<div class="list-empty">Chargement...</div>';
+  modal.style.display = 'flex';
+  try {
+    const r = await fetch('/apprentissage/lecons');
+    const data = await r.json();
+    if (!data.lecons || !data.lecons.length) {
+      list.innerHTML = '<div class="list-empty">Aucune leçon pour l\'instant.<br>Les leçons seront générées automatiquement à chaque trade perdant.</div>';
+      return;
+    }
+    list.innerHTML = data.lecons.map(l => {
+      const date = new Date(l.createdAt);
+      const dateStr = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      return `
+        <div class="list-item">
+          <div class="list-item-header">
+            <div class="list-item-title">${l.setupType || 'Setup'} — ${l.instrument || 'XAUUSD'} ${l.direction || ''}</div>
+            <div class="list-item-date">${dateStr}</div>
+          </div>
+          <div class="list-item-body"><strong>Leçon :</strong> ${l.lecon}</div>
+          ${l.signalManque ? `<div class="list-item-detail">Signal manqué : ${l.signalManque}</div>` : ''}
+          ${l.ceQuiAFoire ? `<div class="list-item-detail">Erreur : ${l.ceQuiAFoire}</div>` : ''}
+          ${l.perte ? `<div class="list-item-detail list-item-loss">Perte : ${l.perte.toFixed(2)}$</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="list-empty">Erreur de chargement</div>';
+  }
+}
+
+function closeLeconsModal() {
+  document.getElementById('leconsModal').style.display = 'none';
+}
+
+async function openSetupsModal() {
+  const modal = document.getElementById('setupsModal');
+  const list = document.getElementById('setupsList');
+  list.innerHTML = '<div class="list-empty">Chargement...</div>';
+  modal.style.display = 'flex';
+  try {
+    const r = await fetch('/apprentissage/setups-gagnants');
+    const data = await r.json();
+    if (!data.setups || !data.setups.length) {
+      list.innerHTML = '<div class="list-empty">Aucun setup gagnant pour l\'instant.<br>Les patterns seront enregistrés à chaque trade gagnant.</div>';
+      return;
+    }
+    const noms = ['dim','lun','mar','mer','jeu','ven','sam'];
+    list.innerHTML = data.setups.map(s => {
+      const date = new Date(s.createdAt);
+      const dateStr = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+      return `
+        <div class="list-item">
+          <div class="list-item-header">
+            <div class="list-item-title">${s.direction} ${s.instrument} — ${noms[s.jourSemaine]} ${s.session}</div>
+            <div class="list-item-date">${dateStr}</div>
+          </div>
+          <div class="list-item-body">
+            Score initial : <strong>${s.score}/10</strong> ·
+            Profit : <span class="list-item-profit">+${s.profit.toFixed(2)}$</span>
+          </div>
+          ${s.crt && s.crt !== 'NON' ? `<div class="list-item-detail">CRT : ${s.crt}</div>` : ''}
+          ${s.entreeLevel ? `<div class="list-item-detail">Niveau d'entrée : ${s.entreeLevel}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div class="list-empty">Erreur de chargement</div>';
+  }
+}
+
+function closeSetupsModal() {
+  document.getElementById('setupsModal').style.display = 'none';
+}
+
+// Charger les badges au démarrage
+loadLearningBadges();
+
 </script>
 </body>
 </html>
