@@ -358,6 +358,318 @@ function verifierPiegeRangeAsiatique(parsed) {
   return parsed;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 🛡️ PROTECTIONS AVANCÉES (RSI extrême + mouvement épuisé + distance TP)
+// ═══════════════════════════════════════════════════════════════════
+
+// Calcul du RSI 14 sur un tableau de bougies (closes uniquement)
+function calculerRSI(candles, periode = 14) {
+  if (!candles || candles.length < periode + 1) return null;
+  const closes = candles.slice(-(periode + 1)).map(c => c.close);
+  let gains = 0, pertes = 0;
+  for (let i = 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gains += diff;
+    else pertes += Math.abs(diff);
+  }
+  if (pertes === 0) return 100;
+  if (gains === 0) return 0;
+  const rs = (gains / periode) / (pertes / periode);
+  return +(100 - (100 / (1 + rs))).toFixed(1);
+}
+
+// Calcul Moving Average simple sur les N dernières clôtures
+function calculerMA(candles, periode) {
+  if (!candles || candles.length < periode) return null;
+  const closes = candles.slice(-periode).map(c => c.close);
+  return +(closes.reduce((a, b) => a + b, 0) / periode).toFixed(2);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 📊 INDICATEURS TECHNIQUES — INJECTION DANS LE PROMPT
+// ═══════════════════════════════════════════════════════════════════
+// Calcule RSI + MA20 + MA50 sur H1, M15, M5 et formatte un bloc texte
+// que l'IA reçoit AVANT de proposer son trade. Comme ça elle voit les
+// indicateurs réels (pas devinés sur les screens) et propose un setup
+// cohérent avec eux.
+async function getBlocIndicateursTechniques(userId, symbole) {
+  if (!metaApi) return '';
+  try {
+    const user = await db.findOneAsync({ _id: userId });
+    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return '';
+
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    if (account.state !== 'DEPLOYED') return '';
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    const sym = (symbole || 'XAUUSD').toUpperCase();
+    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+
+    let candlesH1 = [], candlesM15 = [], candlesM5 = [], prixActuel = null;
+
+    for (const sfx of suffixes) {
+      try {
+        const symFull = sym + sfx;
+        candlesH1 = await connection.getHistoricalCandles(symFull, '1h', undefined, 60) || [];
+        candlesM15 = await connection.getHistoricalCandles(symFull, '15m', undefined, 60) || [];
+        candlesM5 = await connection.getHistoricalCandles(symFull, '5m', undefined, 60) || [];
+        const tick = await connection.getSymbolPrice(symFull);
+        if (tick && tick.bid) prixActuel = (tick.bid + tick.ask) / 2;
+        if (candlesH1.length && candlesM15.length) break;
+      } catch(e) {}
+    }
+    if (!candlesM15.length) return '';
+
+    // Calcul des indicateurs
+    const indic = {
+      h1: {
+        rsi: calculerRSI(candlesH1, 14),
+        ma20: calculerMA(candlesH1, 20),
+        ma50: calculerMA(candlesH1, 50)
+      },
+      m15: {
+        rsi: calculerRSI(candlesM15, 14),
+        ma20: calculerMA(candlesM15, 20),
+        ma50: calculerMA(candlesM15, 50)
+      },
+      m5: {
+        rsi: calculerRSI(candlesM5, 14),
+        ma20: calculerMA(candlesM5, 20),
+        ma50: calculerMA(candlesM5, 50)
+      }
+    };
+
+    // Helper pour formater RSI avec alerte
+    const fmtRSI = (rsi) => {
+      if (rsi === null) return '—';
+      if (rsi >= 80) return `${rsi} ⚠ SURACHAT EXTRÊME`;
+      if (rsi <= 20) return `${rsi} ⚠ SURVENTE EXTRÊME`;
+      if (rsi >= 70) return `${rsi} ⚠ surachat`;
+      if (rsi <= 30) return `${rsi} ⚠ survente`;
+      return `${rsi}`;
+    };
+
+    // Helper pour position vs MA
+    const fmtMA = (ma, prix) => {
+      if (ma === null || prix === null) return '—';
+      const diff = prix - ma;
+      const sign = diff > 0 ? '+' : '';
+      return `${ma} (${sign}${diff.toFixed(1)}p ${diff > 0 ? 'au-dessus' : 'sous'})`;
+    };
+
+    let txt = '\n═══════════════════════════════════════════════════════════════\n';
+    txt += '📊 INDICATEURS TECHNIQUES (calculés sur les vraies bougies du marché)\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    if (prixActuel) txt += `Prix actuel : ${prixActuel.toFixed(2)}\n\n`;
+
+    txt += `H1  | RSI ${fmtRSI(indic.h1.rsi)} | MA20 ${fmtMA(indic.h1.ma20, prixActuel)} | MA50 ${fmtMA(indic.h1.ma50, prixActuel)}\n`;
+    txt += `M15 | RSI ${fmtRSI(indic.m15.rsi)} | MA20 ${fmtMA(indic.m15.ma20, prixActuel)} | MA50 ${fmtMA(indic.m15.ma50, prixActuel)}\n`;
+    txt += `M5  | RSI ${fmtRSI(indic.m5.rsi)} | MA20 ${fmtMA(indic.m5.ma20, prixActuel)} | MA50 ${fmtMA(indic.m5.ma50, prixActuel)}\n\n`;
+
+    // Alertes synthétiques
+    const alertes = [];
+    const rsiExtremesSurvente = [indic.h1.rsi, indic.m15.rsi, indic.m5.rsi].filter(r => r !== null && r <= 25).length;
+    const rsiExtremesSurachat = [indic.h1.rsi, indic.m15.rsi, indic.m5.rsi].filter(r => r !== null && r >= 75).length;
+    if (rsiExtremesSurvente >= 2) alertes.push('⚠ RSI EN SURVENTE EXTRÊME sur plusieurs timeframes — REBOND TECHNIQUE TRÈS PROBABLE. NE PAS VENDRE sans signal de retournement clair (CHoCH M5 + bougie d\'absorption).');
+    if (rsiExtremesSurachat >= 2) alertes.push('⚠ RSI EN SURACHAT EXTRÊME sur plusieurs timeframes — CORRECTION TRÈS PROBABLE. NE PAS ACHETER sans signal de retournement clair.');
+
+    // Position vs MAs (cohérence avec direction)
+    if (prixActuel && indic.h1.ma20 && indic.h1.ma50) {
+      const sousMA = prixActuel < indic.h1.ma20 && prixActuel < indic.h1.ma50;
+      const auDessusMA = prixActuel > indic.h1.ma20 && prixActuel > indic.h1.ma50;
+      const distMA20 = Math.abs(prixActuel - indic.h1.ma20);
+      const distMA50 = Math.abs(prixActuel - indic.h1.ma50);
+
+      if (sousMA && distMA50 > 50) alertes.push(`⚠ Prix très éloigné SOUS MA50 H1 (${distMA50.toFixed(0)} pips) — mouvement baissier épuisé, rebond probable, éviter SELL agressifs.`);
+      if (auDessusMA && distMA50 > 50) alertes.push(`⚠ Prix très éloigné AU-DESSUS MA50 H1 (${distMA50.toFixed(0)} pips) — mouvement haussier épuisé, correction probable, éviter BUY agressifs.`);
+    }
+
+    if (alertes.length) {
+      txt += 'ALERTES TECHNIQUES :\n';
+      alertes.forEach(a => txt += a + '\n');
+      txt += '\n';
+    }
+
+    txt += 'UTILISE CES VALEURS pour ta décision. Si elles contredisent ton signal initial → revoir ou refuser.\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    return txt;
+  } catch(err) {
+    console.log('[INDICATEURS] Erreur:', err.message);
+    return '';
+  }
+}
+
+// Vérifications avancées post-IA. Récupère les bougies M15 + prix actuel
+// et applique 3 protections critiques.
+async function verifierProtectionsAvancees(parsed, userId) {
+  if (parsed.decision !== 'BUY' && parsed.decision !== 'SELL') return parsed;
+  if (!metaApi) return parsed;
+
+  try {
+    const user = await db.findOneAsync({ _id: userId });
+    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return parsed;
+
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    if (account.state !== 'DEPLOYED') return parsed; // pas de deploy ici, économie
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    const symbole = (parsed.instrument || 'XAUUSD').toUpperCase();
+    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+
+    let candlesM15 = [], prixActuel = null;
+    for (const sfx of suffixes) {
+      try {
+        const sym = symbole + sfx;
+        candlesM15 = await connection.getHistoricalCandles(sym, '15m', undefined, 30) || [];
+        const tick = await connection.getSymbolPrice(sym);
+        if (tick && tick.bid) prixActuel = (tick.bid + tick.ask) / 2;
+        if (candlesM15.length && prixActuel) break;
+      } catch(e) {}
+    }
+    if (!candlesM15.length || !prixActuel) return parsed;
+
+    const isBuy = parsed.decision === 'BUY';
+    const entree = parseFloat(parsed.entree);
+    const sl = parseFloat(parsed.sl);
+    const tp = parseFloat(parsed.tp1);
+    const distSL = Math.abs(entree - sl);
+
+    const alertes = [];
+    let scoreReduit = false;
+    let tradeAnnule = false;
+
+    // ─── PROTECTION 1 : RSI EXTRÊME ───────────────────────────────
+    // Évite d'acheter en surachat ou de vendre en survente extrême
+    const rsi = calculerRSI(candlesM15, 14);
+    if (rsi !== null) {
+      if (isBuy && rsi >= 80) {
+        tradeAnnule = true;
+        alertes.push(`RSI M15 ${rsi} en SURACHAT EXTRÊME — correction probable, BUY annulé`);
+      } else if (!isBuy && rsi <= 20) {
+        tradeAnnule = true;
+        alertes.push(`RSI M15 ${rsi} en SURVENTE EXTRÊME — rebond technique probable, SELL annulé`);
+      } else if (isBuy && rsi >= 70) {
+        scoreReduit = true;
+        alertes.push(`RSI M15 ${rsi} en surachat — risque de correction, score réduit`);
+      } else if (!isBuy && rsi <= 30) {
+        scoreReduit = true;
+        alertes.push(`RSI M15 ${rsi} en survente — risque de rebond, score réduit`);
+      }
+    }
+
+    // ─── PROTECTION 2 : ANTI-CHASSE DE MOUVEMENT ÉPUISÉ ──────────
+    // Logique corrigée : on regarde les 5 dernières bougies M15.
+    // Si l'une d'elles a un range > 3.5× la moyenne ET va dans le même sens
+    // que notre trade (= mouvement violent déjà fait, on chasse), on annule
+    // ou on réduit selon la sévérité. Trader CONTRE un mouvement violent
+    // récent = aussi annulé (risque énorme).
+    if (candlesM15.length >= 20) {
+      const ranges = candlesM15.slice(-20, -5).map(c => c.high - c.low); // moyenne sur les 15 précédentes (hors les 5 récentes)
+      const rangeMoyen = ranges.reduce((a, b) => a + b, 0) / ranges.length;
+
+      const cinqDernieres = candlesM15.slice(-5);
+      let plusGrosseRecente = null;
+      let plusGrosRatio = 0;
+
+      for (const c of cinqDernieres) {
+        const r = c.high - c.low;
+        const ratio = rangeMoyen > 0 ? r / rangeMoyen : 1;
+        if (ratio > plusGrosRatio) {
+          plusGrosRatio = ratio;
+          plusGrosseRecente = c;
+        }
+      }
+
+      if (plusGrosseRecente && plusGrosRatio >= 3.5) {
+        const corps = plusGrosseRecente.close - plusGrosseRecente.open;
+        const haussiere = corps > 0;
+        const baissiere = corps < 0;
+
+        // Cas 1 : trade DANS le sens du mouvement violent récent = chasse de prix
+        const memeSens = (isBuy && haussiere) || (!isBuy && baissiere);
+        // Cas 2 : trade CONTRE le mouvement violent = très risqué aussi
+        const contreSens = (isBuy && baissiere) || (!isBuy && haussiere);
+
+        if (memeSens) {
+          tradeAnnule = true;
+          alertes.push(`Bougie M15 récente ${plusGrosRatio.toFixed(1)}× la moyenne dans le sens — tu chasses un mouvement déjà fait, trade annulé`);
+        } else if (contreSens && plusGrosRatio >= 4) {
+          tradeAnnule = true;
+          alertes.push(`Bougie M15 récente ${plusGrosRatio.toFixed(1)}× la moyenne contre direction — trop risqué, trade annulé`);
+        } else if (contreSens) {
+          scoreReduit = true;
+          alertes.push(`Bougie M15 récente ${plusGrosRatio.toFixed(1)}× la moyenne contre direction — score réduit`);
+        }
+      } else if (plusGrosseRecente && plusGrosRatio >= 2.5) {
+        // Mouvement modéré récent : on garde mais on flag
+        const corps = plusGrosseRecente.close - plusGrosseRecente.open;
+        const memeSens = (isBuy && corps > 0) || (!isBuy && corps < 0);
+        if (memeSens) {
+          scoreReduit = true;
+          alertes.push(`Mouvement récent ${plusGrosRatio.toFixed(1)}× la moyenne dans le sens — risque épuisement, score réduit`);
+        }
+      }
+    }
+
+    // ─── PROTECTION 3 : R:R RÉEL DEPUIS LE PRIX ACTUEL ────────────
+    // C'est le R:R réel après slippage / si le LIMIT s'exécute mal.
+    // Seuil : 1.3 minimum pour passer (équilibré : ni strict ni laxiste).
+    const distPrixVersTP = Math.abs(prixActuel - tp);
+    const distPrixVersSL = Math.abs(prixActuel - sl);
+    const rrReel = distPrixVersSL > 0 ? distPrixVersTP / distPrixVersSL : 0;
+
+    if (rrReel < 1) {
+      tradeAnnule = true;
+      alertes.push(`R:R réel ${rrReel.toFixed(2)} < 1 — depuis prix ${prixActuel.toFixed(2)} : TP ${distPrixVersTP.toFixed(1)}p / SL ${distPrixVersSL.toFixed(1)}p — trade annulé`);
+    } else if (rrReel < 1.3) {
+      scoreReduit = true;
+      alertes.push(`R:R réel ${rrReel.toFixed(2)} faible — depuis prix ${prixActuel.toFixed(2)} : TP ${distPrixVersTP.toFixed(1)}p / SL ${distPrixVersSL.toFixed(1)}p — score réduit`);
+    }
+
+    // ─── PROTECTION 4 : DISTANCE ENTRÉE INSUFFISANTE ──────────────
+    // Pour XAU, un LIMIT order placé à moins de 8 pips du prix actuel
+    // est risqué (slippage, refus broker, fill au pire moment).
+    // Seuil adapté selon instrument.
+    const symLow = symbole.toLowerCase();
+    const seuilDistance = (symLow.includes('xau') || symLow.includes('gold')) ? 8 : 5;
+    const distEntreePrix = Math.abs(prixActuel - entree);
+
+    if (distEntreePrix > 0 && distEntreePrix < seuilDistance) {
+      // Vérifier si l'entrée est encore "atteignable" dans le bon sens
+      const buyLimitOK = isBuy && entree < prixActuel;   // BUY LIMIT = sous le prix
+      const sellLimitOK = !isBuy && entree > prixActuel; // SELL LIMIT = au-dessus
+
+      if (buyLimitOK || sellLimitOK) {
+        // LIMIT trop proche → risque de fill au mauvais moment
+        scoreReduit = true;
+        alertes.push(`Entrée LIMIT à seulement ${distEntreePrix.toFixed(1)} pips du prix actuel — risque de fill défavorable, score réduit`);
+      }
+    }
+
+    // ─── APPLICATION ──────────────────────────────────────────────
+    if (alertes.length > 0) {
+      parsed.protectionsAlertes = alertes.join(' | ');
+      console.log('[PROTECTIONS] ' + parsed.decision + ' ' + symbole + ' : ' + alertes.join(' | '));
+
+      if (tradeAnnule) {
+        parsed.decision = 'NE PAS TRADER';
+        parsed.score = 3;
+      } else if (scoreReduit) {
+        parsed.score = Math.min(parsed.score || 5, 5);
+      }
+    }
+
+    return parsed;
+  } catch(err) {
+    console.log('[PROTECTIONS] Erreur:', err.message);
+    return parsed;
+  }
+}
+
 // ─── RÉCUPÈRE LE PRIX ACTUEL VIA METAAPI ────────────────────────────
 // Utilise le compte MT5 du user pour obtenir le bid/ask en live.
 // Retourne null si pas dispo (le réajustement sera skippé).
@@ -1225,9 +1537,50 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
     const { result } = req.body;
     await analysesDb.updateAsync(
       { _id: req.params.id, userId: req.session.userId },
-      { $set: { feedbackResult: result } },
+      { $set: { feedbackResult: result, feedbackTime: new Date() } },
       {}
     );
+
+    // Si SL touché → déclencher le post-mortem auto IMMÉDIATEMENT et attendre
+    // la leçon pour la renvoyer au client
+    if (result === 'sl') {
+      const analyse = await analysesDb.findOneAsync({ _id: req.params.id, userId: req.session.userId });
+      if (analyse && !analyse.leconId) {
+        const perteEstimee = analyse.tradeProfit || -1;
+        const analyseAvecPerte = {
+          ...analyse,
+          tradeProfit: perteEstimee,
+          tradeClotureTemps: new Date()
+        };
+        try {
+          const lecon = await genererPostMortemAuto(analyseAvecPerte, req.session.userId);
+          if (lecon) {
+            console.log('[FEEDBACK-SL] Leçon auto générée pour ' + req.params.id);
+            return res.json({ success: true, lecon });
+          }
+        } catch(err) {
+          console.log('[FEEDBACK-SL] Erreur:', err.message);
+        }
+      }
+    }
+    // Si TP touché → enregistrer comme setup gagnant
+    else if (result === 'tp') {
+      const analyse = await analysesDb.findOneAsync({ _id: req.params.id, userId: req.session.userId });
+      if (analyse && !analyse.setupGagnantEnregistre) {
+        const analyseGagnante = {
+          ...analyse,
+          tradeProfit: analyse.tradeProfit && analyse.tradeProfit > 0 ? analyse.tradeProfit : 1,
+          tradeClotureTemps: new Date()
+        };
+        try {
+          await enregistrerSetupGagnant(analyseGagnante);
+          return res.json({ success: true, setupEnregistre: true });
+        } catch(err) {
+          console.log('[FEEDBACK-TP] Erreur:', err.message);
+        }
+      }
+    }
+
     res.json({ success: true });
   } catch(e) { res.json({ error: e.message }); }
 });
@@ -1469,10 +1822,13 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     // 🔍 OB/FVG détectés algorithmiquement (data objective)
     const blocOBFVG = await getBlocOBFVG(req.session.userId, req.body.instrument || 'XAUUSD');
 
+    // 📊 Indicateurs techniques (RSI + MAs sur H1/M15/M5)
+    const blocIndicateurs = await getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD');
+
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
-${blocLecons}${blocSetupsGagnants}${blocOBFVG}
+${blocLecons}${blocSetupsGagnants}${blocOBFVG}${blocIndicateurs}
 
 ═══════════════════════════════════════════════════════════════
 🕐 CONTEXTE TEMPOREL — OBLIGATOIRE À RESPECTER
@@ -1914,6 +2270,9 @@ RÈGLES ABSOLUES:
 
     // ─── RÉAJUSTEMENT AUTO DE L'ENTRÉE (vs prix actuel MetaAPI) ───
     parsed = await reajusterEntreeSiNecessaire(parsed, req.session.userId);
+
+    // ─── PROTECTIONS AVANCÉES (RSI extrême + mouvement épuisé + R:R réel) ───
+    parsed = await verifierProtectionsAvancees(parsed, req.session.userId);
 
     // ─── CALCUL LOTS CÔTÉ SERVEUR (garanti) ──────────────────
     if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {

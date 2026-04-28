@@ -1301,7 +1301,8 @@ fetch('/me').then(r=>r.json()).then(u=>{
   }
 
   // Charger les trades perdants en attente d'analyse post-mortem
-  loadPendingPostMortems();
+  // Désactivé : le post-mortem se déclenche maintenant via le bouton "❌ SL touché"
+  // loadPendingPostMortems();
 
   // ─── Affichage MT5 connecte ou pas ────────────────────────────
   if(u.mt5 && u.mt5.connected){
@@ -1614,11 +1615,95 @@ function fallbackCopy(text) {
 async function sendFb(res){
   document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
   document.querySelector('.fb-btn.'+res).classList.add('sel');
+
+  // Si SL ou TP : afficher un loader pendant que l'IA bosse
+  if (res === 'sl' || res === 'tp') {
+    showFbLoader(res);
+  }
+
   try{
-    if(currentId) await fetch('/analyses/'+currentId+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:res})});
+    if (!currentId) return;
+    const r = await fetch('/analyses/'+currentId+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result:res})});
+    const data = await r.json();
     document.getElementById('fbThanks').classList.add('show');
     loadHist();
-  }catch(e){}
+
+    // Afficher la leçon si SL
+    if (res === 'sl' && data.lecon) {
+      showLeconResult(data.lecon);
+      loadLearningBadges();
+    }
+    // Confirmer setup gagnant si TP
+    else if (res === 'tp' && data.setupEnregistre) {
+      showSetupConfirm();
+      loadLearningBadges();
+    }
+    else if (res === 'sl' || res === 'tp') {
+      // Pas de leçon générée (déjà existante ou erreur) → fermer le loader
+      hideFbLoader();
+    }
+  }catch(e){
+    hideFbLoader();
+  }
+}
+
+function showFbLoader(type) {
+  let modal = document.getElementById('fbResultModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'fbResultModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(modal);
+  }
+  const color = type === 'sl' ? '#ff5c5c' : '#4ade80';
+  const icon = type === 'sl' ? '📚' : '🏆';
+  const text = type === 'sl' ? 'L\'IA analyse ton trade perdant...' : 'Enregistrement du setup gagnant...';
+  modal.innerHTML = `
+    <div style="background:#161616;border:1px solid ${color}66;border-radius:14px;padding:30px;max-width:480px;width:100%;text-align:center;">
+      <div style="font-size:48px;margin-bottom:12px;">${icon}</div>
+      <div style="font-weight:700;color:${color};font-size:16px;margin-bottom:20px;">${text}</div>
+      <div style="width:40px;height:40px;border:3px solid ${color}33;border-top-color:${color};border-radius:50%;margin:0 auto;animation:spin 1s linear infinite;"></div>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg);}}</style>
+  `;
+  modal.style.display = 'flex';
+}
+
+function hideFbLoader() {
+  const modal = document.getElementById('fbResultModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function showLeconResult(lecon) {
+  const modal = document.getElementById('fbResultModal');
+  if (!modal) return;
+  modal.innerHTML = `
+    <div style="background:#161616;border:1px solid rgba(74,222,128,0.4);border-radius:14px;padding:24px;max-width:520px;width:100%;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-weight:700;color:#4ade80;font-size:16px;">✓ Leçon enregistrée — l'IA s'améliore</div>
+        <button onclick="hideFbLoader()" style="background:transparent;border:none;color:#fff;font-size:20px;cursor:pointer;">✕</button>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:14px;font-size:13px;line-height:1.6;color:#ccc;">
+        <div style="margin-bottom:8px;"><strong style="color:#ffb800;">Ce qui a foiré :</strong> ${lecon.ce_qui_a_foire}</div>
+        <div style="margin-bottom:8px;"><strong style="color:#ffb800;">Signal manqué :</strong> ${lecon.signal_manque}</div>
+        <div><strong style="color:#ffb800;">Leçon retenue :</strong> ${lecon.lecon}</div>
+      </div>
+      <div style="text-align:center;margin-top:16px;color:#888;font-size:12px;">Cette leçon sera injectée dans toutes tes prochaines analyses</div>
+    </div>
+  `;
+}
+
+function showSetupConfirm() {
+  const modal = document.getElementById('fbResultModal');
+  if (!modal) return;
+  modal.innerHTML = `
+    <div style="background:#161616;border:1px solid rgba(74,222,128,0.4);border-radius:14px;padding:30px;max-width:420px;width:100%;text-align:center;">
+      <div style="font-size:48px;margin-bottom:12px;">🏆</div>
+      <div style="font-weight:700;color:#4ade80;font-size:16px;margin-bottom:8px;">Setup gagnant enregistré !</div>
+      <div style="color:#aaa;font-size:13px;margin-bottom:20px;">L'IA va privilégier ce type de pattern dans tes prochaines analyses</div>
+      <button onclick="hideFbLoader()" style="background:linear-gradient(135deg,#4ade80,#16a34a);border:none;border-radius:8px;color:#000;font-weight:700;padding:10px 24px;cursor:pointer;">OK</button>
+    </div>
+  `;
 }
 
 async function sendHFb(id,res){
@@ -1762,6 +1847,9 @@ async function analyze(){
     }
     if (d.lotDynamiqueAlerte) {
       alerts.push({ type: 'info', icon: '💰', title: 'Lot ajusté (drawdown jour)', msg: d.lotDynamiqueAlerte });
+    }
+    if (d.protectionsAlertes) {
+      alerts.push({ type: 'danger', icon: '🛡️', title: 'Protections avancées déclenchées', msg: d.protectionsAlertes });
     }
     alerts.forEach(a => {
       const div = document.createElement('div');
