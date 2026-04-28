@@ -1895,22 +1895,25 @@ UTILISATION DU M1 (entrée précise CRT) :
 
 INTÉGRATION INTELLIGENTE CRT KASPER + ICT + STRUCTURE M30 :
 
-⚠️ STRUCTURE M30 — guide mais ne bloque pas :
+⚠️ STRUCTURE M30 — OBLIGATOIRE, ne peut pas être ignorée :
 - M30 dans la direction → bonus +1 point
-- M30 contre → -1 point (pas de blocage total)
-- Si CRT Kasper détecté → on trade même si M30 légèrement contre
+- M30 neutre → analyse normale
+- M30 contre → -2 points ET score plafonné à 5 → NE PAS TRADER
+- Si CRT Kasper détecté → on vérifie TOUJOURS le M30 avant de trader. CRT contre M30 = fausse cassure la plupart du temps.
 
-⚠️ REBOND FAIBLE — prudence mais pas de blocage :
-- Rebond faible sans CRT → réduire score de 1
-- CRT Kasper détecté sur un rebond → signal valide quand même
+⚠️ REBOND FAIBLE — toujours prudence :
+- Rebond faible sans CRT → NE PAS TRADER
+- CRT Kasper sur rebond faible → score réduit de 2, trade seulement si M30 est aligné
 
 ARBRE DE DÉCISION :
 1. CRT + ICT + M30 alignés → SETUP A+ (score 9-10)
 2. CRT + ICT + M30 neutre → bon setup (score 7-8)
-3. CRT + ICT + M30 contre → score 6-7, trade quand même
-4. CRT seul (sans ICT confirmation) → score 5, trade avec prudence (signal limite)
-5. ICT seul sans CRT → score 6-7 si structure claire
+3. CRT + ICT + M30 contre → NE PAS TRADER (score 4) — trader CONTRE la tendance H1/M30 = suicide statistique
+4. CRT seul (sans ICT confirmation) → NE PAS TRADER (score 5) — CRT sans confirmation = fausse cassure fréquente
+5. ICT seul sans CRT → score 6-7 si structure claire ET M30 dans le sens
 6. Ni CRT ni ICT → NE PAS TRADER (score < 5)
+
+⛔ RÈGLE FONDAMENTALE ANTI-SL : Si la tendance M30 ET H1 sont CONTRE ta direction de trade → NE PAS TRADER, peu importe le CRT détecté. Le CRT sur M15 contre une tendance plus haute = piège 80% du temps.
 
 PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
 - SI CRT Kasper détecté → utiliser les niveaux CRT pour l'entrée et le SL
@@ -2180,14 +2183,17 @@ RÈGLES ABSOLUES:
 - BUY: SL sous l'entrée, TP au dessus
 - SELL: SL au dessus, TP en dessous
 - TP1=RR 1:2, TP2=RR 1:3, TP3=RR 1:4
-- score 8-10=excellent, 6-7=moyen, 0-5=NE PAS TRADER
+- score 8-10=excellent → BUY/SELL autorisé
+- score 6-7=moyen → BUY/SELL seulement si M30 EST dans le sens
+- score 0-5=NE PAS TRADER OBLIGATOIRE, sans exception
+- JAMAIS de trade si M30 et H1 sont tous les deux contre la direction
 - Chiffres précis, décision claire`
     });
 
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-4-6',
       max_tokens: 2500,
-      system: 'Tu es un assistant trading. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
+      system: 'Tu es un assistant trading expert. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
 
@@ -2263,6 +2269,14 @@ RÈGLES ABSOLUES:
         parsed.tp2Pips = Math.round(dist * 3 * 10) / 10;
         parsed.tp3Pips = Math.round(dist * 4 * 10) / 10;
       }
+    }
+
+    // ─── GARDE SCORE MINIMUM CÔTÉ SERVEUR ──────────────────────
+    // Même si l'IA rate la règle, on force le refus si score < 6
+    if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < 6) {
+      console.log('[SCORE-GUARD] Score ' + parsed.score + ' < 6 → NE PAS TRADER forcé côté serveur');
+      parsed.decision = 'NE PAS TRADER';
+      parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 6/10 pour trader';
     }
 
     // ─── ANTI-PIÈGE RANGE ASIATIQUE (vérification post-IA) ────
