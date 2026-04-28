@@ -185,6 +185,8 @@ const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload:
 const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
 const leconsDb = new Datastore({ filename: path.join(__dirname, 'lecons.db'), autoload: true });
 const setupsGagnantsDb = new Datastore({ filename: path.join(__dirname, 'setups-gagnants.db'), autoload: true });
+const positionsTrackingDb = new Datastore({ filename: path.join(__dirname, 'positions-tracking.db'), autoload: true });
+const notificationsDb = new Datastore({ filename: path.join(__dirname, 'notifications.db'), autoload: true });
 const activeSessions = {};
 
 app.use(express.urlencoded({ extended: true }));
@@ -1183,6 +1185,230 @@ Réponds UNIQUEMENT en JSON valide :
 }
 
 // Surveillance auto : check les trades perdants/gagnants et déclenche post-mortem ou setup gagnant
+// ═══════════════════════════════════════════════════════════════════
+// 🎯 TP PARTIELS + BREAK-EVEN AUTO
+// ═══════════════════════════════════════════════════════════════════
+// Pour chaque position ouverte :
+// 1. Récupère le TP1 prévu depuis l'analyse stockée
+// 2. Si le prix actuel a touché ou dépassé TP1 :
+//    → Ferme 50% de la position (profit sécurisé)
+//    → Déplace le SL à l'entrée (break-even, plus aucun risque)
+// 3. Le reste continue librement vers TP2/TP3 ou se ferme au SL/BE
+//
+// Tracking via positions-tracking.db (évite de refaire 2x la même action)
+
+// ═══════════════════════════════════════════════════════════════════
+// 🔔 NOTIFICATIONS (in-app)
+// ═══════════════════════════════════════════════════════════════════
+async function creerNotification(userId, type, titre, message, data = {}) {
+  try {
+    await notificationsDb.insertAsync({
+      _id: uuidv4(),
+      userId,
+      type,        // 'tp_partiel', 'be_auto', 'sl_touche', 'lot_reduit', etc.
+      titre,
+      message,
+      data,
+      lue: false,
+      createdAt: new Date()
+    });
+  } catch(err) { console.log('[NOTIF] Erreur création:', err.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 💰 LOT DYNAMIQUE (réduction si drawdown jour)
+// ═══════════════════════════════════════════════════════════════════
+// Si l'utilisateur a perdu plus de 5% de son capital sur la journée,
+// on réduit automatiquement le lot proposé de 50%.
+// Calcul basé sur les analyses du jour avec feedback 'sl' ou tradeProfit < 0.
+
+async function getFacteurRisque(userId, capital) {
+  if (!capital || capital <= 0) return { facteur: 1, alerte: null };
+  try {
+    const debutJour = new Date();
+    debutJour.setHours(0, 0, 0, 0);
+
+    const analysesJour = await analysesDb.findAsync({
+      userId,
+      createdAt: { $gte: debutJour }
+    });
+
+    // Calculer la perte totale du jour (basée sur tradeProfit ou estimation via SL)
+    let perteJour = 0;
+    let nbSL = 0;
+    for (const a of analysesJour) {
+      if (typeof a.tradeProfit === 'number' && a.tradeProfit < 0) {
+        perteJour += Math.abs(a.tradeProfit);
+        nbSL++;
+      } else if (a.feedbackResult === 'sl' && a.lots && a.slPips) {
+        // Estimation : pour XAU, 1 lot × $1 de SL ≈ $100
+        const slDollars = a.slPips < 30 ? a.slPips : a.slPips / 10;
+        const perteEstimee = slDollars * 100 * a.lots;
+        perteJour += perteEstimee;
+        nbSL++;
+      }
+    }
+
+    const pertePct = (perteJour / capital) * 100;
+
+    // Règles
+    if (pertePct >= 10) {
+      return {
+        facteur: 0.25,
+        alerte: `⚠️ Drawdown jour ${pertePct.toFixed(1)}% — lot réduit de 75% (protection capital)`
+      };
+    }
+    if (pertePct >= 5) {
+      return {
+        facteur: 0.5,
+        alerte: `⚠️ Drawdown jour ${pertePct.toFixed(1)}% — lot réduit de 50% (protection capital)`
+      };
+    }
+    if (nbSL >= 2) {
+      return {
+        facteur: 0.5,
+        alerte: `⚠️ Déjà 2 SL aujourd'hui — lot réduit de 50% (anti-tilt)`
+      };
+    }
+    return { facteur: 1, alerte: null };
+  } catch(err) {
+    return { facteur: 1, alerte: null };
+  }
+}
+
+async function gererTpPartielsEtBE() {
+  if (!metaApi) return;
+  try {
+    const users = await db.findAsync({ 'mt5.metaApiAccountId': { $exists: true } });
+
+    for (const user of users) {
+      try {
+        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+        if (account.state !== 'DEPLOYED') continue;
+        const connection = account.getRPCConnection();
+        await connection.connect();
+        await connection.waitSynchronized();
+
+        const positions = await connection.getPositions();
+        if (!positions || !positions.length) continue;
+
+        for (const pos of positions) {
+          try {
+            // Vérifier si on a déjà fait le partiel pour cette position
+            const tracking = await positionsTrackingDb.findOneAsync({ positionId: pos.id });
+            if (tracking && tracking.tp1Done) continue;
+
+            // Trouver l'analyse correspondante (récupérée par symbole + direction + entry proche)
+            const symbAnalyse = pos.symbol.toUpperCase().replace(/-.*/, '').replace(/_.*/, '');
+            const direction = pos.type === 'POSITION_TYPE_BUY' ? 'BUY' : 'SELL';
+            const dateLimit = new Date(Date.now() - 24 * 60 * 60 * 1000); // dernières 24h
+
+            const analyses = await analysesDb.findAsync({
+              userId: user._id,
+              decision: direction,
+              createdAt: { $gte: dateLimit }
+            });
+
+            // Match : entrée proche du openPrice de la position (tolérance 5$)
+            let analyseMatch = null;
+            for (const a of analyses) {
+              const aEntree = parseFloat(a.entree);
+              if (Math.abs(aEntree - parseFloat(pos.openPrice)) < 5) {
+                if (!analyseMatch || new Date(a.createdAt) > new Date(analyseMatch.createdAt)) {
+                  analyseMatch = a;
+                }
+              }
+            }
+
+            if (!analyseMatch || !analyseMatch.tp1) continue;
+
+            const tp1 = parseFloat(analyseMatch.tp1);
+            const entree = parseFloat(pos.openPrice);
+            const prixActuel = parseFloat(pos.currentPrice);
+            const isBuy = direction === 'BUY';
+
+            // Vérifier si TP1 atteint
+            const tp1Atteint = isBuy ? prixActuel >= tp1 : prixActuel <= tp1;
+            if (!tp1Atteint) continue;
+
+            // 1. Fermer 50% de la position
+            const volumeTotal = parseFloat(pos.volume);
+            const volumeAFermer = Math.round(volumeTotal * 0.5 * 100) / 100; // arrondi 2 décimales
+            const volumeMin = 0.01;
+            if (volumeAFermer < volumeMin) {
+              console.log('[TP-PARTIEL] Volume trop petit pour fermeture partielle, on skip');
+              continue;
+            }
+
+            try {
+              await connection.closePositionPartially(pos.id, volumeAFermer);
+              console.log('[TP-PARTIEL] Fermé ' + volumeAFermer + ' lots sur ' + pos.symbol + ' (TP1 atteint à ' + prixActuel + ')');
+            } catch(err) {
+              console.log('[TP-PARTIEL] Erreur fermeture:', err.message);
+              continue;
+            }
+
+            // 2. Attendre 2 secondes pour que la fermeture soit effective
+            await new Promise(r => setTimeout(r, 2000));
+
+            // 3. Déplacer le SL à l'entrée (BE) sur les 50% restants
+            try {
+              const slBE = entree;
+              const tpRestant = pos.takeProfit;
+              await connection.modifyPosition(pos.id, slBE, tpRestant);
+              console.log('[BE-AUTO] SL déplacé à BE (' + slBE + ') sur ' + pos.symbol);
+            } catch(err) {
+              console.log('[BE-AUTO] Erreur SL→BE:', err.message);
+            }
+
+            // 4. Marquer comme traité dans le tracking DB
+            await positionsTrackingDb.insertAsync({
+              positionId: pos.id,
+              symbol: pos.symbol,
+              userId: user._id,
+              tp1Done: true,
+              tp1Time: new Date(),
+              entree,
+              tp1,
+              volumeFerme: volumeAFermer
+            });
+
+            // 5. Optionnel : notifier le client (si la fonction existe)
+            try {
+              if (typeof creerNotification === 'function') {
+                await creerNotification(
+                  user._id,
+                  'tp_partiel',
+                  '🎯 TP1 atteint — Profit sécurisé',
+                  `${pos.symbol} : 50% fermés à ${prixActuel}, SL déplacé à BE. Le reste continue.`,
+                  { symbol: pos.symbol, tp1: prixActuel, volumeFerme: volumeAFermer }
+                );
+              }
+            } catch(e) {}
+          } catch(err) {
+            if (!err.message.includes('not found')) console.log('[TP-BE] Erreur position:', err.message);
+          }
+        }
+      } catch(err) {
+        if (!err.message.includes('not found')) console.log('[TP-BE] Erreur user:', err.message);
+      }
+    }
+  } catch(err) { console.log('[TP-BE] Erreur globale:', err.message); }
+}
+
+// Cleanup auto du tracking : supprime les entries vieilles de 7 jours
+async function cleanupTracking() {
+  try {
+    const il_y_a_7j = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    await positionsTrackingDb.removeAsync({ tp1Time: { $lt: il_y_a_7j } }, { multi: true });
+  } catch(e) {}
+}
+
+// Lancer toutes les 2 minutes (rapide pour pas rater le TP1)
+setInterval(gererTpPartielsEtBE, 2 * 60 * 1000);
+// Cleanup tous les jours
+setInterval(cleanupTracking, 24 * 60 * 60 * 1000);
+
 async function surveillerTradesEtApprendre() {
   if (!metaApi) return;
   try {
@@ -1688,6 +1914,40 @@ Réponds UNIQUEMENT en JSON :
   }
 });
 
+// ─── NOTIFICATIONS ──────────────────────────────────────────────
+app.get('/notifications', checkAuth, async (req, res) => {
+  try {
+    const notifs = await notificationsDb.findAsync({ userId: req.session.userId });
+    notifs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({
+      count: notifs.length,
+      nonLues: notifs.filter(n => !n.lue).length,
+      notifications: notifs.slice(0, 30)
+    });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/notifications/:id/lue', checkAuth, async (req, res) => {
+  try {
+    await notificationsDb.updateAsync(
+      { _id: req.params.id, userId: req.session.userId },
+      { $set: { lue: true } }
+    );
+    res.json({ success: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/notifications/lues', checkAuth, async (req, res) => {
+  try {
+    await notificationsDb.updateAsync(
+      { userId: req.session.userId, lue: false },
+      { $set: { lue: true } },
+      { multi: true }
+    );
+    res.json({ success: true });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/apprentissage/lecons', checkAuth, async (req, res) => {
   try {
     const lecons = await leconsDb.findAsync({ userId: req.session.userId });
@@ -1827,367 +2087,114 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
 
     content.push({
       type: 'text',
-      text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+      text: `Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.instrument || 'XAUUSD'}.${capital ? ` Capital: $${capital}.` : ''}
+
 ${blocLecons}${blocSetupsGagnants}${blocOBFVG}${blocIndicateurs}
 
+CONTEXTE : ${sessionWarning}
+SESSION : ${sessionActive}
+
 ═══════════════════════════════════════════════════════════════
-🕐 CONTEXTE TEMPOREL — OBLIGATOIRE À RESPECTER
+🎯 TA MISSION
 ═══════════════════════════════════════════════════════════════
-${sessionWarning}
-SESSION ACTIVE: ${sessionActive}
+Analyse les ${nbTF} graphique(s) fournis (${tfDisponibles}) et donne UN signal de qualité OU dis "NE PAS TRADER".
+
+Tu reçois aussi des données objectives calculées sur les vraies bougies MetaAPI :
+- Indicateurs RSI/MA (ci-dessus dans 📊 INDICATEURS TECHNIQUES)
+- OB/FVG algorithmiques (ci-dessus dans 🔍 NIVEAUX TECHNIQUES)
+- Tes leçons passées et setups gagnants
+
+⚠️ UTILISE CES DONNÉES, ne fais pas semblant. Si le bloc INDICATEURS te montre RSI ${'<'} 25 → c'est de la survente extrême, ne propose PAS de SELL. Si RSI > 75 → ne propose PAS de BUY. Si le prix est très loin sous MA50 → mouvement épuisé, prudence.
+
 ═══════════════════════════════════════════════════════════════
-
-Tu as reçu ${nbTF} graphique(s) : ${tfDisponibles}.${bonusTF ? `
-TIMEFRAMES BONUS FOURNIS: ${bonusTF} — utilise-les pour affiner l'analyse top-down et le CRT.` : ''}
-Analyse selon la méthode ICT Smart Money avec intégration CRT (Candle Range Theory).
-${hasH1 ? '- H1 fourni : utilise-le comme tendance macro principale pour le top-down' : '- H1 non fourni : déduis la tendance macro depuis M30'}
-${hasM5 ? '- M5 fourni : utilise-le pour affiner l\'entree precise et confirmer le FVG' : '- M5 non fourni : utilise M15 ou M1 pour l\'entree'}
-
-RÈGLES D'ANALYSE:
-- Analyse la tendance, la structure de marché, les Order Blocks et FVG sur les graphiques fournis
-- Avec M30 seul : donne un signal basé sur la tendance principale et les zones clés
-- Avec plusieurs TF : analyse en top-down et vérifie la confluence
-- NE PAS TRADER uniquement si le marché est vraiment en range sans direction ou si le risque est trop élevé
-- Un graphique avec une tendance claire doit donner BUY ou SELL — sois direct et décisif
-
-DÉTECTION CRT (Candle Range Theory) — RANGE ASIATIQUE:
-- Identifier le range asiatique sur M30 : bougies formées entre 20h00 et 08h00 (heure Paris)
-- Le range asiatique = zone de consolidation entre le HIGH et le LOW de cette session
-- CRT valide = le prix est en train de casser ou vient de casser ce range
-- BUY CRT : cassure du HIGH du range asiatique vers le haut
-- SELL CRT : cassure du LOW du range asiatique vers le bas
-- Si CRT non aligné avec le signal → réduire le score de 1 point et mentionner l'invalidité
-- Si CRT aligné → bonus de +1 point sur le score et signaler la confluence
-${crtKasperActif ? `
-═══════════════════════════════════════════════════════════════
-🎯 ANALYSE CRT KASPER KARL ACTIVÉE (M15 + M1 fournis)
-═══════════════════════════════════════════════════════════════
-EN PLUS de l'analyse ICT classique ci-dessus, applique LA MÉTHODE KASPER KARL
-UNIQUEMENT sur les 3 dernières bougies du M15 (jamais M1 ni M30).
-
-⚠️ RÈGLE CRITIQUE : Le pattern CRT Kasper ne se détecte QUE sur M15.
-NE JAMAIS extrapoler un "mini CRT" vu sur M1 ou M5 comme un pattern valide.
-Si aucun pattern Kasper clair sur M15 → crtKasper = "NON_DETECTE".
-
-PATTERN CRT KASPER (3 dernières bougies M15 UNIQUEMENT) :
-• Bougie 1 (KEY CANDLE) : bougie de référence avec un HIGH et un LOW clairs
-• Bougie 2 (MANIPULATION/SWEEP) :
-   - Sa MÈCHE dépasse un extrême de la bougie 1 (sweep de liquidité)
-   - MAIS son CORPS (close) ferme DANS le range de la bougie 1 (fausse cassure)
-• Bougie 3 (DISTRIBUTION/BREAK) :
-   - Ferme au-delà de l'extrême OPPOSÉ de la bougie 1 = CONFIRMATION
-   - DOIT avoir un corps significatif (pas une doji) dans la direction du break
-
-CRT BULLISH = Bougie 2 sweep le LOW + Bougie 3 close NETTEMENT au-dessus du HIGH
-CRT BEARISH = Bougie 2 sweep le HIGH + Bougie 3 close NETTEMENT en-dessous du LOW
-
-⚠️ CRT SOFT accepté en plus du STRICT :
-- Bougie 3 petite mais ferme de l'autre côté → CRT SOFT valide (+1 score)
-- CRT STRICT = break net et clair → +2 score
-- CRT SOFT = effleure mais ferme de l'autre côté → +1 score
-
-UTILISATION DU M1 (entrée précise CRT) :
-- Une fois le pattern CRT détecté sur M15, regarde le M1 pour le timing d'entrée
-- Cherche un retest du niveau cassé (high/low de la key candle M15)
-- Le SL doit être placé JUSTE AU-DELÀ du sweep de la bougie 2 M15 + 5-10$ buffer minimum
-  → Exemple BUY : SL = low de bougie 2 M15 - buffer (min 5$)
-  → Exemple SELL : SL = high de bougie 2 M15 + buffer (min 5$)
-
-INTÉGRATION INTELLIGENTE CRT KASPER + ICT + STRUCTURE M30 :
-
-⚠️ STRUCTURE M30 — OBLIGATOIRE, ne peut pas être ignorée :
-- M30 dans la direction → bonus +1 point
-- M30 neutre → analyse normale
-- M30 contre → -2 points ET score plafonné à 5 → NE PAS TRADER
-- Si CRT Kasper détecté → on vérifie TOUJOURS le M30 avant de trader. CRT contre M30 = fausse cassure la plupart du temps.
-
-⚠️ REBOND FAIBLE — toujours prudence :
-- Rebond faible sans CRT → NE PAS TRADER
-- CRT Kasper sur rebond faible → score réduit de 2, trade seulement si M30 est aligné
-
-ARBRE DE DÉCISION :
-1. CRT + ICT + M30 alignés → SETUP A+ (score 9-10)
-2. CRT + ICT + M30 neutre → bon setup (score 7-8)
-3. CRT + ICT + M30 contre → NE PAS TRADER (score 4) — trader CONTRE la tendance H1/M30 = suicide statistique
-4. CRT seul (sans ICT confirmation) → NE PAS TRADER (score 5) — CRT sans confirmation = fausse cassure fréquente
-5. ICT seul sans CRT → score 6-7 si structure claire ET M30 dans le sens
-6. Ni CRT ni ICT → NE PAS TRADER (score < 5)
-
-⛔ RÈGLE FONDAMENTALE ANTI-SL : Si la tendance M30 ET H1 sont CONTRE ta direction de trade → NE PAS TRADER, peu importe le CRT détecté. Le CRT sur M15 contre une tendance plus haute = piège 80% du temps.
-
-PRIORITÉ POUR LE PLACEMENT (entrée + SL) :
-- SI CRT Kasper détecté → utiliser les niveaux CRT pour l'entrée et le SL
-  (SL plus serré et précis, évite les SL "au feeling" qui se font taper)
-- SINON → utiliser les niveaux ICT classiques (OB, FVG, structure)
-═══════════════════════════════════════════════════════════════` : ''}
-
-⚠️ VÉRIFICATION RAPIDE :
-1. Tendance M30 dans le sens ? → si non : -1 point
-2. Zone Discount/Premium respectée ? → si non : -1 point
-3. Setup CRT ou ICT détecté ? → si non ET score < 5 → NE PAS TRADER
-Blocker seulement si score final < 5 ET aucun pattern clair.
-
-
-🎯 ═══════════════════════════════════════════════════════════════
-ENTRÉE SNIPER OBLIGATOIRE — JAMAIS D'ENTRÉE AU MARCHÉ
-═══════════════════════════════════════════════════════════════
-Tu es un SNIPER, pas un mitrailleur. L'entrée doit être CHIRURGICALE.
-
-⚠️ CONTEXTE CLIENT : Le trader place TOUJOURS des ordres LIMIT.
-L'entrée que tu donnes doit donc être un NIVEAU RÉALISTE que le prix
-atteindra probablement. Ton job c'est de choisir le MEILLEUR niveau
-possible, pas "un niveau pas loin du prix actuel".
-
-❌ INTERDIT — ne JAMAIS faire :
-- Donner un prix "presque comme le prix actuel" pour que ça touche vite
-- Choisir un niveau sans signification technique juste parce qu'il est proche
-- Donner une entrée en plein milieu d'une zone (ni support ni résistance)
-- "Market order" au prix du moment
-
-✅ OBLIGATOIRE — toujours faire :
-Le prix d'entrée DOIT coïncider avec un NIVEAU TECHNIQUE MAJEUR
-visible clairement sur les graphiques :
-
-POUR UN BUY — l'entrée doit être sur :
-• Retest de la KEY CANDLE (high de bougie 1 CRT) ← préféré si CRT détecté
-• Retest d'un Order Block haussier clair (bas d'une bougie impulsive haussière visible)
-• Retest d'un FVG haussier identifiable (gap entre 3 bougies)
-• Retest d'un breakout de structure (ancien high devenu support)
-• Retest d'une EMA ou MA significative (20, 50, 200)
-• Support horizontal testé plusieurs fois (visible par des mèches à ce niveau)
-
-POUR UN SELL — l'entrée doit être sur :
-• Retest de la KEY CANDLE (low de bougie 1 CRT)
-• Retest d'un Order Block baissier clair
-• Retest d'un FVG baissier
-• Retest d'un breakout baissier (ancien low devenu résistance)
-• Retest d'une EMA ou MA significative
-• Résistance horizontale testée plusieurs fois
-
-⚠️ TEST DE VALIDATION DU NIVEAU D'ENTRÉE :
-Avant de valider le niveau d'entrée X, pose-toi ces 2 questions :
-1. Est-ce que je peux EXPLIQUER pourquoi le prix devrait réagir PILE à ce niveau ?
-2. Est-ce que ce niveau est VISIBLE clairement sur au moins 2 timeframes ?
-Si tu ne peux pas répondre OUI aux 2 → le niveau est trop faible, CHOISIS EN UN AUTRE
-ou "NE PAS TRADER" si aucun niveau valable n'existe.
-
-RÈGLES CHIFFRÉES :
-- Le prix d'entrée DOIT être à au moins 0.1% (environ 5$ pour XAUUSD à 4700) du prix actuel
-- Sauf exception : si le prix est LITTÉRALEMENT sur un niveau technique clé à l'instant T
-- Dans ce cas, le mentionner explicitement dans le champ "entreeType"
-
-COMMENT CALCULER L'ENTRÉE :
-1. Identifie TOUS les niveaux techniques visibles sur les graphiques
-2. Pour BUY : trouve le support le plus PROCHE ET LE PLUS FORT en-dessous du prix
-3. Pour SELL : trouve la résistance la plus PROCHE ET LA PLUS FORTE au-dessus
-4. Le meilleur niveau = celui qui a été testé PLUSIEURS FOIS ou qui a une confluence
-   (ex: OB + FVG + EMA qui se croisent au même endroit)
-5. Place l'entrée PILE sur ce niveau (ordre LIMIT)
-6. Si aucun niveau FORT mais CRT détecté → utiliser les niveaux CRT comme référence
-
-VALIDITÉ DE L'ENTRÉE :
-- L'entrée doit rester valide MAX 2 heures (bougies M15 évoluent vite)
-- Si le prix s'éloigne trop du niveau d'entrée → signal expiré
-- L'IA doit indiquer si l'entrée est "immédiate" (prix déjà au niveau) ou "en attente"
-
-SL DOIT ÊTRE PRÉCIS MAIS PAS TROP SERRÉ :
-- BUY : SL juste sous le low de la zone d'entrée (OB, key candle, etc.) - 5-10$ buffer minimum
-- SELL : SL juste au-dessus du high de la zone - 5-10$ buffer minimum
-- Avec entrée sniper, SL typique XAUUSD = 8-20$ (jamais moins de 5$, le marché est volatil)
-- Un SL trop serré (< 5$) = se faire sortir par le spread ou une micro-mèche → INTERDIT
-- R:R cible minimum 1:3, idéal 1:4 ou 1:5
-═══════════════════════════════════════════════════════════════
-🔥 ═══════════════════════════════════════════════════════════════
-CONFLUENCE CRT + FVG + ORDER BLOCK = SETUP A+ (ICT PRO)
-═══════════════════════════════════════════════════════════════
-Quand un CRT Kasper se forme, la bougie 3 (celle qui CASSE l'extrême
-opposé) crée souvent un FVG ET un Order Block au même endroit.
-C'est LE setup le plus puissant en ICT/SMC. À chercher en priorité.
-
-📐 DÉFINITIONS PRÉCISES :
-
-ORDER BLOCK (OB) — Zone où le smart money a accumulé/distribué :
-• OB BULLISH = la DERNIÈRE bougie BAISSIÈRE avant un mouvement haussier impulsif
-  → Zone d'entrée BUY = entre le HIGH et le LOW de cette bougie rouge
-• OB BEARISH = la DERNIÈRE bougie HAUSSIÈRE avant un mouvement baissier impulsif
-  → Zone d'entrée SELL = entre le HIGH et le LOW de cette bougie verte
-• Plus la bougie OB est petite et l'impulsion suivante grande, plus le OB est puissant
-
-FVG (Fair Value Gap) — Imbalance dans le prix :
-• FVG BULLISH = sur 3 bougies consécutives, le LOW de la bougie 3 > HIGH de la bougie 1
-  → Le gap entre HIGH bougie 1 et LOW bougie 3 = FVG haussier (à combler)
-• FVG BEARISH = HIGH bougie 3 < LOW bougie 1
-  → Gap entre LOW bougie 1 et HIGH bougie 3 = FVG baissier
-• Le prix RETOURNE souvent combler les FVG avant de continuer
-
-🎯 COMMENT COMBINER CRT + FVG + OB :
-
-ÉTAPE 1 — Identifier le CRT Kasper sur M15 (3 bougies)
-ÉTAPE 2 — Sur la bougie 3 (la bougie de BREAK), identifier :
-   • L'OB = la dernière bougie OPPOSÉE à la direction du break
-     (pour CRT BULLISH = la dernière bougie rouge avant le break vert)
-     (pour CRT BEARISH = la dernière bougie verte avant le break rouge)
-   • Le FVG = le gap créé par la bougie 3 (si elle est forte)
-
-ÉTAPE 3 — Vérifier la CONFLUENCE :
-   • Le OB et le FVG sont-ils sur la MÊME ZONE de prix ?
-   • Cette zone correspond-elle au RETEST de la key candle CRT ?
-   • Si OUI aux 3 → SETUP A+ (3 confluences alignées)
-
-🎯 PLACEMENT OPTIMAL avec confluence CRT + FVG + OB :
-
-POUR UN BUY (CRT BULLISH) :
-• Entrée 1 (idéale) : haut du FVG bullish (zone haute du gap)
-• Entrée 2 (alternative) : haut de l'OB bullish (zone haute de la dernière bougie rouge)
-• Entrée 3 (sécurisée) : key candle high CRT (retest du break)
-→ Choisis le niveau le PLUS PROCHE du prix actuel parmi ces 3
-
-• SL : sous le LOW de l'OB - 2-3 pips de buffer
-  (si l'OB est cassé, le setup est invalidé, donc SL logique)
-• TP1 : avant la prochaine zone de liquidité (R:R 1:2 min)
-• TP2 : sur le high majeur précédent (R:R 1:3)
-
-POUR UN SELL (CRT BEARISH) :
-• Entrée 1 (idéale) : bas du FVG bearish
-• Entrée 2 (alternative) : bas de l'OB bearish
-• Entrée 3 (sécurisée) : key candle low CRT
-• SL : au-dessus du HIGH de l'OB + buffer
-
-📊 SCORING DE LA CONFLUENCE :
-• CRT + FVG + OB tous alignés → score 9-10 (setup A+, lot boost autorisé)
-• CRT + (FVG ou OB) → score 7-8 (très bon setup)
-• CRT seul sans FVG ni OB clair → score 5-6 (setup correct mais moins fiable)
-• OB + FVG sans CRT → score 6-7 (setup ICT classique, valide)
-
-⚠️ RÈGLES IMPORTANTES :
-• Le FVG doit être FRAIS (pas déjà comblé une 1ère fois)
-• L'OB doit être proche du prix actuel (pas à 50+ pips)
-• Si plusieurs OB visibles, prends celui le plus PROCHE de l'entrée CRT
-• Privilégie TOUJOURS la zone où FVG + OB se chevauchent (=double confluence)
+📊 RÈGLES SIMPLES
 ═══════════════════════════════════════════════════════════════
 
-🛡️ ═══════════════════════════════════════════════════════════════
-PROTECTION ANTI-LIQUIDITÉ — CRITICAL POUR ÉVITER LES SL TAPÉS
+1. STRUCTURE D'ABORD
+   - Tendance H1 et M30 alignées → setup possible dans ce sens
+   - Tendance H1 ou M30 contre ton signal → score plafonné à 5 → NE PAS TRADER
+   - Pas de structure claire → NE PAS TRADER
+
+2. ENTRÉE LOGIQUE
+   - Sur un OB, FVG, retest de breakout, ou range asiatique respecté
+   - LIMIT si zone précise, MARKET si setup en cours et timing parfait
+   - Si tu n'as PAS de niveau technique évident → NE PAS TRADER (ne force pas)
+
+3. SL ET TP RÉALISTES
+   - SL : derrière une zone de protection (OB/swing/liquidité), buffer 5-10$ sur XAU
+   - TP1 : R:R 1:1.5 minimum, 1:2 idéal — PAS 1:3+ forcé
+   - TP2 : R:R 1:2.5 ou 1:3 si niveau technique
+   - Vise des niveaux atteignables, pas des chiffres ronds magiques
+
+4. SCORING HONNÊTE
+   - 9-10 : Setup A+ avec confluence multiple (CRT+OB+FVG+structure alignée+RSI sain)
+   - 7-8 : Bon setup propre, structure claire, R:R correct
+   - 5-6 : Signal présent mais incertain → NE PAS TRADER
+   - 0-4 : Pas de setup → NE PAS TRADER
+
+⛔ RÈGLES ABSOLUES :
+- Si RSI extrême (< 25 ou > 75) contre ton signal → NE PAS TRADER
+- Si bougie M15/M30 actuelle violente (3x+ la moyenne) → NE PAS TRADER (mouvement épuisé)
+- Si tendance H1 ET M30 contre → NE PAS TRADER, peu importe le reste
+- Si tu as une leçon précédente qui dit "ne pas faire X" → respecte-la
+
 ═══════════════════════════════════════════════════════════════
-Le smart money chasse SYSTÉMATIQUEMENT la liquidité avant de partir
-dans la vraie direction. Ton job : placer le SL et le TP de manière
-à NE PAS être pris dans cette chasse.
-
-🚨 LIQUIDITÉ = zones où ya des stops loss accumulés :
-• EQUAL LOWS (plusieurs bougies avec le même low) → liquidité basse
-• EQUAL HIGHS (plusieurs bougies avec le même high) → liquidité haute
-• Mèches multiples au même niveau → stops accumulés
-• Round numbers ($4700, $4750, $4800 sur XAUUSD) → liquidité psychologique
-• Anciens swing high/low évidents → magnet à stops
-• Niveaux pré-news (avant CPI/NFP) → liquidité juteuse
-
-⚠️ RÈGLES DE PLACEMENT DU SL :
-1. AVANT de placer le SL, identifie TOUTES les zones de liquidité
-   en-dessous (pour BUY) ou au-dessus (pour SELL) du prix d'entrée
-2. Le SL ne doit JAMAIS être placé :
-   • PILE sur un equal low/high évident
-   • JUSTE au-dessus/sous un round number ($4700 par ex)
-   • Au "milieu de nulle part" sans support technique
-3. Le SL doit être placé :
-   • DERRIÈRE une zone de liquidité (qu'on laisse être chassée d'abord)
-   • OU à un niveau structurel évident (low/high majeur protégé)
-   • Avec 2-3 pips de buffer de sécurité
-
-EXEMPLE BUY XAUUSD :
-- Entrée : 4720 (sur OB)
-- Y a 3 mèches qui ont touché 4715 (equal lows) = liquidité
-- ❌ MAUVAIS SL : 4714 (juste sous l'equal low → va se faire taper en chasse)
-- ✅ BON SL : 4711 (DERRIÈRE l'equal low + buffer → la chasse à 4715
-  va se faire mais ton SL tient, puis ça repart en BUY)
-
-⚠️ RÈGLES DE PLACEMENT DU TP :
-1. AVANT de placer le TP, identifie les zones de liquidité opposées
-   qui vont attirer le prix
-2. Le TP doit être placé :
-   • LÉGÈREMENT AVANT une grosse zone de liquidité (pour prendre les profits
-     avant que le prix se fasse rejeter)
-   • OU PILE sur une zone de liquidité majeure (le smart money va y aller)
-3. Le TP ne doit JAMAIS être placé :
-   • Juste APRÈS une zone de liquidité forte (le prix va rejeter avant)
-   • Sur un niveau "rond" sans signification technique
-
-EXEMPLE BUY XAUUSD :
-- Entrée 4720, prix actuel 4722
-- Y a un swing high majeur à 4750 + equal highs vers 4748 = liquidité haute
-- ✅ TP1 : 4744 (avant la liquidité, profits sécurisés)
-- ✅ TP2 : 4750 (sur le swing high, le smart money y va)
-- ❌ TP3 : 4760 (au-delà → risque de rejet sur la liquidité)
-
-🎯 LOGIQUE FINALE DU PLACEMENT :
-- Entrée = sur niveau technique (OB/FVG/key candle/EMA)
-- SL = DERRIÈRE la liquidité la plus proche (pas dessus !)
-- TP1 = AVANT la prochaine liquidité opposée (R:R min 1:2)
-- TP2 = SUR la zone de liquidité opposée majeure (R:R 1:3)
-- TP3 = optionnel, sur le prochain niveau structurel
-
-⚠️ AVERTISSEMENT CRITIQUE :
-Si tu ne peux pas placer un SL "safe" (toujours derrière une liquidité majeure),
-augmente le SL pour passer derrière la liquidité, OU réduis la taille du trade
-mentale, OU NE PAS TRADER si la zone est trop dangereuse.
+${crtKasperActif ? `🎯 CRT KASPER (M15 + M1 fournis) — bonus si détecté
+Pattern 3 bougies M15 : key candle / sweep / break confirmé.
+- CRT confirmé + structure alignée → +2 score
+- CRT confirmé contre tendance → ignoré
 ═══════════════════════════════════════════════════════════════
+` : ''}
 
 Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks:
 
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
-  "session": "<session active au moment de l'analyse: ASIATIQUE / LONDRES / NEW_YORK / FIN_NY>",
-  "sessionImpact": "<comment la session influence ce signal: ex 'Session asiatique → range probable, signal rejeté' ou 'Ouverture Londres → signal valide'>",
+  "session": "${sessionActive}",
+  "sessionImpact": "<comment la session influence ce signal>",
   "confiance": "XX%",
   "score": <0 à 10>,
-  "tendance": "<tendance principale M30>",
+  "tendance": "<M30>",
   "tendanceH1": "<H1 ou 'Non fourni'>",
   "tendanceM15": "<M15 ou 'Non fourni'>",
   "tendanceM5": "<M5 ou 'Non fourni'>",
   "tendanceM1": "<M1 ou 'Non fourni'>",
   "confluence": "<alignement TF>",
-  "entree": "<prix d'entrée précis — DOIT être sur un niveau technique, PAS au marché>",
-  "entreeType": "<LIMIT ou MARKET>",
-  "entreeLevel": "<description du niveau: 'Retest OB H1 à 4675', 'Key candle M15 low', 'FVG M30 haussier', etc.>",
-  "entreeStatut": "<IMMEDIATE si prix déjà au niveau, EN_ATTENTE si le prix doit revenir>",
-  "sl": "<stop loss — min 50 pips sur XAU/USD (= min $5 de distance)${crtKasperActif ? ', mais si CRT Kasper détecté: SL = juste au-delà du sweep bougie 2 (min 30 pips quand même)' : ''}>",
-  "slPips": <pips SL — min 50 sur XAU/USD>,
-  "tp1": "<TP1>",
-  "tp1Pips": <slPips × 2>,
-  "tp2": "<TP2>",
-  "tp2Pips": <slPips × 3>,
-  "tp3": "<TP3>",
-  "tp3Pips": <slPips × 4>,
+  "entree": "<prix d'entrée précis>",
+  "entreeType": "LIMIT" ou "MARKET",
+  "entreeLevel": "<description du niveau ex 'Retest OB H1 à 4675'>",
+  "entreeStatut": "IMMEDIATE" ou "EN_ATTENTE",
+  "sl": "<stop loss — min 50 pips XAU sauf CRT Kasper qui peut descendre à 30 pips>",
+  "slPips": <nombre>,
+  "tp1": "<TP1 — vise R:R 1:1.5 à 1:2>",
+  "tp1Pips": <nombre>,
+  "tp2": "<TP2 — vise R:R 1:2.5 à 1:3>",
+  "tp2Pips": <nombre>,
+  "tp3": "<TP3 optionnel — sur niveau majeur seulement>",
+  "tp3Pips": <nombre>,
   "crt": "OUI" ou "NON" ou "NEUTRE",
-  "crtDetail": "<explication CRT: range asiatique détecté, cassure confirmée ou non, impact sur le signal>",
+  "crtDetail": "<explication>",
   ${crtKasperActif ? `"crtKasper": "DETECTE_BULLISH" ou "DETECTE_BEARISH" ou "NON_DETECTE",
-  "crtKasperDetail": "<si détecté: décris le pattern 3 bougies M15 - key candle / sweep / break, et précise comment ça affine l'entrée et le SL>",
-  "crtKasperImpact": "<impact sur le placement final: SL plus serré, entrée plus précise, etc.>",` : ''}
-  "rangeHaut": "<prix du HIGH du range asiatique si détecté, sinon 'Non détecté'>",
-  "rangeBas": "<prix du LOW du range asiatique si détecté, sinon 'Non détecté'>",
+  "crtKasperDetail": "<si détecté>",
+  "crtKasperImpact": "<impact placement>",` : ''}
+  "rangeHaut": "<HIGH range asiatique ou 'Non détecté'>",
+  "rangeBas": "<LOW range asiatique ou 'Non détecté'>",
   "manipulation": "OUI" ou "NON",
-  "manipulationDetail": "<détail manipulation ou 'Aucune'>",
-  "ob": "<Order Block: prix exact de la zone OB + direction (haussier/baissier) ou 'Aucun OB clair'>",
-  "fvg": "<Fair Value Gap: prix exact du gap + direction ou 'Aucun FVG visible'>",
-  "obFvgConfluence": "<OUI si OB et FVG se chevauchent + niveau de prix concerné, NON sinon>",
-  "confluenceCrtObFvg": "<si CRT Kasper détecté: décris si CRT + OB + FVG sont alignés sur la même zone — SETUP A+ ou pas>",
+  "manipulationDetail": "<détail ou 'Aucune'>",
+  "ob": "<OB ou 'Aucun'>",
+  "fvg": "<FVG ou 'Aucun'>",
+  "obFvgConfluence": "<OUI/NON + niveau>",
   "liquidite": "<zones liquidité>",
   "confluences": "<confluences SMC>",
-  "invalidation": "<invalidation du setup>",
-  "instrument": "<ex: XAUUSD, EURUSD, NAS100>",
+  "invalidation": "<invalidation>",
+  "rsiUtilise": "<reprends ici les valeurs RSI que tu as vues dans le bloc INDICATEURS et explique COMMENT tu les as utilisées dans ta décision>",
+  "instrument": "${req.body.instrument || 'XAUUSD'}",
   "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
-  "montantRisque": ${capital ? `<$${capital} × risquePct / 100>` : 'null'},
+  "montantRisque": ${capital ? `<${capital} × risquePct / 100>` : 'null'},
   "capital": ${capital || 0}
 }
 
-RÈGLES ABSOLUES:
-- BUY: SL sous l'entrée, TP au dessus
-- SELL: SL au dessus, TP en dessous
-- TP1=RR 1:2, TP2=RR 1:3, TP3=RR 1:4
-- score 8-10=excellent → BUY/SELL autorisé
-- score 6-7=moyen → BUY/SELL seulement si M30 EST dans le sens
-- score 0-5=NE PAS TRADER OBLIGATOIRE, sans exception
-- JAMAIS de trade si M30 et H1 sont tous les deux contre la direction
-- Chiffres précis, décision claire`
+⚠️ Le champ "rsiUtilise" est OBLIGATOIRE — il prouve que tu as bien lu les indicateurs.`
     });
 
     const response = await client.messages.create({
@@ -2295,6 +2302,16 @@ RÈGLES ABSOLUES:
       parsed.risquePct = risquePct;
       parsed.lots = calculerLots(capital, risquePct, parsed.slPips, parsed.instrument || '');
       parsed.montantRisque = (capital * risquePct / 100).toFixed(2);
+
+      // ─── LOT DYNAMIQUE (anti-drawdown / anti-tilt) ──────────
+      const { facteur, alerte } = await getFacteurRisque(req.session.userId, capital);
+      if (facteur < 1 && parsed.lots) {
+        const lotsOriginaux = parseFloat(parsed.lots);
+        parsed.lots = Math.max(0.01, Math.round(lotsOriginaux * facteur * 100) / 100).toFixed(2);
+        parsed.montantRisque = (parseFloat(parsed.montantRisque) * facteur).toFixed(2);
+        parsed.lotDynamiqueAlerte = alerte;
+        console.log('[LOT-DYNAMIQUE] User ' + req.session.userId + ' : ' + lotsOriginaux + ' → ' + parsed.lots + ' (' + alerte + ')');
+      }
     }
 
     const analysisId = uuidv4();
