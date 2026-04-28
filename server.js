@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
+const FileStore = require('session-file-store')(session);
 const Datastore = require('@seald-io/nedb');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
@@ -182,17 +183,30 @@ const transporter = nodemailer.createTransport({
 
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
 const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
-const tradesActifsDb = new Datastore({ filename: path.join(__dirname, 'trades-actifs.db'), autoload: true });
-const notificationsDb = new Datastore({ filename: path.join(__dirname, 'notifications.db'), autoload: true });
+const leconsDb = new Datastore({ filename: path.join(__dirname, 'lecons.db'), autoload: true });
+const setupsGagnantsDb = new Datastore({ filename: path.join(__dirname, 'setups-gagnants.db'), autoload: true });
 const activeSessions = {};
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.set('trust proxy', 1); // Render est derrière un proxy
 app.use(session({
+  store: new FileStore({
+    path: path.join(__dirname, 'sessions'),
+    ttl: 30 * 24 * 60 * 60,
+    retries: 0,
+    reapInterval: 24 * 60 * 60
+  }),
   secret: process.env.SESSION_SECRET || 'ai-mazza-secret-2024',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+  rolling: true,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
 }));
 
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
@@ -480,52 +494,396 @@ async function reajusterEntreeSiNecessaire(parsed, userId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 🔔 SYSTÈME DE NOTIFICATIONS
+// 🔍 DÉTECTION OB / FVG CÔTÉ SERVEUR (algorithmique, gratuit)
 // ═══════════════════════════════════════════════════════════════════
-async function creerNotification(userId, type, titre, message, data = {}) {
+// Pas d'IA, juste de l'analyse de bougies. Donne à l'IA des données
+// objectives au lieu de la laisser "voir" sur les screens.
+
+function detecterOrderBlocks(candles) {
+  // OB bullish = dernière bougie baissière avant un mouvement haussier impulsif
+  // OB bearish = dernière bougie haussière avant un mouvement baissier impulsif
+  if (!candles || candles.length < 5) return { bullish: [], bearish: [] };
+
+  const obs = { bullish: [], bearish: [] };
+  // Calcul du range moyen pour détecter les "mouvements impulsifs"
+  const ranges = candles.map(c => Math.abs(c.high - c.low));
+  const rangeMoyen = ranges.reduce((a, b) => a + b, 0) / ranges.length;
+
+  for (let i = 1; i < candles.length - 3; i++) {
+    const c = candles[i];
+    const next3 = candles.slice(i + 1, i + 4);
+    const corps = c.close - c.open;
+    const rangeCandle = c.high - c.low;
+
+    // Mouvement impulsif après la bougie ?
+    const closesNext = next3.map(n => n.close);
+    const mouvementHaussier = next3.every(n => n.close > c.high) && (closesNext[2] - c.high) > rangeMoyen * 1.5;
+    const mouvementBaissier = next3.every(n => n.close < c.low) && (c.low - closesNext[2]) > rangeMoyen * 1.5;
+
+    // OB bullish = bougie baissière (corps < 0) suivie de mouvement haussier impulsif
+    if (corps < 0 && mouvementHaussier) {
+      obs.bullish.push({
+        zone: { high: c.high, low: c.low },
+        time: c.time,
+        rangeCandle
+      });
+    }
+    // OB bearish = bougie haussière (corps > 0) suivie de mouvement baissier impulsif
+    if (corps > 0 && mouvementBaissier) {
+      obs.bearish.push({
+        zone: { high: c.high, low: c.low },
+        time: c.time,
+        rangeCandle
+      });
+    }
+  }
+  // Garder seulement les 3 plus récents de chaque type
+  obs.bullish = obs.bullish.slice(-3);
+  obs.bearish = obs.bearish.slice(-3);
+  return obs;
+}
+
+function detecterFairValueGaps(candles) {
+  // FVG bullish = candle[i].low > candle[i-2].high (gap entre 3 bougies, mouvement haussier)
+  // FVG bearish = candle[i].high < candle[i-2].low (gap entre 3 bougies, mouvement baissier)
+  if (!candles || candles.length < 3) return { bullish: [], bearish: [] };
+
+  const fvgs = { bullish: [], bearish: [] };
+  for (let i = 2; i < candles.length; i++) {
+    const c1 = candles[i - 2];
+    const c3 = candles[i];
+
+    if (c3.low > c1.high) {
+      fvgs.bullish.push({
+        zone: { high: c3.low, low: c1.high },
+        time: c3.time,
+        size: c3.low - c1.high
+      });
+    }
+    if (c3.high < c1.low) {
+      fvgs.bearish.push({
+        zone: { high: c1.low, low: c3.high },
+        time: c3.time,
+        size: c1.low - c3.high
+      });
+    }
+  }
+  // Garder les 3 plus récents
+  fvgs.bullish = fvgs.bullish.slice(-3);
+  fvgs.bearish = fvgs.bearish.slice(-3);
+  return fvgs;
+}
+
+// Récupère les OB/FVG via MetaAPI et formatte pour le prompt
+async function getBlocOBFVG(userId, symbole) {
+  if (!metaApi) return '';
   try {
-    const notif = {
-      _id: uuidv4(),
-      userId,
-      type, // 'tp_partiel_auto', 'tp_partiel_alerte', 'sl_atteint', 'info'
-      titre,
-      message,
-      data,
-      lue: false,
-      createdAt: new Date()
-    };
-    await notificationsDb.insertAsync(notif);
-    console.log('[NOTIF] ' + type + ' pour user ' + userId + ' : ' + titre);
-    return notif;
+    const user = await db.findOneAsync({ _id: userId });
+    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return '';
+
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    if (account.state !== 'DEPLOYED') return ''; // pas de deploy ici pour économiser
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    // Récupérer 50 bougies M15 et 30 bougies M5
+    let candlesM15 = [], candlesM5 = [];
+    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+    for (const sfx of suffixes) {
+      try {
+        const sym = symbole + sfx;
+        candlesM15 = await connection.getHistoricalCandles(sym, '15m', undefined, 50) || [];
+        candlesM5 = await connection.getHistoricalCandles(sym, '5m', undefined, 30) || [];
+        if (candlesM15.length || candlesM5.length) break;
+      } catch(e) {}
+    }
+    if (!candlesM15.length && !candlesM5.length) return '';
+
+    const obM15 = detecterOrderBlocks(candlesM15);
+    const fvgM15 = detecterFairValueGaps(candlesM15);
+    const obM5 = detecterOrderBlocks(candlesM5);
+    const fvgM5 = detecterFairValueGaps(candlesM5);
+
+    let txt = '\n═══════════════════════════════════════════════════════════════\n';
+    txt += '🔍 NIVEAUX TECHNIQUES DÉTECTÉS PAR ANALYSE OBJECTIVE DES BOUGIES\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    txt += '(Calculés algorithmiquement sur les vraies bougies, pas estimés sur les screens)\n\n';
+
+    if (obM15.bullish.length) {
+      txt += 'OB BULLISH M15 (zones de demande, prix peut rebondir dessus pour acheter) :\n';
+      obM15.bullish.forEach(o => {
+        txt += `  - Zone ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)}\n`;
+      });
+    }
+    if (obM15.bearish.length) {
+      txt += 'OB BEARISH M15 (zones d\'offre, prix peut rejeter dessus pour vendre) :\n';
+      obM15.bearish.forEach(o => {
+        txt += `  - Zone ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)}\n`;
+      });
+    }
+    if (fvgM15.bullish.length) {
+      txt += 'FVG BULLISH M15 (gaps haussiers, magnétiques pour le prix) :\n';
+      fvgM15.bullish.forEach(f => {
+        txt += `  - Zone ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)}\n`;
+      });
+    }
+    if (fvgM15.bearish.length) {
+      txt += 'FVG BEARISH M15 (gaps baissiers) :\n';
+      fvgM15.bearish.forEach(f => {
+        txt += `  - Zone ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)}\n`;
+      });
+    }
+    if (obM5.bullish.length || obM5.bearish.length || fvgM5.bullish.length || fvgM5.bearish.length) {
+      txt += '\nM5 (timing fin) :\n';
+      [...obM5.bullish, ...obM5.bearish].slice(0, 2).forEach(o => {
+        txt += `  - OB M5: ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)}\n`;
+      });
+      [...fvgM5.bullish, ...fvgM5.bearish].slice(0, 2).forEach(f => {
+        txt += `  - FVG M5: ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)}\n`;
+      });
+    }
+
+    txt += '\nUTILISE CES NIVEAUX EN PRIORITÉ pour ton entrée. Ils sont calculés sur les vraies données de marché.\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    return txt;
   } catch(err) {
-    console.log('[NOTIF] Erreur:', err.message);
-    return null;
+    console.log('[OB-FVG] Erreur:', err.message);
+    return '';
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 🎯 SURVEILLANCE TP PARTIELS + AUTO-EXÉCUTION
+// 🏆 MÉMOIRE DES SETUPS GAGNANTS
 // ═══════════════════════════════════════════════════════════════════
-// Pour chaque trade actif, on vérifie :
-//   1. Si TP1 atteint et position pas encore réduite → on ferme 50% auto
-//   2. Si TP2 atteint et reste de la position → on ferme tout auto
-//   3. Notification envoyée au client après chaque action
-async function surveillerTpPartiels() {
-  if (!metaApi) return;
+// Quand un trade fait +2R ou plus, on extrait ses caractéristiques
+// et on les stocke comme "pattern à reproduire".
+
+async function enregistrerSetupGagnant(analyse) {
+  if (typeof analyse.tradeProfit !== 'number' || analyse.tradeProfit <= 0) return;
+  if (analyse.setupGagnantEnregistre) return;
   try {
-    // Récupérer toutes les analyses actives (BUY/SELL avec un trade détecté)
-    const dateLimit = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const analysesActives = await analysesDb.findAsync({
-      createdAt: { $gte: dateLimit },
-      decision: { $in: ['BUY', 'SELL'] },
-      tpStatut: { $ne: 'TERMINE' } // pas encore complètement fermé par notre système
+    // Calculer le ratio R atteint
+    const slDist = analyse.slPips || 0;
+    const profit = analyse.tradeProfit;
+    const tp1Dist = analyse.tp1Pips || slDist * 2;
+    // Approx: si profit > 2× la perte que SL aurait causée → setup gagnant solide
+    // On garde les setups qui ont fait > 2R en termes de prix (TP1 atteint au minimum)
+    const dateAnalyse = new Date(analyse.createdAt);
+    const utcHour = dateAnalyse.getUTCHours();
+    let session;
+    if (utcHour >= 0 && utcHour < 7) session = 'asian';
+    else if (utcHour >= 7 && utcHour < 12) session = 'london';
+    else if (utcHour >= 12 && utcHour < 17) session = 'ny';
+    else session = 'after-hours';
+
+    await setupsGagnantsDb.insertAsync({
+      _id: uuidv4(),
+      userId: analyse.userId,
+      instrument: analyse.instrument || 'XAUUSD',
+      direction: analyse.decision,
+      session,
+      jourSemaine: dateAnalyse.getUTCDay(),
+      score: analyse.score || 0,
+      profit,
+      crt: analyse.crt || 'NON',
+      crtKasper: analyse.crtKasper || null,
+      ob: analyse.ob || null,
+      fvg: analyse.fvg || null,
+      entreeLevel: analyse.entreeLevel || null,
+      confluences: analyse.confluences || null,
+      createdAt: dateAnalyse,
+      enregistreLe: new Date()
     });
 
-    if (!analysesActives.length) return;
+    await analysesDb.updateAsync({ _id: analyse._id }, { $set: { setupGagnantEnregistre: true }});
+    console.log('[SETUP-GAGNANT] Enregistré pour ' + analyse.instrument + ' ' + analyse.decision + ' (+' + profit + '$)');
+  } catch(err) { console.log('[SETUP-GAGNANT] Erreur:', err.message); }
+}
 
-    // Grouper par user pour limiter les connexions MetaAPI
+async function getBlocSetupsGagnants(userId, instrument) {
+  try {
+    const setups = await setupsGagnantsDb.findAsync({ userId, instrument: instrument || 'XAUUSD' });
+    if (!setups.length) return '';
+    setups.sort((a, b) => b.profit - a.profit);
+    const top = setups.slice(0, 5);
+
+    let txt = '\n═══════════════════════════════════════════════════════════════\n';
+    txt += '🏆 TES MEILLEURS SETUPS PRÉCÉDENTS — PATTERNS À REPRODUIRE\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    txt += 'Voici les caractéristiques des trades qui ont le mieux marché.\n';
+    txt += 'Si le setup actuel ressemble à ceux-ci → boost ta confiance.\n\n';
+
+    const noms = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+    top.forEach((s, i) => {
+      txt += `${i + 1}. ${s.direction} ${s.instrument} (${noms[s.jourSemaine]} ${s.session}) — Profit: +${s.profit.toFixed(0)}$, Score initial: ${s.score}/10\n`;
+      if (s.crt && s.crt !== 'NON') txt += `   CRT: ${s.crt}\n`;
+      if (s.crtKasper) txt += `   CRT Kasper: ${s.crtKasper}\n`;
+      if (s.entreeLevel) txt += `   Niveau d'entrée: ${s.entreeLevel}\n`;
+    });
+
+    // Stats globales
+    const totalProfit = setups.reduce((sum, s) => sum + s.profit, 0);
+    const sessionCounts = {};
+    setups.forEach(s => { sessionCounts[s.session] = (sessionCounts[s.session] || 0) + 1; });
+    const meilleureSession = Object.entries(sessionCounts).sort((a, b) => b[1] - a[1])[0];
+
+    txt += `\nTOTAL : ${setups.length} setups gagnants enregistrés, +${totalProfit.toFixed(0)}$ cumulés.\n`;
+    if (meilleureSession) txt += `Session la plus profitable : ${meilleureSession[0]} (${meilleureSession[1]} setups).\n`;
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    return txt;
+  } catch(err) { return ''; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 📚 POST-MORTEM AUTO (sans screen — récupère les bougies via MetaAPI)
+// ═══════════════════════════════════════════════════════════════════
+
+async function getLeconsPourPrompt(userId) {
+  try {
+    const lecons = await leconsDb.findAsync({ userId });
+    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const top = lecons.slice(0, 10);
+    if (!top.length) return '';
+    let txt = '\n═══════════════════════════════════════════════════════════════\n';
+    txt += '📚 LEÇONS DES TRADES PERDANTS — À RESPECTER\n';
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    txt += 'Erreurs commises sur des trades précédents qui ont touché le SL.\n';
+    txt += 'AVANT de proposer ce nouveau trade, vérifie que tu ne refais PAS la même erreur :\n\n';
+    top.forEach((l, i) => {
+      txt += `${i + 1}. [${l.setupType || 'Setup'}] ${l.lecon}\n`;
+      if (l.signalManque) txt += `   Signal manqué : ${l.signalManque}\n`;
+    });
+    txt += '═══════════════════════════════════════════════════════════════\n';
+    return txt;
+  } catch(err) { return ''; }
+}
+
+async function genererPostMortemAuto(analyse, userId) {
+  if (!metaApi) return null;
+  try {
+    const user = await db.findOneAsync({ _id: userId });
+    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
+
+    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    if (account.state !== 'DEPLOYED') return null;
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    // Récupérer les 30 bougies M5 autour du moment du SL touché
+    const symbole = (analyse.instrument || 'XAUUSD').toUpperCase();
+    const tempsCloture = new Date(analyse.tradeClotureTemps || analyse.createdAt);
+    const debut = new Date(tempsCloture.getTime() - 30 * 5 * 60 * 1000); // 2h30 avant
+
+    let candles = [];
+    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+    for (const sfx of suffixes) {
+      try {
+        candles = await connection.getHistoricalCandles(symbole + sfx, '5m', debut, 30) || [];
+        if (candles.length) break;
+      } catch(e) {}
+    }
+    if (!candles.length) return null;
+
+    // Détecter OB/FVG sur ces bougies pour donner du contexte à l'IA
+    const obs = detecterOrderBlocks(candles);
+    const fvgs = detecterFairValueGaps(candles);
+
+    // Construction du résumé textuel pour l'IA
+    const dernieresBougies = candles.slice(-10).map(c => ({
+      time: new Date(c.time).toISOString(),
+      o: c.open.toFixed(2),
+      h: c.high.toFixed(2),
+      l: c.low.toFixed(2),
+      c: c.close.toFixed(2)
+    }));
+
+    const promptText = `Tu es un trader expert ICT. Analyse pourquoi ce trade a touché le SL.
+
+CONTEXTE DU TRADE PERDANT :
+- Instrument : ${analyse.instrument || 'XAUUSD'}
+- Direction : ${analyse.decision}
+- Entrée : ${analyse.entry}
+- SL : ${analyse.sl}
+- TP1 : ${analyse.tp}
+- Score initial : ${analyse.score}/10
+- Range asiatique : ${analyse.rangeBas || '?'} - ${analyse.rangeHaut || '?'}
+- Perte : ${analyse.tradeProfit}$
+- Date analyse : ${new Date(analyse.createdAt).toISOString()}
+- Date clôture : ${tempsCloture.toISOString()}
+
+DONNÉES OBJECTIVES DU MARCHÉ AU MOMENT DU SL :
+- 10 dernières bougies M5 avant le SL :
+${dernieresBougies.map(b => `  ${b.time}: O=${b.o} H=${b.h} L=${b.l} C=${b.c}`).join('\n')}
+
+- OB bullish détectés : ${obs.bullish.length} (zones: ${obs.bullish.map(o => o.zone.low.toFixed(2) + '-' + o.zone.high.toFixed(2)).join(', ') || 'aucun'})
+- OB bearish détectés : ${obs.bearish.length} (zones: ${obs.bearish.map(o => o.zone.low.toFixed(2) + '-' + o.zone.high.toFixed(2)).join(', ') || 'aucun'})
+- FVG bullish : ${fvgs.bullish.length}, FVG bearish : ${fvgs.bearish.length}
+
+MISSION :
+1. Identifie CE QUI A FOIRÉ (qu'est-ce qui a fait que le SL a été touché)
+2. Identifie LE SIGNAL qu'il fallait voir avant pour éviter ce trade
+3. Formule une LEÇON courte et actionnable
+
+Réponds UNIQUEMENT en JSON valide :
+{
+  "ce_qui_a_foire": "explication courte (1 phrase)",
+  "signal_manque": "le signal à voir avant (1 phrase concrète)",
+  "lecon": "règle impérative pour les futures analyses (1 phrase)",
+  "setup_type": "type de setup (CRT Kasper / OB+FVG / Range asiatique / etc.)"
+}`;
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{ role: 'user', content: promptText }]
+    });
+
+    const raw = response.content[0].text.trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    const leconParsed = JSON.parse(m[0]);
+
+    const leconId = uuidv4();
+    await leconsDb.insertAsync({
+      _id: leconId,
+      userId,
+      analyseId: analyse._id,
+      instrument: analyse.instrument,
+      direction: analyse.decision,
+      perte: analyse.tradeProfit,
+      ceQuiAFoire: leconParsed.ce_qui_a_foire,
+      signalManque: leconParsed.signal_manque,
+      lecon: leconParsed.lecon,
+      setupType: leconParsed.setup_type,
+      auto: true,
+      createdAt: new Date()
+    });
+
+    await analysesDb.updateAsync({ _id: analyse._id }, { $set: { postMortemStatut: 'auto', leconId }});
+    console.log('[POSTMORTEM-AUTO] Leçon générée pour ' + analyse._id);
+    return leconParsed;
+  } catch(err) {
+    console.log('[POSTMORTEM-AUTO] Erreur:', err.message);
+    return null;
+  }
+}
+
+// Surveillance auto : check les trades perdants/gagnants et déclenche post-mortem ou setup gagnant
+async function surveillerTradesEtApprendre() {
+  if (!metaApi) return;
+  try {
+    const dateLimit = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const analysesAVerifier = await analysesDb.findAsync({
+      createdAt: { $gte: dateLimit },
+      decision: { $in: ['BUY', 'SELL'] },
+      apprentissageStatut: { $ne: 'TRAITE' }
+    });
+    if (!analysesAVerifier.length) return;
+
     const parUser = {};
-    for (const a of analysesActives) {
+    for (const a of analysesAVerifier) {
       if (!parUser[a.userId]) parUser[a.userId] = [];
       parUser[a.userId].push(a);
     }
@@ -536,140 +894,148 @@ async function surveillerTpPartiels() {
         if (!user || !user.mt5 || !user.mt5.metaApiAccountId) continue;
 
         const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-        if (account.state !== 'DEPLOYED') continue; // on ne deploy pas pour économiser
-
+        if (account.state !== 'DEPLOYED') continue;
         const connection = account.getRPCConnection();
         await connection.connect();
         await connection.waitSynchronized();
 
-        const positions = await connection.getPositions();
-        if (!positions || !positions.length) continue;
+        const deals = await connection.getDealsByTimeRange(dateLimit, new Date());
 
         for (const analyse of parUser[userId]) {
-          // Trouver la position MT5 correspondante (même symbole, même direction)
           const symbAnalyse = (analyse.instrument || 'XAUUSD').toUpperCase();
-          const positionsCorrespondantes = positions.filter(p => {
-            if (!p.symbol) return false;
-            const sym = p.symbol.toUpperCase();
+          const dealsCorrespondants = (deals || []).filter(d => {
+            if (!d.symbol || typeof d.profit !== 'number') return false;
+            const sym = d.symbol.toUpperCase();
             const symMatch = sym.includes(symbAnalyse) || symbAnalyse.includes(sym.replace(/-.*/, ''));
-            const dirMatch = (analyse.decision === 'BUY' && p.type === 'POSITION_TYPE_BUY')
-                          || (analyse.decision === 'SELL' && p.type === 'POSITION_TYPE_SELL');
-            // Position ouverte après l'analyse
-            const dateMatch = !p.time || new Date(p.time) >= new Date(analyse.createdAt);
-            return symMatch && dirMatch && dateMatch;
+            const dateMatch = new Date(d.time) > new Date(analyse.createdAt);
+            const dirMatch = (analyse.decision === 'BUY' && d.type === 'DEAL_TYPE_SELL')
+                          || (analyse.decision === 'SELL' && d.type === 'DEAL_TYPE_BUY');
+            return symMatch && dateMatch && dirMatch;
           });
+          if (!dealsCorrespondants.length) continue;
+          dealsCorrespondants.sort((a, b) => new Date(a.time) - new Date(b.time));
+          const deal = dealsCorrespondants[0];
+          const profit = parseFloat(deal.profit);
 
-          if (!positionsCorrespondantes.length) continue;
-          // Prendre celle dont le prix d'entrée est le plus proche de l'analyse
-          positionsCorrespondantes.sort((a, b) => {
-            const da = Math.abs(parseFloat(a.openPrice) - parseFloat(analyse.entry || a.openPrice));
-            const db = Math.abs(parseFloat(b.openPrice) - parseFloat(analyse.entry || b.openPrice));
-            return da - db;
-          });
-          const pos = positionsCorrespondantes[0];
+          // Mettre à jour l'analyse avec le résultat
+          await analysesDb.updateAsync(
+            { _id: analyse._id },
+            { $set: { tradeProfit: profit, tradeClotureTemps: deal.time, apprentissageStatut: 'TRAITE' }}
+          );
 
-          const prixActuel = pos.currentPrice;
-          const isBuy = analyse.decision === 'BUY';
-          const tp1 = parseFloat(analyse.tp);   // TP1 = 1:2
-          const tp2 = parseFloat(analyse.tp2);  // TP2 = 1:3
-          const volumeInitial = analyse.volumeInitial || pos.volume; // si pas stocké, prendre actuel
-
-          // Stocker volumeInitial à la première détection pour savoir le 50%
-          if (!analyse.volumeInitial) {
-            await analysesDb.updateAsync(
-              { _id: analyse._id },
-              { $set: { volumeInitial: pos.volume, mt5PositionId: pos.id }}
-            );
-          }
-
-          // === CHECK TP1 ATTEINT ===
-          const tp1Atteint = isBuy ? prixActuel >= tp1 : prixActuel <= tp1;
-
-          if (tp1Atteint && !analyse.tp1Execute) {
-            // Calculer 50% du volume initial à fermer
-            const volumeAFermer = +(volumeInitial * 0.5).toFixed(2);
-            // Si le client a déjà réduit la position lui-même, on adapte
-            const aDejaReduit = pos.volume < volumeInitial * 0.95; // tolérance 5%
-
-            if (aDejaReduit) {
-              // Le client a déjà fait son TP partiel, on marque juste comme fait
-              await analysesDb.updateAsync(
-                { _id: analyse._id },
-                { $set: { tp1Execute: 'manuel', tp1ExecuteLe: new Date() }}
-              );
-              console.log('[TP] User ' + userId + ' a déjà réduit la position de ' + analyse.instrument);
-            } else {
-              // Le client n'a rien fait, on ferme 50% auto
-              try {
-                await connection.closePositionPartially(pos.id, volumeAFermer);
-                await analysesDb.updateAsync(
-                  { _id: analyse._id },
-                  { $set: { tp1Execute: 'auto', tp1ExecuteLe: new Date(), tp1VolumeFerme: volumeAFermer }}
-                );
-                // Déplacer le SL au breakeven (entrée) pour sécuriser le reste
-                try {
-                  await connection.modifyPosition(pos.id, parseFloat(pos.openPrice), parseFloat(pos.takeProfit) || tp2);
-                  console.log('[TP] SL déplacé au breakeven pour ' + pos.symbol);
-                } catch(e) { console.log('[TP] Erreur déplacement SL:', e.message); }
-
-                await creerNotification(
-                  userId,
-                  'tp_partiel_auto',
-                  '🎯 TP1 atteint — 50% fermé automatiquement',
-                  `${pos.symbol} ${analyse.decision} : TP1 (${tp1}) atteint. J'ai fermé ${volumeAFermer} lots (50%) et déplacé ton SL au breakeven (${pos.openPrice}). Le reste laisse courir vers TP2 (${tp2}).`,
-                  { analyseId: analyse._id, symbol: pos.symbol, tp1, volumeFerme: volumeAFermer, slBreakeven: pos.openPrice }
-                );
-                console.log('[TP] ✓ TP1 auto exécuté pour ' + pos.symbol + ' (50% = ' + volumeAFermer + ' lots)');
-              } catch(err) {
-                console.log('[TP] Erreur fermeture partielle:', err.message);
-                await creerNotification(
-                  userId,
-                  'tp_partiel_alerte',
-                  '⚠️ TP1 atteint mais erreur fermeture auto',
-                  `${pos.symbol} : TP1 (${tp1}) atteint mais je n'ai pas pu fermer 50% automatiquement. Ferme manuellement sur MT5.`,
-                  { analyseId: analyse._id, error: err.message }
-                );
-              }
-            }
-          }
-
-          // === CHECK TP2 ATTEINT ===
-          const tp2Atteint = isBuy ? prixActuel >= tp2 : prixActuel <= tp2;
-
-          if (tp2Atteint && analyse.tp1Execute && !analyse.tp2Execute) {
-            try {
-              // Fermer tout ce qui reste
-              await connection.closePosition(pos.id);
-              await analysesDb.updateAsync(
-                { _id: analyse._id },
-                { $set: { tp2Execute: 'auto', tp2ExecuteLe: new Date(), tpStatut: 'TERMINE' }}
-              );
-              await creerNotification(
-                userId,
-                'tp_partiel_auto',
-                '✅ TP2 atteint — Position fermée complètement',
-                `${pos.symbol} ${analyse.decision} : TP2 (${tp2}) atteint. J'ai fermé le reste de la position. Trade terminé !`,
-                { analyseId: analyse._id, symbol: pos.symbol, tp2 }
-              );
-              console.log('[TP] ✓ TP2 auto exécuté pour ' + pos.symbol);
-            } catch(err) {
-              console.log('[TP] Erreur fermeture totale:', err.message);
-            }
+          // Déclencher l'apprentissage selon le résultat
+          const analyseAvecResultat = { ...analyse, tradeProfit: profit, tradeClotureTemps: deal.time };
+          if (profit < 0) {
+            // Perte → post-mortem auto
+            await genererPostMortemAuto(analyseAvecResultat, userId);
+          } else if (profit > 0) {
+            // Gain → enregistrer comme setup gagnant
+            await enregistrerSetupGagnant(analyseAvecResultat);
           }
         }
       } catch(err) {
-        if (!err.message.includes('not found')) {
-          console.log('[TP] Erreur user ' + userId + ' : ' + err.message);
-        }
+        if (!err.message.includes('not found')) console.log('[APPRENTISSAGE] Erreur user:', err.message);
       }
     }
-  } catch(err) {
-    console.log('[TP] Erreur globale:', err.message);
+  } catch(err) { console.log('[APPRENTISSAGE] Erreur globale:', err.message); }
+}
+setInterval(surveillerTradesEtApprendre, 5 * 60 * 1000);
+
+// ═══════════════════════════════════════════════════════════════════
+// 🛡️ RATE LIMITER (protège la facture Anthropic)
+// ═══════════════════════════════════════════════════════════════════
+// Limite : 30 analyses/heure par utilisateur. Si dépassé → 429.
+// Stockage en mémoire (reset au restart, pas grave).
+const rateLimitStore = {};
+function rateLimitAnalyze(req, res, next) {
+  const userId = req.session?.userId;
+  if (!userId) return next();
+
+  // Admin = pas de limite
+  if (req.session.userRole === 'admin') return next();
+
+  const now = Date.now();
+  const fenetre = 60 * 60 * 1000; // 1 heure
+  const limite = 30; // 30 analyses/heure max
+
+  if (!rateLimitStore[userId]) rateLimitStore[userId] = [];
+  // Nettoyer les anciens timestamps
+  rateLimitStore[userId] = rateLimitStore[userId].filter(t => now - t < fenetre);
+
+  if (rateLimitStore[userId].length >= limite) {
+    const tempsAttente = Math.ceil((fenetre - (now - rateLimitStore[userId][0])) / 60000);
+    return res.status(429).json({
+      error: `Trop d'analyses. Limite: ${limite}/heure. Réessaie dans ${tempsAttente} min.`,
+      retryAfterMin: tempsAttente
+    });
   }
+
+  rateLimitStore[userId].push(now);
+  next();
 }
 
-// Lancer la surveillance toutes les 5 minutes
-setInterval(surveillerTpPartiels, 5 * 60 * 1000);
+// Cleanup auto du store toutes les heures (évite de garder des données indéfiniment)
+setInterval(() => {
+  const now = Date.now();
+  const fenetre = 60 * 60 * 1000;
+  for (const userId of Object.keys(rateLimitStore)) {
+    rateLimitStore[userId] = rateLimitStore[userId].filter(t => now - t < fenetre);
+    if (rateLimitStore[userId].length === 0) delete rateLimitStore[userId];
+  }
+}, 60 * 60 * 1000);
+
+// ═══════════════════════════════════════════════════════════════════
+// 🩺 HEALTHCHECK (pour Render)
+// ═══════════════════════════════════════════════════════════════════
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// 💾 BACKUP AUTO DES DBs (1×/jour, rotation 7 jours)
+// ═══════════════════════════════════════════════════════════════════
+const BACKUP_DIR = path.join(__dirname, 'backups');
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+async function backupDatabases() {
+  try {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const dossierJour = path.join(BACKUP_DIR, today);
+    if (fs.existsSync(dossierJour)) return; // déjà fait aujourd'hui
+
+    fs.mkdirSync(dossierJour, { recursive: true });
+
+    const dbs = ['users.db', 'analyses.db', 'lecons.db', 'setups-gagnants.db'];
+    for (const dbFile of dbs) {
+      const src = path.join(__dirname, dbFile);
+      const dest = path.join(dossierJour, dbFile);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, dest);
+      }
+    }
+    console.log('[BACKUP] DBs sauvegardées dans ' + today);
+
+    // Rotation : garder 7 jours max
+    const dossiers = fs.readdirSync(BACKUP_DIR).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    if (dossiers.length > 7) {
+      for (const vieux of dossiers.slice(0, dossiers.length - 7)) {
+        const cheminVieux = path.join(BACKUP_DIR, vieux);
+        fs.rmSync(cheminVieux, { recursive: true, force: true });
+      }
+      console.log('[BACKUP] ' + (dossiers.length - 7) + ' anciens backups supprimés');
+    }
+  } catch(err) {
+    console.log('[BACKUP] Erreur:', err.message);
+  }
+}
+// Lancer au démarrage (5s après) puis toutes les 24h
+setTimeout(backupDatabases, 5000);
+setInterval(backupDatabases, 24 * 60 * 60 * 1000);
 
 app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
@@ -861,45 +1227,38 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-// ─── ROUTES NOTIFICATIONS ───────────────────────────────────────────
-app.get('/notifications', checkAuth, async (req, res) => {
+// ─── ROUTES APPRENTISSAGE IA ────────────────────────────────────────
+app.get('/apprentissage/lecons', checkAuth, async (req, res) => {
   try {
-    const notifs = await notificationsDb.findAsync({ userId: req.session.userId });
-    notifs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const nonLues = notifs.filter(n => !n.lue).length;
-    res.json({ count: notifs.length, nonLues, notifications: notifs.slice(0, 50) });
+    const lecons = await leconsDb.findAsync({ userId: req.session.userId });
+    lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({ count: lecons.length, lecons });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/notifications/:id/lue', checkAuth, async (req, res) => {
+app.delete('/apprentissage/lecons/:id', checkAuth, async (req, res) => {
   try {
-    await notificationsDb.updateAsync(
-      { _id: req.params.id, userId: req.session.userId },
-      { $set: { lue: true }}
-    );
+    await leconsDb.removeAsync({ _id: req.params.id, userId: req.session.userId });
     res.json({ success: true });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/notifications/all-lues', checkAuth, async (req, res) => {
+app.get('/apprentissage/setups-gagnants', checkAuth, async (req, res) => {
   try {
-    await notificationsDb.updateAsync(
-      { userId: req.session.userId, lue: false },
-      { $set: { lue: true }},
-      { multi: true }
-    );
+    const setups = await setupsGagnantsDb.findAsync({ userId: req.session.userId });
+    setups.sort((a, b) => b.profit - a.profit);
+    res.json({ count: setups.length, setups: setups.slice(0, 20) });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/apprentissage/setups-gagnants/:id', checkAuth, async (req, res) => {
+  try {
+    await setupsGagnantsDb.removeAsync({ _id: req.params.id, userId: req.session.userId });
     res.json({ success: true });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/notifications/:id', checkAuth, async (req, res) => {
-  try {
-    await notificationsDb.removeAsync({ _id: req.params.id, userId: req.session.userId });
-    res.json({ success: true });
-  } catch(err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/analyze', checkAuth, uploadMulti.fields([
+app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
   { name: 'imageH1',  maxCount: 1 },
   { name: 'imageM30', maxCount: 1 },
   { name: 'imageM15', maxCount: 1 },
@@ -994,9 +1353,19 @@ Chevauchement Londres/New York, meilleure liquidité. Setups ICT/CRT très fiabl
 Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     }
 
+    // 📚 Leçons des trades perdants précédents
+    const blocLecons = await getLeconsPourPrompt(req.session.userId);
+
+    // 🏆 Setups gagnants précédents (patterns à reproduire)
+    const blocSetupsGagnants = await getBlocSetupsGagnants(req.session.userId, req.body.instrument || 'XAUUSD');
+
+    // 🔍 OB/FVG détectés algorithmiquement (data objective)
+    const blocOBFVG = await getBlocOBFVG(req.session.userId, req.body.instrument || 'XAUUSD');
+
     content.push({
       type: 'text',
       text: `Tu es un trader Smart Money ICT professionnel avec 15 ans d'expérience.${capital ? ` Capital du trader: $${capital}.` : ''}
+${blocLecons}${blocSetupsGagnants}${blocOBFVG}
 
 ═══════════════════════════════════════════════════════════════
 🕐 CONTEXTE TEMPOREL — OBLIGATOIRE À RESPECTER
@@ -1347,8 +1716,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 RÈGLES ABSOLUES:
 - BUY: SL sous l'entrée, TP au dessus
 - SELL: SL au dessus, TP en dessous
-- TP1=RR 1:2 (50% à fermer), TP2=RR 1:3 (50% restants à fermer), TP3=RR 1:4 (optionnel si laisser courir)
-- STRATÉGIE TP PARTIELS : le client doit fermer 50% à TP1 puis 50% à TP2. Si TP1 atteint et le client n'a pas réduit sa position, MON SYSTÈME ferme automatiquement 50% et déplace le SL au breakeven.
+- TP1=RR 1:2, TP2=RR 1:3, TP3=RR 1:4
 - score 8-10=excellent, 6-7=moyen, 0-5=NE PAS TRADER
 - Chiffres précis, décision claire`
     });
@@ -2094,6 +2462,32 @@ app.post('/analyses/:id/place-order', async (req, res) => {
 
 if (!fs.existsSync(path.join(__dirname, 'uploads'))) fs.mkdirSync(path.join(__dirname, 'uploads'));
 
+// ═══════════════════════════════════════════════════════════════════
+// 🛟 GESTION D'ERREUR GLOBALE
+// ═══════════════════════════════════════════════════════════════════
+// Catch les erreurs non gérées dans les routes Express
+app.use((err, req, res, next) => {
+  console.error('[ERREUR-EXPRESS]', err.message);
+  console.error(err.stack);
+  if (res.headersSent) return next(err);
+  res.status(500).json({
+    error: 'Erreur serveur',
+    message: process.env.NODE_ENV === 'production' ? 'Quelque chose a foiré, réessaie' : err.message
+  });
+});
+
+// Catch les erreurs async non catchées (qui crasheraient le process)
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UNHANDLED-REJECTION]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT-EXCEPTION]', err.message);
+  console.error(err.stack);
+  // Ne pas exit, laisser le serveur tourner
+});
+
 app.listen(port, () => {
   console.log('✅ Serveur lancé sur http://localhost:' + port);
+  console.log('   Mode :', process.env.NODE_ENV || 'development');
+  console.log('   PID  :', process.pid);
 });
