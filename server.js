@@ -2139,10 +2139,41 @@ Tu reçois aussi des données objectives calculées sur les vraies bougies MetaA
 - Si tu as une leçon précédente qui dit "ne pas faire X" → respecte-la
 
 ═══════════════════════════════════════════════════════════════
-${crtKasperActif ? `🎯 CRT KASPER (M15 + M1 fournis) — bonus si détecté
-Pattern 3 bougies M15 : key candle / sweep / break confirmé.
-- CRT confirmé + structure alignée → +2 score
-- CRT confirmé contre tendance → ignoré
+${crtKasperActif ? `🎯 CRT KASPER KARL (M15 + M1 fournis) — méthode principale
+═══════════════════════════════════════════════════════════════
+Cherche un pattern CRT sur les 3 DERNIÈRES bougies M15 UNIQUEMENT.
+JAMAIS sur M1 ou M5 (pas de "mini CRT").
+
+LES 3 BOUGIES :
+• Bougie 1 (KEY CANDLE) : bougie de référence avec HIGH et LOW clairs
+• Bougie 2 (SWEEP) :
+  - Sa MÈCHE dépasse un extrême de la bougie 1 (chasse de liquidité)
+  - Son CORPS ferme DANS le range de la bougie 1 (fausse cassure)
+• Bougie 3 (BREAK) :
+  - Ferme au-delà de l'extrême OPPOSÉ de la bougie 1
+  - Doit avoir un corps significatif (pas une doji)
+
+CRT BULLISH = sweep du LOW + close au-dessus du HIGH = BUY
+CRT BEARISH = sweep du HIGH + close en-dessous du LOW = SELL
+
+VARIANTES :
+- STRICT : break net et clair → +2 score
+- SOFT : effleure mais ferme de l'autre côté → +1 score
+- Aucun pattern clair → crtKasper = "NON_DETECTE"
+
+PLACEMENT (si CRT détecté) :
+- Entrée : retest du niveau cassé (high/low de la key candle)
+  Utilise M1 pour le timing précis
+- SL : juste au-delà du sweep de la bougie 2 + buffer 5-10$ min
+  → BUY : SL = low de bougie 2 - buffer
+  → SELL : SL = high de bougie 2 + buffer
+- TP1 : niveau de liquidité opposé, R:R 1:1.5 minimum
+
+INTÉGRATION :
+- CRT confirmé + tendance H1/M30 alignée → SETUP A+ (score 9-10)
+- CRT confirmé + structure neutre → bon setup (score 7-8)
+- CRT confirmé CONTRE H1/M30 → IGNORE le CRT, NE PAS TRADER
+  (CRT contre tendance majeure = piège 80% du temps)
 ═══════════════════════════════════════════════════════════════
 ` : ''}
 
