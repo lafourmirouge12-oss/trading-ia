@@ -394,6 +394,939 @@ function calculerMA(candles, periode) {
 // que l'IA reçoit AVANT de proposer son trade. Comme ça elle voit les
 // indicateurs réels (pas devinés sur les screens) et propose un setup
 // cohérent avec eux.
+
+// ═══════════════════════════════════════════════════════════════════
+// 🧩 MODULE INLINÉ : ICT DETECTION (DOL, P/D, MSS, kill zones, OB validation)
+// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// 🎯 ict-detection.js — Concepts ICT/SMC manquants à AI-Mazza
+// ═══════════════════════════════════════════════════════════════════
+// À placer dans le projet, à côté de server.js
+// Importé via : const ict = require('./ict-detection');
+//
+// Ce module est PURE FONCTION (pas d'I/O), tu lui passes des bougies
+// MetaAPI il te rend des objets analysables. Aucun appel réseau.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── HELPERS ────────────────────────────────────────────────────────
+
+// Détecte les swings (pivot highs/lows) avec un lookback configurable
+// Un swing high = bougie dont le high est > aux N bougies avant et après
+function detecterSwings(candles, lookback = 3) {
+  const swings = { highs: [], lows: [] };
+  if (!candles || candles.length < lookback * 2 + 1) return swings;
+
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const c = candles[i];
+    let isSwingHigh = true, isSwingLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (candles[i - j].high >= c.high || candles[i + j].high >= c.high) isSwingHigh = false;
+      if (candles[i - j].low <= c.low || candles[i + j].low <= c.low) isSwingLow = false;
+    }
+    if (isSwingHigh) swings.highs.push({ price: c.high, index: i, time: c.time });
+    if (isSwingLow)  swings.lows.push({ price: c.low,  index: i, time: c.time });
+  }
+  return swings;
+}
+
+// ATR simple pour buffer dynamique
+function calculerATR(candles, period = 14) {
+  if (!candles || candles.length < period + 1) return 0;
+  let sum = 0;
+  for (let i = candles.length - period; i < candles.length; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    sum += tr;
+  }
+  return sum / period;
+}
+
+// ─── 1. DEALING RANGE + PREMIUM/DISCOUNT ────────────────────────────
+// Le dealing range = du dernier swing high majeur au dernier swing low majeur
+// Equilibrium = milieu (50%). Au-dessus = premium (zone SELL), en-dessous = discount (zone BUY)
+function getDealingRange(candles, lookback = 5) {
+  if (!candles || candles.length < 5) return null;
+  const swings = detecterSwings(candles, lookback);
+
+  // Si on a des swings clairs, on les utilise. Sinon fallback : high/low récents
+  let high, low, lastHighTime, lastLowTime;
+  if (swings.highs.length && swings.lows.length) {
+    const lastHigh = swings.highs[swings.highs.length - 1];
+    const lastLow  = swings.lows[swings.lows.length - 1];
+    high = lastHigh.price;
+    low  = lastLow.price;
+    lastHighTime = lastHigh.time;
+    lastLowTime = lastLow.time;
+  } else {
+    // Fallback : high/low des 30 dernières bougies (range récent)
+    const recent = candles.slice(-Math.min(30, candles.length));
+    let hC = recent[0], lC = recent[0];
+    recent.forEach(c => {
+      if (c.high > hC.high) hC = c;
+      if (c.low < lC.low) lC = c;
+    });
+    high = hC.high;
+    low = lC.low;
+    lastHighTime = hC.time;
+    lastLowTime = lC.time;
+  }
+
+  const range = high - low;
+  if (range <= 0) return null;
+
+  const equilibrium = (high + low) / 2;
+  // Niveaux OTE (Optimal Trade Entry) : 62%, 70.5%, 79%
+  const ote62_buy = low + range * 0.38;   // pour BUY en discount
+  const ote70_buy = low + range * 0.295;
+  const ote79_buy = low + range * 0.21;
+  const ote62_sell = high - range * 0.38; // pour SELL en premium
+  const ote70_sell = high - range * 0.295;
+  const ote79_sell = high - range * 0.21;
+
+  const currentPrice = candles[candles.length - 1].close;
+  // Clamp positionPct entre -10% et 110% pour éviter les valeurs aberrantes
+  const rawPct = ((currentPrice - low) / range) * 100;
+  const positionPct = Math.max(-10, Math.min(110, rawPct));
+
+  let zone;
+  if (positionPct < 45) zone = 'DISCOUNT';
+  else if (positionPct > 55) zone = 'PREMIUM';
+  else zone = 'EQUILIBRIUM';
+
+  return {
+    high, low, range, equilibrium,
+    currentPrice,
+    positionPct: Math.round(positionPct * 10) / 10,
+    zone,
+    ote: {
+      buyZone: { from: low, to: equilibrium, sweet: [ote62_buy, ote70_buy, ote79_buy] },
+      sellZone: { from: equilibrium, to: high, sweet: [ote62_sell, ote70_sell, ote79_sell] }
+    },
+    lastSwingHighTime: lastHighTime,
+    lastSwingLowTime: lastLowTime
+  };
+}
+
+// ─── 2. MARKET STRUCTURE SHIFT (MSS) / BREAK OF STRUCTURE (BOS) ─────
+// BOS = continuation de tendance (cassure du dernier high en uptrend)
+// MSS = renversement (cassure du dernier high après une tendance baissière)
+function detecterStructure(candles, lookback = 3) {
+  const swings = detecterSwings(candles, lookback);
+  // Si pas assez de swings, retourner une structure par défaut RANGE (pas null, pas undefined)
+  if (swings.highs.length < 2 || swings.lows.length < 2) {
+    if (!candles || !candles.length) return null;
+    const lastHigh = swings.highs[swings.highs.length - 1]?.price || candles[candles.length - 1].high;
+    const lastLow = swings.lows[swings.lows.length - 1]?.price || candles[candles.length - 1].low;
+    return { trend: 'RANGE', event: null, dernierHigh: lastHigh, dernierLow: lastLow };
+  }
+
+  const recentHighs = swings.highs.slice(-3);
+  const recentLows  = swings.lows.slice(-3);
+  const last = candles[candles.length - 1];
+
+  // Tendance basée sur les 2 derniers swings
+  const tendanceHaute = recentHighs.length >= 2 && recentHighs[recentHighs.length - 1].price > recentHighs[recentHighs.length - 2].price;
+  const tendanceBasse = recentLows.length >= 2 && recentLows[recentLows.length - 1].price < recentLows[recentLows.length - 2].price;
+
+  let trend;
+  if (tendanceHaute && !tendanceBasse) trend = 'UP';
+  else if (tendanceBasse && !tendanceHaute) trend = 'DOWN';
+  else if (tendanceHaute && tendanceBasse) trend = 'EXPANSION'; // higher highs ET lower lows = volatil
+  else trend = 'RANGE';
+
+  // BOS / MSS détection : la dernière clôture casse un swing récent ?
+  const dernierHigh = recentHighs[recentHighs.length - 1];
+  const dernierLow  = recentLows[recentLows.length - 1];
+
+  let event = null;
+  if (last.close > dernierHigh.price && trend === 'DOWN') {
+    event = { type: 'MSS_BULLISH', niveau: dernierHigh.price, message: 'Renversement haussier confirmé (cassure du dernier swing high après tendance baissière)' };
+  } else if (last.close < dernierLow.price && trend === 'UP') {
+    event = { type: 'MSS_BEARISH', niveau: dernierLow.price, message: 'Renversement baissier confirmé (cassure du dernier swing low après tendance haussière)' };
+  } else if (last.close > dernierHigh.price && trend === 'UP') {
+    event = { type: 'BOS_BULLISH', niveau: dernierHigh.price, message: 'Continuation haussière (cassure du précédent high)' };
+  } else if (last.close < dernierLow.price && trend === 'DOWN') {
+    event = { type: 'BOS_BEARISH', niveau: dernierLow.price, message: 'Continuation baissière (cassure du précédent low)' };
+  }
+
+  return { trend, event, dernierHigh: dernierHigh.price, dernierLow: dernierLow.price };
+}
+
+// ─── 3. LIQUIDITY DETECTION (equal highs/lows + asian range + DOL) ──
+// Equal highs/lows = liquidité accumulée (stops des traders) → cible probable
+function detecterLiquidite(candles, tolerancePct = 0.0008) {
+  if (!candles || candles.length < 10) return { equalHighs: [], equalLows: [] };
+
+  const equalHighs = [], equalLows = [];
+  const swings = detecterSwings(candles, 2);
+
+  // Cherche des swings highs/lows dans une tolérance de 0.08% (8 pips sur XAU à 4700)
+  for (let i = 0; i < swings.highs.length - 1; i++) {
+    for (let j = i + 1; j < swings.highs.length; j++) {
+      const a = swings.highs[i].price, b = swings.highs[j].price;
+      if (Math.abs(a - b) / a < tolerancePct) {
+        equalHighs.push({ price: (a + b) / 2, count: 2, levels: [a, b] });
+      }
+    }
+  }
+  for (let i = 0; i < swings.lows.length - 1; i++) {
+    for (let j = i + 1; j < swings.lows.length; j++) {
+      const a = swings.lows[i].price, b = swings.lows[j].price;
+      if (Math.abs(a - b) / a < tolerancePct) {
+        equalLows.push({ price: (a + b) / 2, count: 2, levels: [a, b] });
+      }
+    }
+  }
+
+  // Dédupliquer (garder le plus haut prix unique)
+  const dedupe = (arr) => {
+    const seen = new Set();
+    return arr.filter(x => {
+      const key = x.price.toFixed(1);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  return { equalHighs: dedupe(equalHighs).slice(-3), equalLows: dedupe(equalLows).slice(-3) };
+}
+
+// Range asiatique (00h-07h UTC) = key levels du jour
+function getAsianRange(candlesM15) {
+  if (!candlesM15 || !candlesM15.length) return null;
+  // Filtrer les bougies dans la fenêtre asiat de la dernière session
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const asianStart = today.getTime();
+  const asianEnd = today.getTime() + 7 * 3600 * 1000;
+
+  const asianCandles = candlesM15.filter(c => {
+    const t = new Date(c.time).getTime();
+    return t >= asianStart && t < asianEnd;
+  });
+
+  if (asianCandles.length < 5) return null; // pas assez de data
+  const high = Math.max(...asianCandles.map(c => c.high));
+  const low  = Math.min(...asianCandles.map(c => c.low));
+  return { high, low, mid: (high + low) / 2, candleCount: asianCandles.length };
+}
+
+// Draw on Liquidity = la cible la plus probable du prix
+// Logique : cherche la pool de liquidité la plus proche dans le sens du momentum
+function getDrawOnLiquidity(candles, structure, asianRange, equalHL) {
+  if (!structure) return null;
+  const last = candles[candles.length - 1];
+  const price = last.close;
+
+  const cibles = [];
+
+  // Equal highs au-dessus du prix = sell-side liquidity (bullish target)
+  equalHL.equalHighs.forEach(eh => {
+    if (eh.price > price) cibles.push({ price: eh.price, type: 'EQH', side: 'BULLISH', distance: eh.price - price });
+  });
+  // Equal lows en-dessous = buy-side liquidity (bearish target)
+  equalHL.equalLows.forEach(el => {
+    if (el.price < price) cibles.push({ price: el.price, type: 'EQL', side: 'BEARISH', distance: price - el.price });
+  });
+
+  // Asian high/low si pas encore sweep
+  if (asianRange) {
+    if (asianRange.high > price) cibles.push({ price: asianRange.high, type: 'ASIAN_HIGH', side: 'BULLISH', distance: asianRange.high - price });
+    if (asianRange.low  < price) cibles.push({ price: asianRange.low,  type: 'ASIAN_LOW',  side: 'BEARISH', distance: price - asianRange.low  });
+  }
+
+  // Dernier swing high/low récent
+  if (structure.dernierHigh > price) cibles.push({ price: structure.dernierHigh, type: 'PREVIOUS_HIGH', side: 'BULLISH', distance: structure.dernierHigh - price });
+  if (structure.dernierLow  < price) cibles.push({ price: structure.dernierLow,  type: 'PREVIOUS_LOW',  side: 'BEARISH', distance: price - structure.dernierLow });
+
+  if (!cibles.length) return null;
+
+  // Tri par distance croissante : la plus proche = cible immédiate
+  cibles.sort((a, b) => a.distance - b.distance);
+
+  // Bias directionnel : si tendance UP, on privilégie les cibles BULLISH
+  const biasUp = structure.trend === 'UP' || (structure.event && structure.event.type.includes('BULLISH'));
+  const biasDown = structure.trend === 'DOWN' || (structure.event && structure.event.type.includes('BEARISH'));
+
+  const cibleAlignée = cibles.find(c =>
+    (biasUp && c.side === 'BULLISH') || (biasDown && c.side === 'BEARISH')
+  );
+
+  return {
+    cible: cibleAlignée || cibles[0],
+    toutes: cibles.slice(0, 4),
+    biasDirectionnel: biasUp ? 'BULLISH' : (biasDown ? 'BEARISH' : 'NEUTRAL')
+  };
+}
+
+// ─── 4. LIQUIDITY SWEEP DETECTION (a-t-il déjà été pris ?) ──────────
+// Un sweep = mèche qui dépasse un niveau de liquidité PUIS clôture de l'autre côté
+function detecterSweepRécent(candles, niveau, type, lookback = 5) {
+  // type = 'HIGH' (sweep d'un niveau au-dessus) ou 'LOW'
+  if (!candles || candles.length < lookback) return null;
+  const recent = candles.slice(-lookback);
+
+  for (const c of recent) {
+    if (type === 'HIGH' && c.high > niveau && c.close < niveau) {
+      return { swept: true, time: c.time, wickPenetration: c.high - niveau };
+    }
+    if (type === 'LOW' && c.low < niveau && c.close > niveau) {
+      return { swept: true, time: c.time, wickPenetration: niveau - c.low };
+    }
+  }
+  return { swept: false };
+}
+
+// ─── 5. ORDER BLOCK MITIGATION (validation de l'OB) ─────────────────
+// Un OB est "fort" s'il a été créé avec un déplacement (FVG dans la foulée)
+// et "valide" tant qu'il n'a pas été retesté complètement (au-delà du milieu)
+function validerOB(ob, candles) {
+  if (!candles || candles.length < 5) return { ...ob, qualite: 'UNKNOWN' };
+
+  const obIndex = candles.findIndex(c => c.time === ob.time);
+  if (obIndex === -1 || obIndex >= candles.length - 3) return { ...ob, qualite: 'UNKNOWN' };
+
+  // Y a-t-il une FVG dans les 3 bougies suivantes ? → OB de qualité (avec displacement)
+  let hasDisplacement = false;
+  for (let i = obIndex + 1; i < Math.min(obIndex + 4, candles.length); i++) {
+    if (i >= 2) {
+      const c1 = candles[i - 2], c3 = candles[i];
+      if (c3.low > c1.high || c3.high < c1.low) { hasDisplacement = true; break; }
+    }
+  }
+
+  // Le prix est-il déjà retourné dans la zone ? Si oui, mitigated
+  const milieuOB = (ob.zone.high + ob.zone.low) / 2;
+  let mitigated = false;
+  for (let i = obIndex + 1; i < candles.length; i++) {
+    const c = candles[i];
+    if (c.low <= milieuOB && c.high >= milieuOB) { mitigated = true; break; }
+  }
+
+  let qualite;
+  if (hasDisplacement && !mitigated) qualite = 'HIGH';     // OB frais avec displacement = top
+  else if (hasDisplacement && mitigated) qualite = 'MEDIUM'; // déjà retesté mais bon départ
+  else if (!hasDisplacement) qualite = 'LOW';                // pas de displacement = simple bougie
+
+  return { ...ob, qualite, hasDisplacement, mitigated };
+}
+
+// ─── 6. KILL ZONES ICT (granulaire) ─────────────────────────────────
+// Heures Paris (CET/CEST). Plus fin que ce qu'il y a dans server.js actuel.
+function getKillZone(date = new Date()) {
+  const hourParis = parseInt(date.toLocaleString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', hour12: false }));
+  const minute = parseInt(date.toLocaleString('fr-FR', { timeZone: 'Europe/Paris', minute: '2-digit' }));
+
+  // London Open KZ : 08h-11h Paris
+  if (hourParis >= 8 && hourParis < 11) return { name: 'LONDON_OPEN', boost: 1, qualite: 'HIGH' };
+  // NY AM KZ : 13h-15h Paris
+  if (hourParis >= 13 && hourParis < 15) return { name: 'NY_AM', boost: 1, qualite: 'HIGH' };
+  // ⭐ Silver Bullet AM : 16h-17h Paris (10h-11h NY) — LE meilleur window
+  if (hourParis === 16) return { name: 'SILVER_BULLET_AM', boost: 2, qualite: 'A_PLUS' };
+  // London Close : 17h-18h Paris
+  if (hourParis >= 17 && hourParis < 18) return { name: 'LONDON_CLOSE', boost: 1, qualite: 'MEDIUM' };
+  // ⭐ Silver Bullet PM : 20h-21h Paris (14h-15h NY)
+  if (hourParis === 20) return { name: 'SILVER_BULLET_PM', boost: 1, qualite: 'HIGH' };
+  // Asian KZ (faible mais pour le range) : 02h-05h Paris
+  if (hourParis >= 2 && hourParis < 5) return { name: 'ASIAN', boost: 0, qualite: 'LOW' };
+  // Pré-asiat / fin de journée : 18h-20h
+  if (hourParis >= 18 && hourParis < 20) return { name: 'NY_PM', boost: 0, qualite: 'MEDIUM' };
+
+  return { name: 'OFF_HOURS', boost: -1, qualite: 'AVOID' };
+}
+
+// ─── 7. SCORING SYSTÈME (additif transparent) ───────────────────────
+// Remplace le score 0-10 opaque par un système à points expliqué
+function scoreSetup(features) {
+  // features = { hasDOL, premiumDiscountAligned, mssOrBosAligned, obQuality, fvgPresent,
+  //              crtKasperConfirmed, killZoneBoost, newsClean, structureH1Aligned, sweepRecent }
+  const points = [];
+
+  if (features.hasDOL)                points.push({ pts: 2, raison: 'Cible DOL identifiée' });
+  if (features.premiumDiscountAligned) points.push({ pts: 2, raison: 'Zone Premium/Discount alignée' });
+  if (features.mssOrBosAligned)        points.push({ pts: 2, raison: 'MSS/BOS aligné avec direction' });
+  if (features.obQuality === 'HIGH')   points.push({ pts: 1.5, raison: 'OB haute qualité (displacement, non mitigé)' });
+  else if (features.obQuality === 'MEDIUM') points.push({ pts: 0.75, raison: 'OB moyen' });
+  if (features.fvgPresent)             points.push({ pts: 1, raison: 'FVG en confluence' });
+  if (features.crtKasperConfirmed)     points.push({ pts: 2, raison: 'CRT Kasper confirmé' });
+  if (features.killZoneBoost > 0)      points.push({ pts: features.killZoneBoost, raison: `Kill zone ${features.killZoneName}` });
+  if (features.newsClean)              points.push({ pts: 0.5, raison: 'Pas de news rouge dans 30min' });
+  if (features.structureH1Aligned)     points.push({ pts: 1, raison: 'H1 aligné' });
+  if (features.sweepRecent)            points.push({ pts: 1.5, raison: 'Sweep de liquidité récent' });
+
+  // Pénalités
+  if (features.killZoneBoost < 0)      points.push({ pts: -2, raison: 'Hors kill zone' });
+  if (features.consecutiveLosses >= 2) points.push({ pts: -1, raison: '2+ pertes consécutives (anti-tilt)' });
+
+  const total = points.reduce((s, p) => s + p.pts, 0);
+  return {
+    total: Math.round(total * 10) / 10,
+    decomposition: points,
+    decision: total >= 7 ? 'TRADE' : (total >= 5 ? 'BORDERLINE' : 'NE_PAS_TRADER')
+  };
+}
+
+// ─── 8. ANALYSE COMPLÈTE (fonction principale à appeler) ────────────
+async function analyseComplete(candlesM15, candlesH1, candlesM5) {
+  const structureM15 = detecterStructure(candlesM15, 3);
+  const structureH1  = candlesH1 ? detecterStructure(candlesH1, 2) : null;
+  const dealingRange = getDealingRange(candlesH1 || candlesM15, 5);
+  const liquidite    = detecterLiquidite(candlesM15);
+  const asianRange   = getAsianRange(candlesM15);
+  const dol          = getDrawOnLiquidity(candlesM15, structureM15, asianRange, liquidite);
+  const killZone     = getKillZone();
+  const atr          = calculerATR(candlesM15, 14);
+
+  return {
+    structureM15,
+    structureH1,
+    dealingRange,
+    liquidite,
+    asianRange,
+    drawOnLiquidity: dol,
+    killZone,
+    atr,
+    bufferSL: Math.max(atr * 0.3, 3) // buffer SL dynamique : 30% ATR, min 3$ sur XAU
+  };
+}
+
+// ─── 9. FORMATTAGE POUR LE PROMPT ───────────────────────────────────
+// Génère le bloc texte à injecter dans le prompt envoyé à Claude
+function formatPourPrompt(analyse) {
+  let txt = '\n═══════════════════════════════════════════════════════════════\n';
+  txt += '🧠 ANALYSE ICT ALGORITHMIQUE (calculée sur les vraies bougies)\n';
+  txt += '═══════════════════════════════════════════════════════════════\n';
+
+  // Dealing range
+  if (analyse.dealingRange) {
+    const dr = analyse.dealingRange;
+    txt += `\n📐 DEALING RANGE H1 :\n`;
+    txt += `  - High: ${dr.high.toFixed(2)} | Low: ${dr.low.toFixed(2)} | Equilibrium 50%: ${dr.equilibrium.toFixed(2)}\n`;
+    txt += `  - Prix actuel: ${dr.currentPrice.toFixed(2)} (${dr.positionPct}% du range)\n`;
+    txt += `  - 🎯 ZONE: **${dr.zone}**\n`;
+    if (dr.zone === 'DISCOUNT') {
+      txt += `  - ✅ Zone DISCOUNT → favoriser les BUY (OTE: ${dr.ote.buyZone.sweet[0].toFixed(2)} - ${dr.ote.buyZone.sweet[2].toFixed(2)})\n`;
+      txt += `  - ❌ NE PAS proposer de SELL en discount sauf MSS très clair\n`;
+    } else if (dr.zone === 'PREMIUM') {
+      txt += `  - ✅ Zone PREMIUM → favoriser les SELL (OTE: ${dr.ote.sellZone.sweet[2].toFixed(2)} - ${dr.ote.sellZone.sweet[0].toFixed(2)})\n`;
+      txt += `  - ❌ NE PAS proposer de BUY en premium sauf MSS très clair\n`;
+    } else {
+      txt += `  - ⚠️ Zone EQUILIBRIUM (45-55%) → ATTENDRE que le prix sorte vers premium ou discount\n`;
+    }
+  }
+
+  // Structure
+  if (analyse.structureM15) {
+    txt += `\n📊 STRUCTURE M15 : ${analyse.structureM15.trend}\n`;
+    if (analyse.structureM15.event) {
+      txt += `  - 🚨 ÉVÉNEMENT: ${analyse.structureM15.event.type} à ${analyse.structureM15.event.niveau.toFixed(2)}\n`;
+      txt += `  - ${analyse.structureM15.event.message}\n`;
+    }
+    txt += `  - Dernier swing high: ${analyse.structureM15.dernierHigh.toFixed(2)} | swing low: ${analyse.structureM15.dernierLow.toFixed(2)}\n`;
+  }
+  if (analyse.structureH1) {
+    txt += `📊 STRUCTURE H1 : ${analyse.structureH1.trend}`;
+    if (analyse.structureH1.event) txt += ` (${analyse.structureH1.event.type})`;
+    txt += '\n';
+  }
+
+  // Draw on Liquidity
+  if (analyse.drawOnLiquidity && analyse.drawOnLiquidity.cible) {
+    const c = analyse.drawOnLiquidity.cible;
+    txt += `\n🎯 DRAW ON LIQUIDITY (cible directionnelle) :\n`;
+    txt += `  - **${c.type}** à ${c.price.toFixed(2)} (${c.side}, distance ${c.distance.toFixed(2)}$)\n`;
+    txt += `  - Bias directionnel: ${analyse.drawOnLiquidity.biasDirectionnel}\n`;
+    if (analyse.drawOnLiquidity.toutes.length > 1) {
+      txt += `  - Autres cibles: ${analyse.drawOnLiquidity.toutes.slice(1).map(x => `${x.type}@${x.price.toFixed(2)}`).join(', ')}\n`;
+    }
+  }
+
+  // Liquidité (equal highs/lows)
+  if (analyse.liquidite.equalHighs.length || analyse.liquidite.equalLows.length) {
+    txt += `\n💧 LIQUIDITÉ DÉTECTÉE :\n`;
+    if (analyse.liquidite.equalHighs.length) {
+      txt += `  - Equal Highs (sell-side liq): ${analyse.liquidite.equalHighs.map(e => e.price.toFixed(2)).join(', ')}\n`;
+    }
+    if (analyse.liquidite.equalLows.length) {
+      txt += `  - Equal Lows (buy-side liq): ${analyse.liquidite.equalLows.map(e => e.price.toFixed(2)).join(', ')}\n`;
+    }
+  }
+
+  // Range asiatique
+  if (analyse.asianRange) {
+    txt += `\n🌏 RANGE ASIATIQUE : ${analyse.asianRange.low.toFixed(2)} - ${analyse.asianRange.high.toFixed(2)} (mid ${analyse.asianRange.mid.toFixed(2)})\n`;
+  }
+
+  // Kill zone
+  txt += `\n⏰ KILL ZONE ACTUELLE : **${analyse.killZone.name}** (qualité: ${analyse.killZone.qualite}, boost: ${analyse.killZone.boost > 0 ? '+' : ''}${analyse.killZone.boost})\n`;
+  if (analyse.killZone.name.includes('SILVER_BULLET')) {
+    txt += `  - ⭐ Window statistiquement très favorable, accepter score ≥ 7\n`;
+  } else if (analyse.killZone.name === 'OFF_HOURS') {
+    txt += `  - ⚠️ Hors kill zone → score minimum exigé: 8.5\n`;
+  }
+
+  // ATR
+  txt += `\n📏 ATR(14) M15: ${analyse.atr.toFixed(2)}$ | Buffer SL recommandé: ${analyse.bufferSL.toFixed(2)}$\n`;
+
+  txt += '═══════════════════════════════════════════════════════════════\n';
+  return txt;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 🧩 MODULE INLINÉ : TP MANAGEMENT 3-TIER
+// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// 🎯 tp-management.js — Gestion TP partiel 3-tier + trailing structurel
+// ═══════════════════════════════════════════════════════════════════
+// REMPLACE la fonction gererTpPartielsEtBE() de server.js (ligne 1279)
+//
+// Améliorations vs ancien système :
+// 1. 3 paliers (TP1 / TP2 / TP3) au lieu de 1 seul
+// 2. Distribution variable selon score du setup
+// 3. SL à BE+buffer (pas pile à l'entrée — évite spread/slippage)
+// 4. Trailing structurel après TP2 (suit les swings)
+// 5. Tracking par positionId avec étapes franchies
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── DISTRIBUTION DES VOLUMES SELON LE SCORE ────────────────────────
+// La logique : plus le setup est de qualité, plus on garde de runner pour TP2/TP3
+// Setup A+ (score≥9) : on a confiance, on laisse courir → 40/30/30
+// Setup A (score 7-8) : confiance moyenne, on sécurise plus tôt → 50/30/20
+// Setup B (score 6) : limite, on sort vite → 70/30/0
+function getDistribution(score) {
+  if (score >= 9)      return { tp1: 0.40, tp2: 0.30, tp3: 0.30, mode: 'A_PLUS' };
+  if (score >= 7)      return { tp1: 0.50, tp2: 0.30, tp3: 0.20, mode: 'A' };
+  if (score >= 6)      return { tp1: 0.70, tp2: 0.30, tp3: 0,    mode: 'B' };
+  return                      { tp1: 1.00, tp2: 0,    tp3: 0,    mode: 'C' }; // tout ferme à TP1
+}
+
+// ─── BUFFER BE DYNAMIQUE ────────────────────────────────────────────
+// Sur XAU avec spread VTMarkets ~30-50 cents, faut au moins 2-3$ de buffer
+// pour que le BE soit vraiment profitable (couvrir spread + commission)
+function getBufferBE(symbol, atr) {
+  const symBase = (symbol || '').toUpperCase();
+  if (symBase.includes('XAU')) {
+    // 30% de l'ATR avec minimum 2$ et max 5$
+    return Math.min(Math.max(atr * 0.3, 2), 5);
+  }
+  // Forex majeurs : 5 pips de buffer
+  if (symBase.match(/EUR|GBP|USD|JPY/)) return 0.0005;
+  return Math.max(atr * 0.3, 1);
+}
+
+// ─── DERNIER SWING POUR TRAILING ─────────────────────────────────────
+// Pour un BUY : SL trailing sous le dernier swing low M5/M15
+// Pour un SELL : SL trailing au-dessus du dernier swing high M5/M15
+function trouverNiveauTrailing(candles, direction, lookback = 3) {
+  if (!candles || candles.length < lookback * 2 + 1) return null;
+  const last = candles[candles.length - 1];
+
+  // On parcourt à l'envers pour trouver le swing le plus récent
+  for (let i = candles.length - lookback - 1; i >= lookback; i--) {
+    const c = candles[i];
+    let isSwing = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (direction === 'BUY' && (candles[i-j].low <= c.low || candles[i+j].low <= c.low)) { isSwing = false; break; }
+      if (direction === 'SELL' && (candles[i-j].high >= c.high || candles[i+j].high >= c.high)) { isSwing = false; break; }
+    }
+    if (isSwing) {
+      return direction === 'BUY' ? c.low : c.high;
+    }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FONCTION PRINCIPALE — remplace gererTpPartielsEtBE()
+// ═══════════════════════════════════════════════════════════════════
+async function gererTpPartiels3Tier({
+  metaApi, db, analysesDb, positionsTrackingDb, creerNotification
+}) {
+  if (!metaApi) return;
+  try {
+    const users = await db.findAsync({ 'mt5.metaApiAccountId': { $exists: true } });
+
+    for (const user of users) {
+      try {
+        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+        if (account.state !== 'DEPLOYED') continue;
+        const connection = account.getRPCConnection();
+        await connection.connect();
+        await connection.waitSynchronized();
+
+        const positions = await connection.getPositions();
+        if (!positions || !positions.length) continue;
+
+        for (const pos of positions) {
+          try {
+            // ─── 1. CHARGER OU CRÉER LE TRACKING ─────────────────────
+            let tracking = await positionsTrackingDb.findOneAsync({ positionId: pos.id });
+
+            // Si tp3 déjà fait OU pas de runner → on skip (rien à gérer)
+            if (tracking && tracking.tp3Done) continue;
+            if (tracking && tracking.tp2Done && tracking.tp1Volume + tracking.tp2Volume >= parseFloat(pos.volume) * 0.99) continue;
+
+            // ─── 2. RETROUVER L'ANALYSE ASSOCIÉE ─────────────────────
+            const direction = pos.type === 'POSITION_TYPE_BUY' ? 'BUY' : 'SELL';
+            const dateLimit = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const analyses = await analysesDb.findAsync({
+              userId: user._id,
+              decision: direction,
+              createdAt: { $gte: dateLimit }
+            });
+
+            let analyseMatch = null;
+            for (const a of analyses) {
+              const aEntree = parseFloat(a.entree);
+              if (!isNaN(aEntree) && Math.abs(aEntree - parseFloat(pos.openPrice)) < 5) {
+                if (!analyseMatch || new Date(a.createdAt) > new Date(analyseMatch.createdAt)) {
+                  analyseMatch = a;
+                }
+              }
+            }
+            if (!analyseMatch || !analyseMatch.tp1) continue;
+
+            const tp1 = parseFloat(analyseMatch.tp1);
+            const tp2 = parseFloat(analyseMatch.tp2 || 0);
+            const tp3 = parseFloat(analyseMatch.tp3 || 0);
+            const score = parseFloat(analyseMatch.score || 7);
+            const entree = parseFloat(pos.openPrice);
+            const prixActuel = parseFloat(pos.currentPrice);
+            const isBuy = direction === 'BUY';
+            const volumeTotal = parseFloat(pos.volume);
+
+            // ─── 3. RÉCUPÉRER L'ATR POUR BUFFER DYNAMIQUE ────────────
+            let atr = 5; // fallback XAU
+            try {
+              const candles = await connection.getHistoricalCandles(pos.symbol, '15m', undefined, 20) || [];
+              if (candles.length >= 15) {
+                let sum = 0;
+                for (let i = candles.length - 14; i < candles.length; i++) {
+                  const c = candles[i], p = candles[i-1];
+                  sum += Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+                }
+                atr = sum / 14;
+              }
+            } catch(e) {}
+            const buffer = getBufferBE(pos.symbol, atr);
+            const distribution = getDistribution(score);
+
+            // ─── 4. INITIALISER LE TRACKING SI NOUVEAU ───────────────
+            if (!tracking) {
+              tracking = {
+                positionId: pos.id,
+                symbol: pos.symbol,
+                userId: user._id,
+                volumeOriginal: volumeTotal,
+                distribution,
+                tp1Done: false, tp2Done: false, tp3Done: false,
+                tp1Volume: 0, tp2Volume: 0, tp3Volume: 0,
+                createdAt: new Date()
+              };
+              await positionsTrackingDb.insertAsync(tracking);
+            }
+
+            // ═══ PALIER 1 : TP1 atteint ═══════════════════════════════
+            if (!tracking.tp1Done) {
+              const tp1Atteint = isBuy ? prixActuel >= tp1 : prixActuel <= tp1;
+              if (tp1Atteint) {
+                const volTP1 = Math.round(volumeTotal * distribution.tp1 * 100) / 100;
+                if (volTP1 >= 0.01) {
+                  try {
+                    await connection.closePositionPartially(pos.id, volTP1);
+                    console.log(`[TP1] Fermé ${volTP1}/${volumeTotal} sur ${pos.symbol} @ ${prixActuel} (mode ${distribution.mode})`);
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    // SL → BE + buffer (dans le sens du trade)
+                    const slBE = isBuy ? entree + buffer : entree - buffer;
+                    try {
+                      await connection.modifyPosition(pos.id, slBE, pos.takeProfit);
+                      console.log(`[BE+] SL → ${slBE.toFixed(2)} (BE+${buffer.toFixed(2)}$)`);
+                    } catch(err) { console.log('[BE+] Erreur:', err.message); }
+
+                    await positionsTrackingDb.updateAsync(
+                      { positionId: pos.id },
+                      { $set: { tp1Done: true, tp1Time: new Date(), tp1Volume: volTP1, tp1Price: prixActuel, slMoved: slBE } }
+                    );
+
+                    if (typeof creerNotification === 'function') {
+                      try {
+                        await creerNotification(user._id, 'tp_partiel',
+                          `🎯 TP1 atteint sur ${pos.symbol}`,
+                          `${(distribution.tp1*100).toFixed(0)}% fermés à ${prixActuel.toFixed(2)}, SL → BE+${buffer.toFixed(2)}$. Reste ${(volumeTotal-volTP1).toFixed(2)} lots pour TP2/TP3.`,
+                          { tp1: prixActuel, volumeFerme: volTP1 });
+                      } catch(e) {}
+                    }
+                  } catch(err) { console.log('[TP1] Erreur fermeture:', err.message); continue; }
+                }
+              }
+            }
+
+            // ═══ PALIER 2 : TP2 atteint (si distribution prévoit TP2) ═
+            else if (!tracking.tp2Done && distribution.tp2 > 0 && tp2 > 0) {
+              const tp2Atteint = isBuy ? prixActuel >= tp2 : prixActuel <= tp2;
+              if (tp2Atteint) {
+                const volTP2 = Math.round(volumeTotal * distribution.tp2 * 100) / 100;
+                if (volTP2 >= 0.01) {
+                  try {
+                    await connection.closePositionPartially(pos.id, volTP2);
+                    console.log(`[TP2] Fermé ${volTP2} sur ${pos.symbol} @ ${prixActuel}`);
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    // SL → lock TP1 (entrée + distance jusqu'à TP1, garantit profit)
+                    const slLock = isBuy
+                      ? entree + (tp1 - entree) * 0.5  // verrouille 50% du gain TP1
+                      : entree - (entree - tp1) * 0.5;
+                    try {
+                      await connection.modifyPosition(pos.id, slLock, pos.takeProfit);
+                      console.log(`[SL-LOCK] SL → ${slLock.toFixed(2)} (50% du gain TP1 verrouillé)`);
+                    } catch(err) { console.log('[SL-LOCK] Erreur:', err.message); }
+
+                    await positionsTrackingDb.updateAsync(
+                      { positionId: pos.id },
+                      { $set: { tp2Done: true, tp2Time: new Date(), tp2Volume: volTP2, tp2Price: prixActuel, slMoved: slLock } }
+                    );
+
+                    if (typeof creerNotification === 'function') {
+                      try {
+                        await creerNotification(user._id, 'tp_partiel',
+                          `🎯 TP2 atteint sur ${pos.symbol}`,
+                          `${(distribution.tp2*100).toFixed(0)}% fermés à ${prixActuel.toFixed(2)}. Trailing structurel activé sur le runner.`,
+                          { tp2: prixActuel, volumeFerme: volTP2 });
+                      } catch(e) {}
+                    }
+                  } catch(err) { console.log('[TP2] Erreur:', err.message); }
+                }
+              }
+            }
+
+            // ═══ PALIER 3 : RUNNER avec TRAILING STRUCTUREL ═══════════
+            // Une fois TP2 fait, on suit les swings M5 pour faire monter le SL
+            else if (tracking.tp2Done && !tracking.tp3Done && distribution.tp3 > 0) {
+              try {
+                const candlesM5 = await connection.getHistoricalCandles(pos.symbol, '5m', undefined, 30) || [];
+                const niveauTrailing = trouverNiveauTrailing(candlesM5, direction, 3);
+
+                if (niveauTrailing) {
+                  const slActuel = parseFloat(pos.stopLoss);
+                  const nouveauSL = isBuy ? niveauTrailing - buffer : niveauTrailing + buffer;
+                  // Ne déplace que si ça avance dans le sens du trade
+                  const ameliore = isBuy ? nouveauSL > slActuel : nouveauSL < slActuel;
+                  if (ameliore) {
+                    await connection.modifyPosition(pos.id, nouveauSL, pos.takeProfit);
+                    console.log(`[TRAILING] SL → ${nouveauSL.toFixed(2)} (sous swing ${direction === 'BUY' ? 'low' : 'high'} M5)`);
+                    await positionsTrackingDb.updateAsync(
+                      { positionId: pos.id },
+                      { $set: { lastTrailing: new Date(), slMoved: nouveauSL } }
+                    );
+                  }
+                }
+
+                // Si TP3 défini et atteint → fermer le runner
+                if (tp3 > 0) {
+                  const tp3Atteint = isBuy ? prixActuel >= tp3 : prixActuel <= tp3;
+                  if (tp3Atteint) {
+                    await connection.closePosition(pos.id);
+                    console.log(`[TP3] Runner fermé sur ${pos.symbol} @ ${prixActuel}`);
+                    await positionsTrackingDb.updateAsync(
+                      { positionId: pos.id },
+                      { $set: { tp3Done: true, tp3Time: new Date(), tp3Price: prixActuel } }
+                    );
+                  }
+                }
+              } catch(err) { console.log('[TRAILING] Erreur:', err.message); }
+            }
+
+          } catch(err) {
+            if (!err.message.includes('not found')) console.log('[TP-3TIER] Erreur position:', err.message);
+          }
+        }
+      } catch(err) {
+        if (!err.message.includes('not found')) console.log('[TP-3TIER] Erreur user:', err.message);
+      }
+    }
+  } catch(err) { console.log('[TP-3TIER] Erreur globale:', err.message); }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 🧩 MODULE INLINÉ : PROMPT RULES STRICT/LAXISTE
+// ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// 🎯 prompt-rules.js — Section RÈGLES du prompt avec logique
+//                      strict/laxiste explicitée
+// ═══════════════════════════════════════════════════════════════════
+// REMPLACE le bloc "📊 RÈGLES SIMPLES" du prompt (vers ligne 2080)
+// Et ajoute les nouvelles instructions pour DOL, Premium/Discount, MSS
+//
+// À utiliser comme :
+//   const promptRules = require('./prompt-rules');
+//   const promptText = `...intro...${promptRules.getReglesText({ score, killZone, ...})}...JSON...`;
+// ═══════════════════════════════════════════════════════════════════
+
+function getReglesText({ killZoneName = 'OFF_HOURS', sessionActive = '', consecutiveLosses = 0 } = {}) {
+  return `
+═══════════════════════════════════════════════════════════════
+📊 RÈGLES DE DÉCISION — STRICT vs LAXISTE
+═══════════════════════════════════════════════════════════════
+
+PHILOSOPHIE : Strict sur le CONTEXTE (non-négociable). Laxiste sur la
+CONFLUENCE (relatif si pattern principal très propre).
+
+═══════════════════════════════════════════════════════════════
+🔒 FILTRES STRICTS — NE PAS TRADER si UN seul de ces points coche
+═══════════════════════════════════════════════════════════════
+
+1. **Tendance H1 ET M30 désalignées** avec ton signal
+   → Pas de directional bias clair = casino. NE PAS TRADER.
+
+2. **Prix en zone EQUILIBRIUM (45-55% du dealing range H1)**
+   → Ni premium ni discount. ICT dit ATTENDRE que le prix sorte.
+   → Exception : MSS très récent et net qui crée un nouveau range.
+
+3. **Aucune liquidité claire à sweep** dans les 2× SL distance
+   → Pas de Draw on Liquidity = pas de cible institutionnelle = pas de raison.
+
+4. **Session asiatique sans cassure de range nette**
+   → 70% des signaux asiat sont des faux. NE PAS TRADER sauf cassure
+     CONFIRMÉE par bougie + clôture hors range.
+
+5. **Vendredi après 18h Paris** ou **avant 8h lundi**
+   → Liquidité fuyante, manipulation institutionnelle de fin/début de semaine.
+
+6. **News rouge dans les 30 minutes** (NFP, FOMC, CPI, BCE)
+   → Volatilité non-analysable, le setup peut être détruit en 1 bougie.
+
+7. **${consecutiveLosses >= 2 ? 'TU AS DÉJÀ ' + consecutiveLosses + ' PERTES CONSÉCUTIVES AUJOURD\'HUI' : 'Si 2+ pertes consécutives dans la journée'}**
+   → Réduction risque obligatoire (anti-tilt). Score minimum 8.5 pour continuer.
+
+8. **Bougie M15 actuelle 3x+ ATR moyen ET pas de FVG créée**
+   → Mouvement épuisé sans setup de continuation. NE PAS TRADER.
+   → ATTENTION : si bougie violente AVEC FVG → c'est différent, voir règle laxiste 5.
+
+═══════════════════════════════════════════════════════════════
+🔓 RÈGLES LAXISTES — Accepter score 7-8 même sans tout cocher
+═══════════════════════════════════════════════════════════════
+
+1. **MSS clair sur M15 + retest de FVG en kill zone**
+   → Pattern A+ mécanique d'ICT. Score peut être 8 sans toute la confluence.
+   → SL = au-delà du sweep qui a précédé le MSS + buffer ATR×0.3.
+
+2. **Silver Bullet (16h-17h Paris) + DOL identifié + structure alignée H1**
+   → Window statistiquement très profitable (10h-11h NY).
+   → Acceptable score 7 même si CRT non détecté.
+
+3. **CRT Kasper STRICT confirmé sur M15** (pas SOFT)
+   → Pattern auto-suffisant. Pas besoin de toute la confluence ICT.
+   → Score 7-8 acceptable même en zone equilibrium si tendance H1 alignée.
+
+4. **Sweep d'asian high/low + reversal en kill zone Londres ou NY**
+   → Setup mécanique haute probabilité. Score 7 acceptable.
+   → Le sweep DOIT être confirmé par clôture du côté opposé.
+
+5. **Bougie violente AVEC création de FVG → ATTENDRE le retest de la FVG**
+   → CONTRAIRE à ce que l'instinct dit : c'est UN DES MEILLEURS setups ICT.
+   → C'est un Displacement → la FVG sera retestée 70%+ du temps.
+   → Entrée : milieu de la FVG. SL : derrière la FVG. TP : extension du mouvement.
+
+6. **Setup similaire à un setup gagnant historique** (cf. 🏆 dans le prompt)
+   → Si pattern ressemble à un trade gagnant passé du même user en même session
+   → Boost confiance, score peut monter de +1.
+
+═══════════════════════════════════════════════════════════════
+🎯 SCORING ADDITIF (transparence totale)
+═══════════════════════════════════════════════════════════════
+
+Calcule le score en additionnant ces points (max théorique ~14, on cap à 10) :
+
+CONTEXTE (obligatoire pour score > 6) :
++ 2 pts : Cible DOL (Draw on Liquidity) clairement identifiée
++ 2 pts : Prix en zone Premium ou Discount alignée avec le signal
++ 2 pts : MSS ou BOS récent aligné avec direction du trade
++ 1 pt  : Tendance H1 alignée
+
+PATTERN PRINCIPAL :
++ 2 pts : CRT Kasper STRICT confirmé sur M15
++ 1.5 pt: OB de haute qualité (avec displacement, non mitigé)
++ 1 pt  : FVG en confluence avec entrée
++ 1.5 pt: Sweep de liquidité récent dans le sens du retournement
+
+CONTEXTE TEMPOREL :
++ 2 pts : Silver Bullet (16h-17h Paris)
++ 1 pt  : London Open ou NY AM kill zone
+- 1 pt  : Hors kill zone (OFF_HOURS)
+- 2 pts : Session asiatique sans cassure de range
+
+ÉTAT DE COMPTE :
++ 0.5 pt: Pas de news rouge dans 30 min
+${consecutiveLosses >= 2 ? `- 1 pt  : ${consecutiveLosses} pertes consécutives aujourd'hui (en cours)` : '- 1 pt  : Si 2+ pertes consécutives'}
+
+DÉCISION FINALE :
+- Score ≥ 7 → TRADE (avec distribution selon score, voir TP/SL ci-dessous)
+- Score 5-6.9 → BORDERLINE (NE PAS TRADER en règle générale, sauf règles laxistes 1, 2, 3 ou 5)
+- Score < 5 → NE PAS TRADER
+
+═══════════════════════════════════════════════════════════════
+💼 TP/SL — DISTRIBUTION SELON SCORE
+═══════════════════════════════════════════════════════════════
+
+Le bot fermera automatiquement la position en plusieurs paliers selon le score.
+TU DOIS TOUJOURS DONNER TP1, TP2, TP3 dans la réponse JSON.
+
+SL :
+- Position structurelle : derrière sweep, OB, ou swing significatif
+- Buffer dynamique : ATR(14) M15 × 0.3 (jamais < 3$ sur XAU)
+- Le bot ajoutera AUTOMATIQUEMENT BE+buffer après TP1, donc tu peux poser un SL serré.
+
+TP1 (premier palier — sécurise une partie) :
+- R:R 1:1.5 minimum (1:1 acceptable si setup B en zone défensive)
+- Niveau atteignable : prochain mini-objectif (FVG opposée, swing intermédiaire)
+
+TP2 (palier intermédiaire) :
+- R:R 1:2.5 idéal
+- Niveau structurel : equal highs/lows, asian range opposé, OB H1 plus loin
+
+TP3 (runner — extension) :
+- R:R 1:4 ou plus
+- Niveau MAJEUR : sweep d'un old high/low H1, daily high/low, niveau psychologique
+
+DISTRIBUTION (le bot s'en charge automatiquement) :
+- Score ≥ 9 (A+) : 40% TP1, 30% TP2, 30% runner avec trailing
+- Score 7-8 (A)  : 50% TP1, 30% TP2, 20% runner avec trailing
+- Score 6   (B)  : 70% TP1, 30% TP2, pas de runner (gestion défensive)
+
+═══════════════════════════════════════════════════════════════
+⛔ RÈGLES ABSOLUES (override tout le reste)
+═══════════════════════════════════════════════════════════════
+
+- Si tendance H1 ET M30 contre ton signal → NE PAS TRADER, peu importe le reste
+- Si une leçon précédente dit "ne pas faire X" et le setup actuel = X → respecte-la
+- Si Silver Bullet active mais aucun DOL → NE PAS TRADER (timing seul ne suffit pas)
+- Si tu hésites entre BUY et SELL → NE PAS TRADER (l'incertitude = perte)
+- Si tu n'arrives pas à expliquer en 1 phrase POURQUOI ce trade va marcher → NE PAS TRADER
+
+CONTEXTE ACTUEL : ${sessionActive}
+KILL ZONE : ${killZoneName}
+${consecutiveLosses >= 2 ? `⚠️ ALERTE : ${consecutiveLosses} pertes consécutives aujourd'hui — sois EXTRÊMEMENT sélectif` : ''}
+═══════════════════════════════════════════════════════════════
+`;
+}
+
+// ─── Export ─────────────────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════════
+// 🔗 OBJETS DE COMPATIBILITÉ (pour ne pas avoir à changer le code appelant)
+// ═══════════════════════════════════════════════════════════════════
+const ict = {
+  detecterSwings, calculerATR, getDealingRange, detecterStructure,
+  detecterLiquidite, getAsianRange, getDrawOnLiquidity, detecterSweepRécent,
+  validerOB, getKillZone, scoreSetup, analyseComplete, formatPourPrompt
+};
+const promptRules = { getReglesText };
+
+
 async function getBlocIndicateursTechniques(userId, symbole) {
   if (!metaApi) return '';
   try {
@@ -896,57 +1829,68 @@ async function getBlocOBFVG(userId, symbole) {
     if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return '';
 
     const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    if (account.state !== 'DEPLOYED') return ''; // pas de deploy ici pour économiser
+    if (account.state !== 'DEPLOYED') return '';
     const connection = account.getRPCConnection();
     await connection.connect();
     await connection.waitSynchronized();
 
-    // Récupérer 50 bougies M15 et 30 bougies M5
-    let candlesM15 = [], candlesM5 = [];
+    // Récupérer 50 bougies M15, 30 M5, 50 H1 (pour dealing range)
+    let candlesM15 = [], candlesM5 = [], candlesH1 = [];
     const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+    let symbolResolu = null;
     for (const sfx of suffixes) {
       try {
         const sym = symbole + sfx;
         candlesM15 = await connection.getHistoricalCandles(sym, '15m', undefined, 50) || [];
         candlesM5 = await connection.getHistoricalCandles(sym, '5m', undefined, 30) || [];
-        if (candlesM15.length || candlesM5.length) break;
+        if (candlesM15.length || candlesM5.length) {
+          symbolResolu = sym;
+          break;
+        }
       } catch(e) {}
     }
     if (!candlesM15.length && !candlesM5.length) return '';
 
+    if (symbolResolu) {
+      try {
+        candlesH1 = await connection.getHistoricalCandles(symbolResolu, '1h', undefined, 50) || [];
+      } catch(e) { candlesH1 = []; }
+    }
+
+    // ─── ANALYSE ICT COMPLÈTE (DOL, P/D, MSS, kill zone, ATR) ─────
+    const analyseICT = await ict.analyseComplete(candlesM15, candlesH1, candlesM5);
+
+    // ─── OB/FVG existant + validation qualité ─────────────────────
     const obM15 = detecterOrderBlocks(candlesM15);
     const fvgM15 = detecterFairValueGaps(candlesM15);
     const obM5 = detecterOrderBlocks(candlesM5);
     const fvgM5 = detecterFairValueGaps(candlesM5);
+    const obM15Bull = obM15.bullish.map(o => ict.validerOB(o, candlesM15));
+    const obM15Bear = obM15.bearish.map(o => ict.validerOB(o, candlesM15));
 
-    let txt = '\n═══════════════════════════════════════════════════════════════\n';
-    txt += '🔍 NIVEAUX TECHNIQUES DÉTECTÉS PAR ANALYSE OBJECTIVE DES BOUGIES\n';
-    txt += '═══════════════════════════════════════════════════════════════\n';
-    txt += '(Calculés algorithmiquement sur les vraies bougies, pas estimés sur les screens)\n\n';
+    // ─── Construction du bloc texte enrichi ───────────────────────
+    let txt = ict.formatPourPrompt(analyseICT);
 
-    if (obM15.bullish.length) {
-      txt += 'OB BULLISH M15 (zones de demande, prix peut rebondir dessus pour acheter) :\n';
-      obM15.bullish.forEach(o => {
-        txt += `  - Zone ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)}\n`;
+    txt += '\n📦 ORDER BLOCKS & FAIR VALUE GAPS :\n';
+    if (obM15Bull.length) {
+      txt += 'OB BULLISH M15 :\n';
+      obM15Bull.forEach(o => {
+        txt += `  - ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)} [qualité: ${o.qualite}${o.mitigated ? ', déjà mitigé' : ''}]\n`;
       });
     }
-    if (obM15.bearish.length) {
-      txt += 'OB BEARISH M15 (zones d\'offre, prix peut rejeter dessus pour vendre) :\n';
-      obM15.bearish.forEach(o => {
-        txt += `  - Zone ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)}\n`;
+    if (obM15Bear.length) {
+      txt += 'OB BEARISH M15 :\n';
+      obM15Bear.forEach(o => {
+        txt += `  - ${o.zone.low.toFixed(2)} - ${o.zone.high.toFixed(2)} [qualité: ${o.qualite}${o.mitigated ? ', déjà mitigé' : ''}]\n`;
       });
     }
     if (fvgM15.bullish.length) {
-      txt += 'FVG BULLISH M15 (gaps haussiers, magnétiques pour le prix) :\n';
-      fvgM15.bullish.forEach(f => {
-        txt += `  - Zone ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)}\n`;
-      });
+      txt += 'FVG BULLISH M15 :\n';
+      fvgM15.bullish.forEach(f => txt += `  - ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)} (taille ${f.size.toFixed(2)}$)\n`);
     }
     if (fvgM15.bearish.length) {
-      txt += 'FVG BEARISH M15 (gaps baissiers) :\n';
-      fvgM15.bearish.forEach(f => {
-        txt += `  - Zone ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)}\n`;
-      });
+      txt += 'FVG BEARISH M15 :\n';
+      fvgM15.bearish.forEach(f => txt += `  - ${f.zone.low.toFixed(2)} - ${f.zone.high.toFixed(2)} (taille ${f.size.toFixed(2)}$)\n`);
     }
     if (obM5.bullish.length || obM5.bearish.length || fvgM5.bullish.length || fvgM5.bearish.length) {
       txt += '\nM5 (timing fin) :\n';
@@ -958,7 +1902,7 @@ async function getBlocOBFVG(userId, symbole) {
       });
     }
 
-    txt += '\nUTILISE CES NIVEAUX EN PRIORITÉ pour ton entrée. Ils sont calculés sur les vraies données de marché.\n';
+    txt += '\nUTILISE CES NIVEAUX EN PRIORITÉ. Privilégie les OB qualité HIGH non mitigés.\n';
     txt += '═══════════════════════════════════════════════════════════════\n';
     return txt;
   } catch(err) {
@@ -1276,136 +2220,35 @@ async function getFacteurRisque(userId, capital) {
   }
 }
 
-async function gererTpPartielsEtBE() {
-  if (!metaApi) return;
-  try {
-    const users = await db.findAsync({ 'mt5.metaApiAccountId': { $exists: true } });
-
-    for (const user of users) {
-      try {
-        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-        if (account.state !== 'DEPLOYED') continue;
-        const connection = account.getRPCConnection();
-        await connection.connect();
-        await connection.waitSynchronized();
-
-        const positions = await connection.getPositions();
-        if (!positions || !positions.length) continue;
-
-        for (const pos of positions) {
-          try {
-            // Vérifier si on a déjà fait le partiel pour cette position
-            const tracking = await positionsTrackingDb.findOneAsync({ positionId: pos.id });
-            if (tracking && tracking.tp1Done) continue;
-
-            // Trouver l'analyse correspondante (récupérée par symbole + direction + entry proche)
-            const symbAnalyse = pos.symbol.toUpperCase().replace(/-.*/, '').replace(/_.*/, '');
-            const direction = pos.type === 'POSITION_TYPE_BUY' ? 'BUY' : 'SELL';
-            const dateLimit = new Date(Date.now() - 24 * 60 * 60 * 1000); // dernières 24h
-
-            const analyses = await analysesDb.findAsync({
-              userId: user._id,
-              decision: direction,
-              createdAt: { $gte: dateLimit }
-            });
-
-            // Match : entrée proche du openPrice de la position (tolérance 5$)
-            let analyseMatch = null;
-            for (const a of analyses) {
-              const aEntree = parseFloat(a.entree);
-              if (Math.abs(aEntree - parseFloat(pos.openPrice)) < 5) {
-                if (!analyseMatch || new Date(a.createdAt) > new Date(analyseMatch.createdAt)) {
-                  analyseMatch = a;
-                }
-              }
-            }
-
-            if (!analyseMatch || !analyseMatch.tp1) continue;
-
-            const tp1 = parseFloat(analyseMatch.tp1);
-            const entree = parseFloat(pos.openPrice);
-            const prixActuel = parseFloat(pos.currentPrice);
-            const isBuy = direction === 'BUY';
-
-            // Vérifier si TP1 atteint
-            const tp1Atteint = isBuy ? prixActuel >= tp1 : prixActuel <= tp1;
-            if (!tp1Atteint) continue;
-
-            // 1. Fermer 50% de la position
-            const volumeTotal = parseFloat(pos.volume);
-            const volumeAFermer = Math.round(volumeTotal * 0.5 * 100) / 100; // arrondi 2 décimales
-            const volumeMin = 0.01;
-            if (volumeAFermer < volumeMin) {
-              console.log('[TP-PARTIEL] Volume trop petit pour fermeture partielle, on skip');
-              continue;
-            }
-
-            try {
-              await connection.closePositionPartially(pos.id, volumeAFermer);
-              console.log('[TP-PARTIEL] Fermé ' + volumeAFermer + ' lots sur ' + pos.symbol + ' (TP1 atteint à ' + prixActuel + ')');
-            } catch(err) {
-              console.log('[TP-PARTIEL] Erreur fermeture:', err.message);
-              continue;
-            }
-
-            // 2. Attendre 2 secondes pour que la fermeture soit effective
-            await new Promise(r => setTimeout(r, 2000));
-
-            // 3. Déplacer le SL à l'entrée (BE) sur les 50% restants
-            try {
-              const slBE = entree;
-              const tpRestant = pos.takeProfit;
-              await connection.modifyPosition(pos.id, slBE, tpRestant);
-              console.log('[BE-AUTO] SL déplacé à BE (' + slBE + ') sur ' + pos.symbol);
-            } catch(err) {
-              console.log('[BE-AUTO] Erreur SL→BE:', err.message);
-            }
-
-            // 4. Marquer comme traité dans le tracking DB
-            await positionsTrackingDb.insertAsync({
-              positionId: pos.id,
-              symbol: pos.symbol,
-              userId: user._id,
-              tp1Done: true,
-              tp1Time: new Date(),
-              entree,
-              tp1,
-              volumeFerme: volumeAFermer
-            });
-
-            // 5. Optionnel : notifier le client (si la fonction existe)
-            try {
-              if (typeof creerNotification === 'function') {
-                await creerNotification(
-                  user._id,
-                  'tp_partiel',
-                  '🎯 TP1 atteint — Profit sécurisé',
-                  `${pos.symbol} : 50% fermés à ${prixActuel}, SL déplacé à BE. Le reste continue.`,
-                  { symbol: pos.symbol, tp1: prixActuel, volumeFerme: volumeAFermer }
-                );
-              }
-            } catch(e) {}
-          } catch(err) {
-            if (!err.message.includes('not found')) console.log('[TP-BE] Erreur position:', err.message);
-          }
-        }
-      } catch(err) {
-        if (!err.message.includes('not found')) console.log('[TP-BE] Erreur user:', err.message);
-      }
-    }
-  } catch(err) { console.log('[TP-BE] Erreur globale:', err.message); }
+// ═══════════════════════════════════════════════════════════════════
+// 🎯 TP PARTIEL 3-TIER (V2)
+// ═══════════════════════════════════════════════════════════════════
+// Remplace l'ancien gererTpPartielsEtBE() (50/50 + BE pile entrée).
+// Nouveau système :
+//   - Distribution selon score : A+ (40/30/30), A (50/30/20), B (70/30/0)
+//   - SL → BE + buffer (ATR×0.3, mini 2$ XAU) après TP1
+//   - SL → lock 50% du gain TP1 après TP2
+//   - Trailing structurel sur swings M5 pour le runner
+async function gererTpPartielsWrapper() {
+  await gererTpPartiels3Tier({
+    metaApi,
+    db,
+    analysesDb,
+    positionsTrackingDb,
+    creerNotification: typeof creerNotification === 'function' ? creerNotification : null
+  });
 }
 
 // Cleanup auto du tracking : supprime les entries vieilles de 7 jours
 async function cleanupTracking() {
   try {
     const il_y_a_7j = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    await positionsTrackingDb.removeAsync({ tp1Time: { $lt: il_y_a_7j } }, { multi: true });
+    await positionsTrackingDb.removeAsync({ createdAt: { $lt: il_y_a_7j } }, { multi: true });
   } catch(e) {}
 }
 
-// Lancer toutes les 2 minutes (rapide pour pas rater le TP1)
-setInterval(gererTpPartielsEtBE, 2 * 60 * 1000);
+// Lancer toutes les 90s (un peu plus rapide pour ne pas rater TP2)
+setInterval(gererTpPartielsWrapper, 90 * 1000);
 // Cleanup tous les jours
 setInterval(cleanupTracking, 24 * 60 * 60 * 1000);
 
@@ -2085,6 +2928,32 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     // 📊 Indicateurs techniques (RSI + MAs sur H1/M15/M5)
     const blocIndicateurs = await getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD');
 
+    // ─── Anti-tilt : compter pertes consécutives du jour ──────────
+    const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0);
+    let consecutiveLosses = 0;
+    try {
+      const tradesAuj = await analysesDb.findAsync({
+        userId: req.session.userId,
+        createdAt: { $gte: aujourdhui },
+        tradeProfit: { $exists: true }
+      });
+      const triés = tradesAuj.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      for (const t of triés) {
+        if (typeof t.tradeProfit === 'number' && t.tradeProfit < 0) consecutiveLosses++;
+        else break;
+      }
+    } catch(e) { consecutiveLosses = 0; }
+
+    // ─── Kill zone granulaire ─────────────────────────────────────
+    const killZone = ict.getKillZone();
+
+    // ─── Bloc règles strict/laxiste ───────────────────────────────
+    const blocReglesV2 = promptRules.getReglesText({
+      killZoneName: killZone.name,
+      sessionActive,
+      consecutiveLosses
+    });
+
     content.push({
       type: 'text',
       text: `Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.instrument || 'XAUUSD'}.${capital ? ` Capital: $${capital}.` : ''}
@@ -2106,39 +2975,7 @@ Tu reçois aussi des données objectives calculées sur les vraies bougies MetaA
 
 ⚠️ UTILISE CES DONNÉES, ne fais pas semblant. Si le bloc INDICATEURS te montre RSI ${'<'} 25 → c'est de la survente extrême, ne propose PAS de SELL. Si RSI > 75 → ne propose PAS de BUY. Si le prix est très loin sous MA50 → mouvement épuisé, prudence.
 
-═══════════════════════════════════════════════════════════════
-📊 RÈGLES SIMPLES
-═══════════════════════════════════════════════════════════════
-
-1. STRUCTURE D'ABORD
-   - Tendance H1 et M30 alignées → setup possible dans ce sens
-   - Tendance H1 ou M30 contre ton signal → score plafonné à 5 → NE PAS TRADER
-   - Pas de structure claire → NE PAS TRADER
-
-2. ENTRÉE LOGIQUE
-   - Sur un OB, FVG, retest de breakout, ou range asiatique respecté
-   - LIMIT si zone précise, MARKET si setup en cours et timing parfait
-   - Si tu n'as PAS de niveau technique évident → NE PAS TRADER (ne force pas)
-
-3. SL ET TP RÉALISTES
-   - SL : derrière une zone de protection (OB/swing/liquidité), buffer 5-10$ sur XAU
-   - TP1 : R:R 1:1.5 minimum, 1:2 idéal — PAS 1:3+ forcé
-   - TP2 : R:R 1:2.5 ou 1:3 si niveau technique
-   - Vise des niveaux atteignables, pas des chiffres ronds magiques
-
-4. SCORING HONNÊTE
-   - 9-10 : Setup A+ avec confluence multiple (CRT+OB+FVG+structure alignée+RSI sain)
-   - 7-8 : Bon setup propre, structure claire, R:R correct
-   - 5-6 : Signal présent mais incertain → NE PAS TRADER
-   - 0-4 : Pas de setup → NE PAS TRADER
-
-⛔ RÈGLES ABSOLUES :
-- Si RSI extrême (< 25 ou > 75) contre ton signal → NE PAS TRADER
-- Si bougie M15/M30 actuelle violente (3x+ la moyenne) → NE PAS TRADER (mouvement épuisé)
-- Si tendance H1 ET M30 contre → NE PAS TRADER, peu importe le reste
-- Si tu as une leçon précédente qui dit "ne pas faire X" → respecte-la
-
-═══════════════════════════════════════════════════════════════
+${blocReglesV2}
 ${crtKasperActif ? `🎯 CRT KASPER KARL (M15 + M1 fournis) — méthode principale
 ═══════════════════════════════════════════════════════════════
 Cherche un pattern CRT sur les 3 DERNIÈRES bougies M15 UNIQUEMENT.
@@ -2203,6 +3040,17 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "tp2Pips": <nombre>,
   "tp3": "<TP3 optionnel — sur niveau majeur seulement>",
   "tp3Pips": <nombre>,
+  "drawOnLiquidity": "<cible DOL identifiée ex 'EQH @ 4725' ou 'NONE'>",
+  "dolType": "<EQH | EQL | ASIAN_HIGH | ASIAN_LOW | PREVIOUS_HIGH | PREVIOUS_LOW | NONE>",
+  "premiumDiscount": "<DISCOUNT | PREMIUM | EQUILIBRIUM>",
+  "structureEvent": "<MSS_BULLISH | MSS_BEARISH | BOS_BULLISH | BOS_BEARISH | NONE>",
+  "structureLevel": "<niveau cassé si event ou null>",
+  "obQuality": "<HIGH | MEDIUM | LOW | NONE>",
+  "sweepDetected": "<description sweep récent ou 'AUCUN'>",
+  "killZoneActive": "<${killZone.name}>",
+  "scoreContext": "<X/7 — DOL+P/D+MSS+H1>",
+  "scorePattern": "<X/6 — CRT+OB+FVG+sweep>",
+  "scoreTiming": "<X/2 — kill zone>",
   "crt": "OUI" ou "NON" ou "NEUTRE",
   "crtDetail": "<explication>",
   ${crtKasperActif ? `"crtKasper": "DETECTE_BULLISH" ou "DETECTE_BEARISH" ou "NON_DETECTE",
@@ -2231,7 +3079,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2500,
-      system: 'Tu es un assistant trading expert. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
+      system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
 
@@ -2287,7 +3135,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
-    // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR ─────────────────
+    // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR (R:R adaptatif selon score) ─
     if (parsed.entree && parsed.sl && parsed.decision !== 'NE PAS TRADER') {
       const entree = parseFloat(parsed.entree);
       const sl = parseFloat(parsed.sl);
@@ -2295,17 +3143,22 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       if (entree && sl) {
         const dist = Math.abs(entree - sl);
         const slCorrige = isBuy ? entree - dist : entree + dist;
-        const tp1 = isBuy ? entree + dist * 2 : entree - dist * 2;
-        const tp2 = isBuy ? entree + dist * 3 : entree - dist * 3;
-        const tp3 = isBuy ? entree + dist * 4 : entree - dist * 4;
+        // R:R adaptatifs : setup A+ = TP plus ambitieux, setup B = plus défensif
+        const score = parseFloat(parsed.score) || 7;
+        const rr1 = score >= 9 ? 1.5 : (score >= 7 ? 1.5 : 1.0);
+        const rr2 = score >= 9 ? 2.5 : (score >= 7 ? 2.0 : 2.0);
+        const rr3 = score >= 9 ? 4.0 : (score >= 7 ? 3.0 : 3.0);
+        const tp1 = isBuy ? entree + dist * rr1 : entree - dist * rr1;
+        const tp2 = isBuy ? entree + dist * rr2 : entree - dist * rr2;
+        const tp3 = isBuy ? entree + dist * rr3 : entree - dist * rr3;
         parsed.sl = slCorrige.toFixed(2);
         parsed.tp1 = tp1.toFixed(2);
         parsed.tp2 = tp2.toFixed(2);
         parsed.tp3 = tp3.toFixed(2);
         parsed.slPips = Math.round(dist * 10) / 10;
-        parsed.tp1Pips = Math.round(dist * 2 * 10) / 10;
-        parsed.tp2Pips = Math.round(dist * 3 * 10) / 10;
-        parsed.tp3Pips = Math.round(dist * 4 * 10) / 10;
+        parsed.tp1Pips = Math.round(dist * rr1 * 10) / 10;
+        parsed.tp2Pips = Math.round(dist * rr2 * 10) / 10;
+        parsed.tp3Pips = Math.round(dist * rr3 * 10) / 10;
       }
     }
 
