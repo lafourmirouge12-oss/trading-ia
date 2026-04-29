@@ -979,23 +979,37 @@ async function gererTpPartiels3Tier({
 
             let analyseMatch = null;
             for (const a of analyses) {
-              const aEntree = parseFloat(a.entree);
+              // Bug fix : la DB stocke "entry" (pas "entree") — on supporte les deux
+              const aEntree = parseFloat(a.entry || a.entree);
               if (!isNaN(aEntree) && Math.abs(aEntree - parseFloat(pos.openPrice)) < 5) {
                 if (!analyseMatch || new Date(a.createdAt) > new Date(analyseMatch.createdAt)) {
                   analyseMatch = a;
                 }
               }
             }
-            if (!analyseMatch || !analyseMatch.tp1) continue;
+            // Note : la DB stocke aussi "tp" (pas "tp1") pour le TP1 — on supporte les deux
+            if (!analyseMatch || (!analyseMatch.tp1 && !analyseMatch.tp)) continue;
 
-            const tp1 = parseFloat(analyseMatch.tp1);
+            const tp1 = parseFloat(analyseMatch.tp1 || analyseMatch.tp);
             const tp2 = parseFloat(analyseMatch.tp2 || 0);
             const tp3 = parseFloat(analyseMatch.tp3 || 0);
             const score = parseFloat(analyseMatch.score || 7);
+
+            // ─── DÉTECTION MODE DÉGRADÉ : client a posé UNIQUEMENT TP1 ? ─────
+            // On compare le takeProfit MT5 actuel avec les TP de l'analyse :
+            //   - Si pos.takeProfit ≈ tp1 → client a choisi TP1 SEULEMENT → mode dégradé
+            //   - Si pos.takeProfit ≈ tp2 → client a choisi TP2 → mode 3-tier normal
+            //   - Si pos.takeProfit ≈ tp3 → client a choisi TP3 → mode 3-tier normal
+            const posTP = parseFloat(pos.takeProfit || 0);
+            const tolMatch = 2; // tolérance 2$ pour XAU (gère slippage broker)
+            const isModeDegrade = posTP > 0 && tp1 > 0 &&
+              Math.abs(posTP - tp1) < tolMatch &&
+              (!tp2 || Math.abs(posTP - tp2) > tolMatch) &&
+              (!tp3 || Math.abs(posTP - tp3) > tolMatch);
             const entree = parseFloat(pos.openPrice);
             const prixActuel = parseFloat(pos.currentPrice);
             const isBuy = direction === 'BUY';
-            const volumeTotal = parseFloat(pos.volume);
+            const volumeActuel = parseFloat(pos.volume);
 
             // ─── 3. RÉCUPÉRER L'ATR POUR BUFFER DYNAMIQUE ────────────
             let atr = 5; // fallback XAU
@@ -1019,13 +1033,101 @@ async function gererTpPartiels3Tier({
                 positionId: pos.id,
                 symbol: pos.symbol,
                 userId: user._id,
-                volumeOriginal: volumeTotal,
+                volumeOriginal: volumeActuel,
                 distribution,
                 tp1Done: false, tp2Done: false, tp3Done: false,
                 tp1Volume: 0, tp2Volume: 0, tp3Volume: 0,
                 createdAt: new Date()
               };
               await positionsTrackingDb.insertAsync(tracking);
+            }
+
+            // ─── BUG FIX : utiliser volumeOriginal pour les calculs % ────
+            // pos.volume diminue après chaque partiel, donc baser les % sur
+            // pos.volume sous-estimerait les TP2/TP3. On utilise volumeOriginal
+            // depuis le tracking (stocké à l'init).
+            const volumeTotal = parseFloat(tracking.volumeOriginal || volumeActuel);
+
+            // ═══════════════════════════════════════════════════════════
+            // 🛡️ MODE DÉGRADÉ : client a choisi UNIQUEMENT TP1
+            // ═══════════════════════════════════════════════════════════
+            // Logique :
+            //   1. À mi-chemin entre entrée et TP1 → fermer 50%
+            //   2. Poser SL à BE + buffer
+            //   3. Trailing structurel sur swings M5 jusqu'au TP1 final
+            // Avantage : sécurise le trade même si client n'a pas configuré TP2/TP3
+            if (isModeDegrade) {
+              const distEntreeTP1 = Math.abs(tp1 - entree);
+              const miChemin = isBuy ? entree + distEntreeTP1 * 0.5 : entree - distEntreeTP1 * 0.5;
+
+              // ─── Étape 1 : à mi-chemin → ferme 50%, SL à BE+buffer ─────
+              if (!tracking.tp1Done) {
+                const miCheminAtteint = isBuy ? prixActuel >= miChemin : prixActuel <= miChemin;
+                if (miCheminAtteint) {
+                  const volPartiel = Math.round(volumeTotal * 0.5 * 100) / 100;
+                  if (volPartiel >= 0.01) {
+                    try {
+                      await connection.closePositionPartially(pos.id, volPartiel);
+                      console.log('[MODE-DEGRADE] Mi-chemin atteint sur ' + pos.symbol + ' : 50% ferme @ ' + prixActuel.toFixed(2));
+                      await new Promise(r => setTimeout(r, 2000));
+
+                      // SL à BE + buffer
+                      const slBE = isBuy ? entree + buffer : entree - buffer;
+                      try {
+                        await connection.modifyPosition(pos.id, slBE, pos.takeProfit);
+                        console.log('[MODE-DEGRADE] SL -> BE+' + buffer.toFixed(2) + '$ (= ' + slBE.toFixed(2) + ')');
+                      } catch(err) { console.log('[MODE-DEGRADE] Erreur BE:', err.message); }
+
+                      // Marquer le tracking comme "mi-chemin franchi" (réutilise tp1Done pour ne pas refermer)
+                      await positionsTrackingDb.updateAsync(
+                        { positionId: pos.id },
+                        { $set: {
+                          tp1Done: true,
+                          modeDegrade: true,
+                          miCheminTime: new Date(),
+                          miCheminPrice: prixActuel,
+                          miCheminVolume: volPartiel,
+                          slMoved: slBE
+                        } }
+                      );
+
+                      if (typeof creerNotification === 'function') {
+                        try {
+                          await creerNotification(user._id, 'tp_partiel',
+                            '🛡️ Mi-chemin TP1 sur ' + pos.symbol + ' (mode degrade)',
+                            '50% fermes a ' + prixActuel.toFixed(2) + ', SL -> BE+' + buffer.toFixed(2) + '$. Trailing active sur le reste jusqu\'a TP1.',
+                            { miChemin: prixActuel, volumeFerme: volPartiel });
+                        } catch(e) {}
+                      }
+                    } catch(err) { console.log('[MODE-DEGRADE] Erreur fermeture mi-chemin:', err.message); }
+                  }
+                }
+                continue; // skip le mode 3-tier normal
+              }
+
+              // ─── Étape 2 : trailing structurel sur les 50% restants jusqu'a TP1 ─
+              if (tracking.tp1Done && !tracking.tp3Done) {
+                try {
+                  const candlesM5 = await connection.getHistoricalCandles(pos.symbol, '5m', undefined, 30) || [];
+                  const niveauTrailing = trouverNiveauTrailing(candlesM5, direction, 3);
+
+                  if (niveauTrailing) {
+                    const slActuel = parseFloat(pos.stopLoss);
+                    const nouveauSL = isBuy ? niveauTrailing - buffer : niveauTrailing + buffer;
+                    // Ne déplace que si ça avance dans le sens du trade
+                    const ameliore = isBuy ? nouveauSL > slActuel : nouveauSL < slActuel;
+                    if (ameliore) {
+                      await connection.modifyPosition(pos.id, nouveauSL, pos.takeProfit);
+                      console.log('[MODE-DEGRADE-TRAILING] SL -> ' + nouveauSL.toFixed(2) + ' (sous swing M5)');
+                      await positionsTrackingDb.updateAsync(
+                        { positionId: pos.id },
+                        { $set: { lastTrailing: new Date(), slMoved: nouveauSL } }
+                      );
+                    }
+                  }
+                } catch(err) { console.log('[MODE-DEGRADE-TRAILING] Erreur:', err.message); }
+                continue; // skip le mode 3-tier normal (pas de TP2/TP3 ici)
+              }
             }
 
             // ═══ PALIER 1 : TP1 atteint ═══════════════════════════════
@@ -1583,6 +1685,115 @@ async function verifierProtectionsAvancees(parsed, userId) {
         scoreReduit = true;
         alertes.push(`Entrée LIMIT à seulement ${distEntreePrix.toFixed(1)} pips du prix actuel — risque de fill défavorable, score réduit`);
       }
+    }
+
+    // ─── PROTECTION 5 : ANTI-CONTRE-TENDANCE H1 + M30 (HARD BLOCK) ─────
+    // ⚠️ La protection la plus importante : on ne se fie PAS à l'IA pour
+    // déterminer la tendance, on la calcule nous-mêmes algorithmiquement.
+    // Logique :
+    //   - Tendance bearish dure = MA20 < MA50 ET prix < MA50 ET structure DOWN/RANGE
+    //   - Tendance bullish dure = MA20 > MA50 ET prix > MA50 ET structure UP/RANGE
+    //   - Si les DEUX TF (H1 + M30) sont contre le signal → ANNULÉ (pas score réduit)
+    //   - Exception : si MSS_BULLISH/BEARISH récent détecté sur M15 → on laisse passer
+    //                 (= retournement légitime confirmé par cassure structure)
+    try {
+      let candlesH1 = [], candlesM30 = [];
+      for (const sfx of suffixes) {
+        try {
+          const sym = symbole + sfx;
+          if (!candlesH1.length) candlesH1 = await connection.getHistoricalCandles(sym, '1h', undefined, 50) || [];
+          if (!candlesM30.length) candlesM30 = await connection.getHistoricalCandles(sym, '30m', undefined, 50) || [];
+          if (candlesH1.length && candlesM30.length) break;
+        } catch(e) {}
+      }
+
+      if (candlesH1.length >= 50 && candlesM30.length >= 50) {
+        // Calcul tendance H1 (combo MA + structure + position prix)
+        const ma20H1 = calculerMA(candlesH1, 20);
+        const ma50H1 = calculerMA(candlesH1, 50);
+        const lastH1 = candlesH1[candlesH1.length - 1].close;
+        const structH1 = detecterStructure(candlesH1, 3);
+        const trendH1 = (ma20H1 < ma50H1 && lastH1 < ma50H1 && structH1.trend !== 'UP') ? 'BEARISH'
+                      : (ma20H1 > ma50H1 && lastH1 > ma50H1 && structH1.trend !== 'DOWN') ? 'BULLISH'
+                      : 'NEUTRAL';
+
+        // Calcul tendance M30
+        const ma20M30 = calculerMA(candlesM30, 20);
+        const ma50M30 = calculerMA(candlesM30, 50);
+        const lastM30 = candlesM30[candlesM30.length - 1].close;
+        const structM30 = detecterStructure(candlesM30, 3);
+        const trendM30 = (ma20M30 < ma50M30 && lastM30 < ma50M30 && structM30.trend !== 'UP') ? 'BEARISH'
+                       : (ma20M30 > ma50M30 && lastM30 > ma50M30 && structM30.trend !== 'DOWN') ? 'BULLISH'
+                       : 'NEUTRAL';
+
+        // Vérifier si MSS récent sur M15 (= retournement légitime, on laisse passer)
+        const structM15 = detecterStructure(candlesM15, 3);
+        const mssRecent = structM15.event && (structM15.event.type === 'MSS_BULLISH' || structM15.event.type === 'MSS_BEARISH');
+        const mssAlignedAvecSignal = mssRecent && (
+          (isBuy && structM15.event.type === 'MSS_BULLISH') ||
+          (!isBuy && structM15.event.type === 'MSS_BEARISH')
+        );
+
+        const signalContreH1  = (isBuy && trendH1 === 'BEARISH')  || (!isBuy && trendH1 === 'BULLISH');
+        const signalContreM30 = (isBuy && trendM30 === 'BEARISH') || (!isBuy && trendM30 === 'BULLISH');
+
+        // Cas 1 : H1 ET M30 contre → ANNULATION HARD (sauf MSS aligné qui override)
+        if (signalContreH1 && signalContreM30) {
+          if (mssAlignedAvecSignal) {
+            scoreReduit = true;
+            alertes.push(`H1 (${trendH1}) + M30 (${trendM30}) contre signal ${parsed.decision}, MAIS MSS récent aligné sur M15 → score réduit (retournement possible)`);
+          } else {
+            tradeAnnule = true;
+            alertes.push(`🚫 CONTRE-TENDANCE DURE : H1=${trendH1} + M30=${trendM30} vs signal ${parsed.decision} | MA20H1=${ma20H1?.toFixed(2)} MA50H1=${ma50H1?.toFixed(2)} prix=${lastH1.toFixed(2)} → trade annulé`);
+          }
+        }
+        // Cas 2 : un seul TF contre (mais l'autre neutre/aligné) → score réduit
+        else if (signalContreH1 || signalContreM30) {
+          scoreReduit = true;
+          const tfContre = signalContreH1 ? 'H1' : 'M30';
+          alertes.push(`Tendance ${tfContre} (${signalContreH1 ? trendH1 : trendM30}) contre signal ${parsed.decision} → score réduit`);
+        }
+      }
+    } catch(err) {
+      console.log('[PROTECTION-CONTRE-TENDANCE] Erreur:', err.message);
+    }
+
+    // ─── PROTECTION 6 : RSI M30/H1 EN FORTE TENDANCE ──────────────
+    // Le RSI à 39 sur M30 en plein downtrend = signal très bearish, pas un
+    // simple "score réduit". Si RSI M30 < 40 ET signal BUY → annulé.
+    // Symétrique pour SELL avec RSI > 60.
+    try {
+      let candlesM30 = [];
+      for (const sfx of suffixes) {
+        try {
+          const sym = symbole + sfx;
+          candlesM30 = await connection.getHistoricalCandles(sym, '30m', undefined, 30) || [];
+          if (candlesM30.length) break;
+        } catch(e) {}
+      }
+      if (candlesM30.length >= 15) {
+        const rsiM30 = calculerRSI(candlesM30, 14);
+        if (rsiM30 !== null) {
+          // Seuils en 2 paliers :
+          //   - Très fort (< 30 / > 70) → ANNULÉ (momentum extrême)
+          //   - Modéré (30-40 / 60-70) → score réduit (momentum présent mais pas extrême)
+          if (isBuy && rsiM30 < 30) {
+            tradeAnnule = true;
+            alertes.push(`🚫 RSI M30 ${rsiM30.toFixed(1)} < 30 → survente extrême ET tu veux BUY → momentum baissier dur, BUY annulé`);
+          } else if (!isBuy && rsiM30 > 70) {
+            tradeAnnule = true;
+            alertes.push(`🚫 RSI M30 ${rsiM30.toFixed(1)} > 70 → surachat extrême ET tu veux SELL → momentum haussier dur, SELL annulé`);
+          } else if (isBuy && rsiM30 < 40) {
+            scoreReduit = true;
+            alertes.push(`RSI M30 ${rsiM30.toFixed(1)} < 40 → momentum baissier modéré, score réduit`);
+          } else if (!isBuy && rsiM30 > 60) {
+            scoreReduit = true;
+            alertes.push(`RSI M30 ${rsiM30.toFixed(1)} > 60 → momentum haussier modéré, score réduit`);
+          }
+        }
+      }
+    } catch(err) {
+      console.log('[PROTECTION-RSI-M30] Erreur:', err.message);
     }
 
     // ─── APPLICATION ──────────────────────────────────────────────
