@@ -7,6 +7,9 @@ const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
+
+// FIX problème 11 : déduplication analyses simultanées par utilisateur
+const _analysisLocks = new Map(); // userId → timestamp début analyse
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -30,7 +33,7 @@ const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
 // Évite que MetaApi facture en arrière-plan en cas de crash/bug
 
 const deployTracker = {}; // { accountId: { deployedAt: ms, login: string } }
-const MAX_DEPLOY_MS = 5 * 60 * 1000; // 5 minutes max
+const MAX_DEPLOY_MS = 2 * 60 * 1000; // FIX problème 9 : 5min → 2min // 2 minutes max (réduit de 5 → 2 pour limiter les coûts MetaApi)
 
 // Marquer un compte comme deployé
 function trackDeploy(accountId, login) {
@@ -247,25 +250,23 @@ function analysesRestantes(user) {
   return Math.max(0, 2 - (user.analysisCount || 0));
 }
 
-function calculerLots(capital, risquePct, slPips, instrument) {
+function calculerLots(capital, risquePct, slPips, instrument, slDistanceDollars = null) {
   if (!capital || !slPips || slPips <= 0) return null;
   const montantRisque = capital * risquePct / 100;
   const inst = (instrument || '').toUpperCase();
 
   // ─── DETECTION INSTRUMENT + NORMALISATION DU SL ─────────────────
-  // Le SL recu peut etre en differentes unites selon comment l'IA l'interprete.
-  // On convertit tout en "valeur en dollars du mouvement complet du SL" pour 1 lot.
+  // Si slDistanceDollars est fourni, on l'utilise DIRECTEMENT (= |entrée - SL|).
+  // Sinon, fallback sur les heuristiques sur slPips (moins fiable).
   let valeurMouvementParLot; // = combien $ je perds/gagne pour le SL complet sur 1 lot
   let slEnDollars; // SL converti en dollars (mouvement de prix)
 
   if (inst.includes('XAU') || inst.includes('GOLD')) {
     // Pour XAUUSD : 1 lot = 100 onces. 1$ de mouvement = 100$ de P&L par lot.
-    // L'IA peut renvoyer le SL en :
-    //   - dollars (ex: 5 = SL a $5 du prix) ← le plus courant
-    //   - pips broker (ex: 50 = $5, 1 pip = $0.10)
-    //   - points (ex: 500 = $5, 1 point = $0.01)
-    // On detecte intelligemment :
-    if (slPips < 30) {
+    if (slDistanceDollars !== null && slDistanceDollars > 0) {
+      // ✅ SOURCE FIABLE : distance directe en dollars (|entrée - SL|)
+      slEnDollars = slDistanceDollars;
+    } else if (slPips < 30) {
       // < 30 → c'est probablement deja en dollars (SL XAUUSD typique : $1-20)
       slEnDollars = slPips;
     } else if (slPips < 300) {
@@ -277,21 +278,27 @@ function calculerLots(capital, risquePct, slPips, instrument) {
     }
     valeurMouvementParLot = 100; // 1$ de mouvement = $100 par lot complet
   } else if (inst.includes('XAG') || inst.includes('SILVER')) {
-    slEnDollars = slPips < 5 ? slPips : slPips / 10;
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0
+      ? slDistanceDollars
+      : (slPips < 5 ? slPips : slPips / 10);
     valeurMouvementParLot = 50;
   } else if (inst.includes('JPY')) {
     // Forex JPY : 1 pip = 0.01, 1 lot = ~$9 par pip
-    slEnDollars = slPips * 0.01;
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0
+      ? slDistanceDollars
+      : slPips * 0.01;
     valeurMouvementParLot = 909; // ~$9.09 par pip * 100 pips/dollar
   } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
-    slEnDollars = slPips;
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
     valeurMouvementParLot = 1;
   } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
-    slEnDollars = slPips;
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
     valeurMouvementParLot = 1;
   } else {
     // Forex standard : 1 pip = 0.0001, 1 lot = ~$10 par pip
-    slEnDollars = slPips * 0.0001;
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0
+      ? slDistanceDollars
+      : slPips * 0.0001;
     valeurMouvementParLot = 100000; // 100k unites par lot
   }
 
@@ -386,6 +393,168 @@ function calculerMA(candles, periode) {
   const closes = candles.slice(-periode).map(c => c.close);
   return +(closes.reduce((a, b) => a + b, 0) / periode).toFixed(2);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// 🛡️ DÉTECTION DE TENDANCE ROBUSTE (multi-méthode + vote majoritaire)
+// ═══════════════════════════════════════════════════════════════════
+// 5 indicateurs INDÉPENDANTS, vote majoritaire 3+/5 pour valider tendance.
+// Tightened : seuils stricts pour éviter faux positifs sur marché choppy.
+
+function calculerPenteMA(candles, periode, span = 5) {
+  if (!candles || candles.length < periode + span) return 0;
+  const ma_now = calculerMA(candles, periode);
+  const ma_past = calculerMA(candles.slice(0, -span), periode);
+  if (ma_now === null || ma_past === null) return 0;
+  return ma_now - ma_past;
+}
+
+function calculerADX(candles, periode = 14) {
+  if (!candles || candles.length < periode + 1) return null;
+  let trSum = 0, dmPlusSum = 0, dmMinusSum = 0;
+  for (let i = candles.length - periode; i < candles.length; i++) {
+    const c = candles[i], p = candles[i - 1];
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close));
+    const upMove = c.high - p.high;
+    const downMove = p.low - c.low;
+    const dmPlus = (upMove > downMove && upMove > 0) ? upMove : 0;
+    const dmMinus = (downMove > upMove && downMove > 0) ? downMove : 0;
+    trSum += tr; dmPlusSum += dmPlus; dmMinusSum += dmMinus;
+  }
+  if (trSum === 0) return null;
+  const diPlus = (dmPlusSum / trSum) * 100;
+  const diMinus = (dmMinusSum / trSum) * 100;
+  const dx = (Math.abs(diPlus - diMinus) / (diPlus + diMinus || 1)) * 100;
+  return { adx: dx, diPlus, diMinus };
+}
+
+// Calcule la volatilité (écart-type des closes sur N bougies, normalisée)
+function calculerVolatilite(candles, n = 30) {
+  if (!candles || candles.length < n) return 0;
+  const closes = candles.slice(-n).map(c => c.close);
+  const mean = closes.reduce((a, b) => a + b, 0) / n;
+  const variance = closes.reduce((s, c) => s + (c - mean) ** 2, 0) / n;
+  return Math.sqrt(variance) / mean; // CV (coefficient de variation)
+}
+
+function detecterTendanceRobuste(candles) {
+  if (!candles || candles.length < 50) {
+    return { trend: 'RANGE', confidence: 0, votes: {}, debug: { error: 'Pas assez de bougies' } };
+  }
+
+  let votesBullish = 0, votesBearish = 0;
+  const debug = {};
+  const votes = {};
+
+  // ─── PRÉ-CHECK : marché trop choppy → RANGE direct ──────────────
+  // Si la volatilité est élevée ET que les bougies oscillent fortement,
+  // les méthodes peuvent voter dans tous les sens. Le pré-check empêche
+  // de détecter une "tendance" fictive dans un marché chaotique.
+  const cv = calculerVolatilite(candles, 30);
+  const closes = candles.slice(-30).map(c => c.close);
+  const minClose = Math.min(...closes);
+  const maxClose = Math.max(...closes);
+  const range = maxClose - minClose;
+  const lastVsRange = (candles[candles.length-1].close - minClose) / (range || 1);
+  // Si on est entre 30% et 70% du range et que la volatilité est haute → choppy
+  const isChoppy = cv > 0.005 && lastVsRange > 0.30 && lastVsRange < 0.70;
+  debug.preCheck = { cv: +cv.toFixed(4), lastVsRange: +lastVsRange.toFixed(2), isChoppy };
+
+  // ─── M1 : MA20 vs MA50 + PENTE MA50 (renforcée) ─────────────────
+  // Pente significative = > 0.1% du prix par bougie sur 5 bougies
+  const ma20 = calculerMA(candles, 20);
+  const ma50 = calculerMA(candles, 50);
+  const penteMA50 = calculerPenteMA(candles, 50, 5);
+  const lastClose = candles[candles.length - 1].close;
+  const seuilPente = lastClose * 0.0005; // 0.05% du prix
+  debug.method1 = { ma20, ma50, penteMA50: +penteMA50.toFixed(2), seuilPente: +seuilPente.toFixed(2) };
+
+  if (ma20 !== null && ma50 !== null) {
+    if (ma20 > ma50 && penteMA50 > seuilPente) { votesBullish++; votes.m1 = 'BULL'; }
+    else if (ma20 < ma50 && penteMA50 < -seuilPente) { votesBearish++; votes.m1 = 'BEAR'; }
+    else votes.m1 = 'NEUTRAL';
+  }
+
+  // ─── M2 : POSITION PRIX vs MA50 (% sur 15 dernières bougies) ────
+  // Renforcé : 80% au lieu de 70% pour éviter faux positifs sur range
+  if (ma50 !== null) {
+    const dernieres15 = candles.slice(-15);
+    const auDessus = dernieres15.filter(c => c.close > ma50).length;
+    const enDessous = dernieres15.filter(c => c.close < ma50).length;
+    debug.method2 = { auDessus, enDessous, total: 15 };
+    if (auDessus >= 12) { votesBullish++; votes.m2 = 'BULL'; }      // 80%
+    else if (enDessous >= 12) { votesBearish++; votes.m2 = 'BEAR'; }
+    else votes.m2 = 'NEUTRAL';
+  }
+
+  // ─── M3 : SWINGS HH/HL vs LH/LL (renforcé : exige 3+ swings concordants) ─
+  // detecterStructure du module ICT, mais on regarde la cohérence des 3 derniers
+  try {
+    const struct = detecterStructure(candles, 3);
+    debug.method3 = { trend: struct.trend, event: struct.event?.type || null };
+    // Plus strict : vote uniquement sur UP/DOWN clairs (jamais EXPANSION ni RANGE)
+    if (struct.trend === 'UP') { votesBullish++; votes.m3 = 'BULL'; }
+    else if (struct.trend === 'DOWN') { votesBearish++; votes.m3 = 'BEAR'; }
+    else votes.m3 = 'NEUTRAL';
+  } catch(e) {
+    debug.method3 = { error: e.message }; votes.m3 = 'NEUTRAL';
+  }
+
+  // ─── M4 : ADX directionnel (seuil 25 au lieu de 20) ─────────────
+  const adxData = calculerADX(candles, 14);
+  if (adxData) {
+    debug.method4 = {
+      adx: +adxData.adx.toFixed(1), diPlus: +adxData.diPlus.toFixed(1), diMinus: +adxData.diMinus.toFixed(1)
+    };
+    if (adxData.adx >= 25) {
+      // Exiger un écart significatif entre DI+ et DI-
+      const ecart = Math.abs(adxData.diPlus - adxData.diMinus);
+      const ecartMin = (adxData.diPlus + adxData.diMinus) * 0.15; // 15% d'écart relatif
+      if (adxData.diPlus > adxData.diMinus && ecart > ecartMin) { votesBullish++; votes.m4 = 'BULL'; }
+      else if (adxData.diMinus > adxData.diPlus && ecart > ecartMin) { votesBearish++; votes.m4 = 'BEAR'; }
+      else votes.m4 = 'NEUTRAL';
+    } else {
+      votes.m4 = 'NEUTRAL';
+    }
+  }
+
+  // ─── M5 : % BOUGIES + AMPLITUDE ─────────────────────────────────
+  // Renforcé : pas seulement le nombre, mais aussi l'amplitude moyenne
+  const dernieres30 = candles.slice(-30);
+  let bullCount = 0, bearCount = 0;
+  let bullAmplitude = 0, bearAmplitude = 0;
+  dernieres30.forEach(c => {
+    const corps = Math.abs(c.close - c.open);
+    if (c.close > c.open) { bullCount++; bullAmplitude += corps; }
+    else if (c.close < c.open) { bearCount++; bearAmplitude += corps; }
+  });
+  // Le côté qui a les bougies + grosses amplitudes gagne
+  const bullScore = bullCount * (bullAmplitude / Math.max(bullCount, 1));
+  const bearScore = bearCount * (bearAmplitude / Math.max(bearCount, 1));
+  debug.method5 = { bullCount, bearCount, bullScore: +bullScore.toFixed(1), bearScore: +bearScore.toFixed(1) };
+
+  // Vote uniquement si dominance nette (1.5x l'autre côté)
+  if (bullCount >= 18 && bullScore > bearScore * 1.5) { votesBullish++; votes.m5 = 'BULL'; }
+  else if (bearCount >= 18 && bearScore > bullScore * 1.5) { votesBearish++; votes.m5 = 'BEAR'; }
+  else votes.m5 = 'NEUTRAL';
+
+  // ─── DÉCISION FINALE ─────────────────────────────────────────────
+  // Si choppy ET pas de majorité écrasante → RANGE forcé
+  let trend = 'RANGE';
+  let confidence = 0;
+  if (votesBullish >= 3 && votesBullish > votesBearish && (!isChoppy || votesBullish >= 4)) {
+    trend = 'BULLISH';
+    confidence = votesBullish;
+  } else if (votesBearish >= 3 && votesBearish > votesBullish && (!isChoppy || votesBearish >= 4)) {
+    trend = 'BEARISH';
+    confidence = votesBearish;
+  } else {
+    confidence = Math.max(votesBullish, votesBearish);
+  }
+
+  return { trend, confidence, votes, votesBullish, votesBearish, debug };
+}
+
+
 
 // ═══════════════════════════════════════════════════════════════════
 // 📊 INDICATEURS TECHNIQUES — INJECTION DANS LE PROMPT
@@ -512,27 +681,48 @@ function getDealingRange(candles, lookback = 5) {
 // MSS = renversement (cassure du dernier high après une tendance baissière)
 function detecterStructure(candles, lookback = 3) {
   const swings = detecterSwings(candles, lookback);
-  // Si pas assez de swings, retourner une structure par défaut RANGE (pas null, pas undefined)
-  if (swings.highs.length < 2 || swings.lows.length < 2) {
+  // Si pas assez de swings, retourner une structure par défaut RANGE
+  if (swings.highs.length < 3 || swings.lows.length < 3) {
     if (!candles || !candles.length) return null;
     const lastHigh = swings.highs[swings.highs.length - 1]?.price || candles[candles.length - 1].high;
     const lastLow = swings.lows[swings.lows.length - 1]?.price || candles[candles.length - 1].low;
-    return { trend: 'RANGE', event: null, dernierHigh: lastHigh, dernierLow: lastLow };
+    return { trend: 'RANGE', event: null, dernierHigh: lastHigh, dernierLow: lastLow, force: 0 };
   }
 
+  // FIX problème 2 : on regarde les 3 derniers swings (pas 2) pour stabilité
+  // Tendance UP confirmée si swings highs CONSÉCUTIVEMENT haussiers ET lows aussi
+  // Tendance DOWN confirmée si swings highs CONSÉCUTIVEMENT baissiers ET lows aussi
   const recentHighs = swings.highs.slice(-3);
   const recentLows  = swings.lows.slice(-3);
   const last = candles[candles.length - 1];
 
-  // Tendance basée sur les 2 derniers swings
-  const tendanceHaute = recentHighs.length >= 2 && recentHighs[recentHighs.length - 1].price > recentHighs[recentHighs.length - 2].price;
-  const tendanceBasse = recentLows.length >= 2 && recentLows[recentLows.length - 1].price < recentLows[recentLows.length - 2].price;
+  // Compter HH/HL consécutifs (force haussière)
+  let hhCount = 0, hlCount = 0;
+  for (let i = 1; i < recentHighs.length; i++) {
+    if (recentHighs[i].price > recentHighs[i-1].price) hhCount++;
+  }
+  for (let i = 1; i < recentLows.length; i++) {
+    if (recentLows[i].price > recentLows[i-1].price) hlCount++;
+  }
+  // Compter LH/LL consécutifs (force baissière)
+  let lhCount = 0, llCount = 0;
+  for (let i = 1; i < recentHighs.length; i++) {
+    if (recentHighs[i].price < recentHighs[i-1].price) lhCount++;
+  }
+  for (let i = 1; i < recentLows.length; i++) {
+    if (recentLows[i].price < recentLows[i-1].price) llCount++;
+  }
 
-  let trend;
-  if (tendanceHaute && !tendanceBasse) trend = 'UP';
-  else if (tendanceBasse && !tendanceHaute) trend = 'DOWN';
-  else if (tendanceHaute && tendanceBasse) trend = 'EXPANSION'; // higher highs ET lower lows = volatil
-  else trend = 'RANGE';
+  // Force = somme des concordances (max 4 avec 3 swings)
+  const forceUp = hhCount + hlCount;
+  const forceDown = lhCount + llCount;
+
+  let trend, force;
+  // Exiger au moins 2 concordances (sur 4 max possibles) pour valider une tendance
+  if (forceUp >= 2 && forceDown <= 1) { trend = 'UP'; force = forceUp; }
+  else if (forceDown >= 2 && forceUp <= 1) { trend = 'DOWN'; force = forceDown; }
+  else if (forceUp >= 2 && forceDown >= 2) { trend = 'EXPANSION'; force = Math.max(forceUp, forceDown); }
+  else { trend = 'RANGE'; force = 0; }
 
   // BOS / MSS détection : la dernière clôture casse un swing récent ?
   const dernierHigh = recentHighs[recentHighs.length - 1];
@@ -549,7 +739,7 @@ function detecterStructure(candles, lookback = 3) {
     event = { type: 'BOS_BEARISH', niveau: dernierLow.price, message: 'Continuation baissière (cassure du précédent low)' };
   }
 
-  return { trend, event, dernierHigh: dernierHigh.price, dernierLow: dernierLow.price };
+  return { trend, event, dernierHigh: dernierHigh.price, dernierLow: dernierLow.price, force: force || 0 };
 }
 
 // ─── 3. LIQUIDITY DETECTION (equal highs/lows + asian range + DOL) ──
@@ -593,23 +783,54 @@ function detecterLiquidite(candles, tolerancePct = 0.0008) {
 }
 
 // Range asiatique (00h-07h UTC) = key levels du jour
+// FIX BUG 10 : gère weekend / jours fériés (remonte à la dernière session valide)
 function getAsianRange(candlesM15) {
   if (!candlesM15 || !candlesM15.length) return null;
-  // Filtrer les bougies dans la fenêtre asiat de la dernière session
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const asianStart = today.getTime();
-  const asianEnd = today.getTime() + 7 * 3600 * 1000;
 
-  const asianCandles = candlesM15.filter(c => {
-    const t = new Date(c.time).getTime();
-    return t >= asianStart && t < asianEnd;
-  });
+  const now = new Date();
+  // Si on est dimanche (0) ou samedi (6), retourner null
+  // (les marchés Forex sont fermés, le range "asiatique" du jour n'a pas de sens)
+  const dayOfWeek = now.getUTCDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) return null;
 
-  if (asianCandles.length < 5) return null; // pas assez de data
-  const high = Math.max(...asianCandles.map(c => c.high));
-  const low  = Math.min(...asianCandles.map(c => c.low));
-  return { high, low, mid: (high + low) / 2, candleCount: asianCandles.length };
+  // Lundi avant ouverture asiat (avant 00h UTC) → return null pour éviter
+  // un range basé sur la session de vendredi
+  if (dayOfWeek === 1 && now.getUTCHours() < 7) {
+    // On accepte uniquement si on a au moins 5 bougies depuis 00h UTC
+    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+    const since = candlesM15.filter(c => new Date(c.time).getTime() >= today.getTime());
+    if (since.length < 5) return null;
+  }
+
+  // Boucle sur les 5 derniers jours pour trouver une session asiat valide
+  for (let dayOffset = 0; dayOffset <= 5; dayOffset++) {
+    const targetDay = new Date(now);
+    targetDay.setUTCDate(targetDay.getUTCDate() - dayOffset);
+    targetDay.setUTCHours(0, 0, 0, 0);
+    // Skip weekend
+    const dow = targetDay.getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+
+    const asianStart = targetDay.getTime();
+    const asianEnd = asianStart + 7 * 3600 * 1000;
+
+    const asianCandles = candlesM15.filter(c => {
+      const t = new Date(c.time).getTime();
+      return t >= asianStart && t < asianEnd;
+    });
+
+    if (asianCandles.length >= 5) {
+      const high = Math.max(...asianCandles.map(c => c.high));
+      const low = Math.min(...asianCandles.map(c => c.low));
+      return {
+        high, low,
+        mid: (high + low) / 2,
+        candleCount: asianCandles.length,
+        dayOffset // 0 = aujourd'hui, 1 = hier (utile pour debug)
+      };
+    }
+  }
+  return null;
 }
 
 // Draw on Liquidity = la cible la plus probable du prix
@@ -869,6 +1090,32 @@ function formatPourPrompt(analyse) {
   // ATR
   txt += `\n📏 ATR(14) M15: ${analyse.atr.toFixed(2)}$ | Buffer SL recommandé: ${analyse.bufferSL.toFixed(2)}$\n`;
 
+  // ─── DÉTECTION DE CONFLIT CONTEXTUEL (BUG 3) ──────────────────────────
+  // Si dealing range et structure pointent dans des directions opposées
+  // sans MSS récent, alerter explicitement l'IA pour qu'elle ne trade pas.
+  const conflits = [];
+  const dr = analyse.dealingRange;
+  const struct = analyse.structureM15;
+  if (dr && struct) {
+    const drFavorBuy = dr.zone === 'DISCOUNT';
+    const drFavorSell = dr.zone === 'PREMIUM';
+    const structBearish = struct.trend === 'DOWN';
+    const structBullish = struct.trend === 'UP';
+    const mssRecent = struct.event && (struct.event.type === 'MSS_BULLISH' || struct.event.type === 'MSS_BEARISH');
+
+    if (drFavorBuy && structBearish && !mssRecent) {
+      conflits.push(`Zone DISCOUNT (favorise BUY) MAIS structure M15 = DOWN sans MSS_BULLISH récent`);
+    }
+    if (drFavorSell && structBullish && !mssRecent) {
+      conflits.push(`Zone PREMIUM (favorise SELL) MAIS structure M15 = UP sans MSS_BEARISH récent`);
+    }
+  }
+  if (conflits.length > 0) {
+    txt += `\n⚠️ CONFLIT CONTEXTUEL DÉTECTÉ :\n`;
+    conflits.forEach(c => txt += `  - ${c}\n`);
+    txt += `  → Si tu veux quand même trader, exige un setup A+ avec confluence très forte. Sinon NE PAS TRADER.\n`;
+  }
+
   txt += '═══════════════════════════════════════════════════════════════\n';
   return txt;
 }
@@ -949,15 +1196,40 @@ async function gererTpPartiels3Tier({
     const users = await db.findAsync({ 'mt5.metaApiAccountId': { $exists: true } });
 
     for (const user of users) {
+      let deployedHere = false;
+      let account = null;
       try {
-        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-        if (account.state !== 'DEPLOYED') continue;
+        account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+
+        // ─── FIX : Auto-deploy temporaire si UNDEPLOYED ─────────────
+        // Le wrapper TP DOIT pouvoir tourner même si le compte est undeployed,
+        // sinon on rate les TP partiels après le timeout du watchdog.
+        // On vérifie d'abord s'il y a au moins 1 position via cache léger,
+        // puis on deploy seulement si nécessaire.
+        if (account.state !== 'DEPLOYED') {
+          try {
+            await account.deploy();
+            if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
+            deployedHere = true;
+            await account.waitConnected();
+          } catch(deployErr) {
+            console.log('[TP-WRAPPER] Deploy auto échoué pour ' + user._id + ': ' + deployErr.message);
+            continue;
+          }
+        }
+
         const connection = account.getRPCConnection();
         await connection.connect();
         await connection.waitSynchronized();
 
         const positions = await connection.getPositions();
-        if (!positions || !positions.length) continue;
+        if (!positions || !positions.length) {
+          // Si on a deployé mais qu'il n'y a pas de positions, undeploy direct
+          if (deployedHere) {
+            try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+          }
+          continue;
+        }
 
         for (const pos of positions) {
           try {
@@ -981,7 +1253,8 @@ async function gererTpPartiels3Tier({
             for (const a of analyses) {
               // Bug fix : la DB stocke "entry" (pas "entree") — on supporte les deux
               const aEntree = parseFloat(a.entry || a.entree);
-              if (!isNaN(aEntree) && Math.abs(aEntree - parseFloat(pos.openPrice)) < 5) {
+              // Tolérance 8$ (avant 5$) pour gérer le slippage et les LIMIT touchés à un prix légèrement différent
+              if (!isNaN(aEntree) && Math.abs(aEntree - parseFloat(pos.openPrice)) < 8) {
                 if (!analyseMatch || new Date(a.createdAt) > new Date(analyseMatch.createdAt)) {
                   analyseMatch = a;
                 }
@@ -1245,7 +1518,19 @@ async function gererTpPartiels3Tier({
             if (!err.message.includes('not found')) console.log('[TP-3TIER] Erreur position:', err.message);
           }
         }
+
+        // ─── FIX : Undeploy si on a deployé temporairement ──────────
+        if (deployedHere && account) {
+          try {
+            await account.undeploy();
+            if (typeof trackUndeploy === 'function') trackUndeploy(account.id);
+          } catch(e) {}
+        }
       } catch(err) {
+        // Undeploy même en cas d'erreur pour pas garder un compte deployed inutilement
+        if (deployedHere && account) {
+          try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+        }
         if (!err.message.includes('not found')) console.log('[TP-3TIER] Erreur user:', err.message);
       }
     }
@@ -1687,46 +1972,26 @@ async function verifierProtectionsAvancees(parsed, userId) {
       }
     }
 
-    // ─── PROTECTION 5 : ANTI-CONTRE-TENDANCE H1 + M30 (HARD BLOCK) ─────
-    // ⚠️ La protection la plus importante : on ne se fie PAS à l'IA pour
-    // déterminer la tendance, on la calcule nous-mêmes algorithmiquement.
-    // Logique :
-    //   - Tendance bearish dure = MA20 < MA50 ET prix < MA50 ET structure DOWN/RANGE
-    //   - Tendance bullish dure = MA20 > MA50 ET prix > MA50 ET structure UP/RANGE
-    //   - Si les DEUX TF (H1 + M30) sont contre le signal → ANNULÉ (pas score réduit)
-    //   - Exception : si MSS_BULLISH/BEARISH récent détecté sur M15 → on laisse passer
-    //                 (= retournement légitime confirmé par cassure structure)
+    // ─── PROTECTION 5 : ANTI-CONTRE-TENDANCE ROBUSTE (5 méthodes + vote) ─
+    // 5 méthodes indépendantes par TF (H1 et M30) + vote majoritaire 3+/5.
+    // Pré-check choppy bloque les faux positifs en marché chaotique.
     try {
       let candlesH1 = [], candlesM30 = [];
       for (const sfx of suffixes) {
         try {
           const sym = symbole + sfx;
-          if (!candlesH1.length) candlesH1 = await connection.getHistoricalCandles(sym, '1h', undefined, 50) || [];
-          if (!candlesM30.length) candlesM30 = await connection.getHistoricalCandles(sym, '30m', undefined, 50) || [];
+          if (!candlesH1.length) candlesH1 = await connection.getHistoricalCandles(sym, '1h', undefined, 60) || [];
+          if (!candlesM30.length) candlesM30 = await connection.getHistoricalCandles(sym, '30m', undefined, 60) || [];
           if (candlesH1.length && candlesM30.length) break;
         } catch(e) {}
       }
 
       if (candlesH1.length >= 50 && candlesM30.length >= 50) {
-        // Calcul tendance H1 (combo MA + structure + position prix)
-        const ma20H1 = calculerMA(candlesH1, 20);
-        const ma50H1 = calculerMA(candlesH1, 50);
-        const lastH1 = candlesH1[candlesH1.length - 1].close;
-        const structH1 = detecterStructure(candlesH1, 3);
-        const trendH1 = (ma20H1 < ma50H1 && lastH1 < ma50H1 && structH1.trend !== 'UP') ? 'BEARISH'
-                      : (ma20H1 > ma50H1 && lastH1 > ma50H1 && structH1.trend !== 'DOWN') ? 'BULLISH'
-                      : 'NEUTRAL';
+        const tH1 = detecterTendanceRobuste(candlesH1);
+        const tM30 = detecterTendanceRobuste(candlesM30);
+        console.log(`[TENDANCE] H1=${tH1.trend} (${tH1.confidence}/5) M30=${tM30.trend} (${tM30.confidence}/5)`);
 
-        // Calcul tendance M30
-        const ma20M30 = calculerMA(candlesM30, 20);
-        const ma50M30 = calculerMA(candlesM30, 50);
-        const lastM30 = candlesM30[candlesM30.length - 1].close;
-        const structM30 = detecterStructure(candlesM30, 3);
-        const trendM30 = (ma20M30 < ma50M30 && lastM30 < ma50M30 && structM30.trend !== 'UP') ? 'BEARISH'
-                       : (ma20M30 > ma50M30 && lastM30 > ma50M30 && structM30.trend !== 'DOWN') ? 'BULLISH'
-                       : 'NEUTRAL';
-
-        // Vérifier si MSS récent sur M15 (= retournement légitime, on laisse passer)
+        // MSS récent sur M15 = override possible (vrai retournement)
         const structM15 = detecterStructure(candlesM15, 3);
         const mssRecent = structM15.event && (structM15.event.type === 'MSS_BULLISH' || structM15.event.type === 'MSS_BEARISH');
         const mssAlignedAvecSignal = mssRecent && (
@@ -1734,28 +1999,49 @@ async function verifierProtectionsAvancees(parsed, userId) {
           (!isBuy && structM15.event.type === 'MSS_BEARISH')
         );
 
-        const signalContreH1  = (isBuy && trendH1 === 'BEARISH')  || (!isBuy && trendH1 === 'BULLISH');
-        const signalContreM30 = (isBuy && trendM30 === 'BEARISH') || (!isBuy && trendM30 === 'BULLISH');
+        const signalContreH1 = (isBuy && tH1.trend === 'BEARISH') || (!isBuy && tH1.trend === 'BULLISH');
+        const signalContreM30 = (isBuy && tM30.trend === 'BEARISH') || (!isBuy && tM30.trend === 'BULLISH');
 
-        // Cas 1 : H1 ET M30 contre → ANNULATION HARD (sauf MSS aligné qui override)
+        // Stocker pour le client/frontend
+        parsed.tendanceServerH1 = tH1.trend;
+        parsed.tendanceServerM30 = tM30.trend;
+        parsed.tendanceConfidenceH1 = tH1.confidence;
+        parsed.tendanceConfidenceM30 = tM30.confidence;
+
+        // Cas 1 : H1 ET M30 contre → ANNULATION (sauf MSS aligné)
         if (signalContreH1 && signalContreM30) {
           if (mssAlignedAvecSignal) {
             scoreReduit = true;
-            alertes.push(`H1 (${trendH1}) + M30 (${trendM30}) contre signal ${parsed.decision}, MAIS MSS récent aligné sur M15 → score réduit (retournement possible)`);
+            alertes.push(`H1+M30 contre ${parsed.decision} (${tH1.trend}/${tM30.trend}) MAIS MSS ${structM15.event.type} aligné M15 → score réduit`);
           } else {
             tradeAnnule = true;
-            alertes.push(`🚫 CONTRE-TENDANCE DURE : H1=${trendH1} + M30=${trendM30} vs signal ${parsed.decision} | MA20H1=${ma20H1?.toFixed(2)} MA50H1=${ma50H1?.toFixed(2)} prix=${lastH1.toFixed(2)} → trade annulé`);
+            alertes.push(`🚫 CONTRE-TENDANCE ROBUSTE : H1=${tH1.trend} (${tH1.confidence}/5) + M30=${tM30.trend} (${tM30.confidence}/5) vs ${parsed.decision} → annulé`);
           }
         }
-        // Cas 2 : un seul TF contre (mais l'autre neutre/aligné) → score réduit
+        // Cas 2 : un seul TF contre avec confidence forte (4+/5) → annulé
+        else if ((signalContreH1 && tH1.confidence >= 4) || (signalContreM30 && tM30.confidence >= 4)) {
+          if (!mssAlignedAvecSignal) {
+            tradeAnnule = true;
+            const tf = signalContreH1 ? 'H1' : 'M30';
+            const conf = signalContreH1 ? tH1.confidence : tM30.confidence;
+            const tt = signalContreH1 ? tH1.trend : tM30.trend;
+            alertes.push(`🚫 ${tf}=${tt} confidence forte ${conf}/5 vs ${parsed.decision} → annulé`);
+          } else {
+            scoreReduit = true;
+            alertes.push(`Tendance forte contre mais MSS aligné → score réduit`);
+          }
+        }
+        // Cas 3 : un seul TF contre, confidence modérée (3/5) → score réduit
         else if (signalContreH1 || signalContreM30) {
           scoreReduit = true;
-          const tfContre = signalContreH1 ? 'H1' : 'M30';
-          alertes.push(`Tendance ${tfContre} (${signalContreH1 ? trendH1 : trendM30}) contre signal ${parsed.decision} → score réduit`);
+          const tf = signalContreH1 ? 'H1' : 'M30';
+          alertes.push(`Tendance ${tf} contre signal ${parsed.decision} (${signalContreH1 ? tH1.confidence : tM30.confidence}/5) → score réduit`);
         }
+      } else {
+        console.log('[PROTECTION-CT] Pas assez de bougies (H1=' + candlesH1.length + ', M30=' + candlesM30.length + ')');
       }
     } catch(err) {
-      console.log('[PROTECTION-CONTRE-TENDANCE] Erreur:', err.message);
+      console.log('[PROTECTION-CT] Erreur:', err.message);
     }
 
     // ─── PROTECTION 6 : RSI M30/H1 EN FORTE TENDANCE ──────────────
@@ -1796,7 +2082,54 @@ async function verifierProtectionsAvancees(parsed, userId) {
       console.log('[PROTECTION-RSI-M30] Erreur:', err.message);
     }
 
+    // ─── PROTECTION 7 : COHÉRENCE PREMIUM/DISCOUNT vs SENS ─────────
+    // Si l'IA a retourné premiumDiscount = PREMIUM mais propose BUY sans MSS_BULLISH,
+    // c'est une violation directe d'ICT → annulation hard.
+    if (parsed.premiumDiscount && parsed.structureEvent !== undefined) {
+      const pd = String(parsed.premiumDiscount).toUpperCase();
+      const ev = String(parsed.structureEvent || 'NONE').toUpperCase();
+      const aMssBullish = ev === 'MSS_BULLISH';
+      const aMssBearish = ev === 'MSS_BEARISH';
+      if (isBuy && pd === 'PREMIUM' && !aMssBullish) {
+        tradeAnnule = true;
+        alertes.push(`🚫 BUY en zone PREMIUM sans MSS_BULLISH récent → violation ICT, annulé`);
+      } else if (!isBuy && pd === 'DISCOUNT' && !aMssBearish) {
+        tradeAnnule = true;
+        alertes.push(`🚫 SELL en zone DISCOUNT sans MSS_BEARISH récent → violation ICT, annulé`);
+      }
+    }
+
+    // ─── PROTECTION 8 : COHÉRENCE ENTRÉE / SL ──────────────────────
+    // Pour BUY : SL doit être STRICTEMENT < entrée
+    // Pour SELL : SL doit être STRICTEMENT > entrée
+    // Sinon on a un trade malformé qui sera silencieusement inversé par le calcul dist
+    if (entree > 0 && sl > 0) {
+      if (isBuy && sl >= entree) {
+        tradeAnnule = true;
+        alertes.push(`🚫 BUY avec SL (${sl}) >= entrée (${entree}) → trade malformé, annulé`);
+      } else if (!isBuy && sl <= entree) {
+        tradeAnnule = true;
+        alertes.push(`🚫 SELL avec SL (${sl}) <= entrée (${entree}) → trade malformé, annulé`);
+      }
+    }
+
+    // ─── PROTECTION 9 : RSI EXTRÊME M15 (HARD BLOCK, pas juste textuel) ─
+    // Override serveur dur si RSI dans zone extrême opposée au sens
+    if (rsi !== null) {
+      if (isBuy && rsi >= 78) {
+        tradeAnnule = true;
+        alertes.push(`🚫 BUY avec RSI M15 ${rsi} >= 78 (surachat extrême) → annulé hard`);
+      } else if (!isBuy && rsi <= 22) {
+        tradeAnnule = true;
+        alertes.push(`🚫 SELL avec RSI M15 ${rsi} <= 22 (survente extrême) → annulé hard`);
+      }
+    }
+
     // ─── APPLICATION ──────────────────────────────────────────────
+    // FIX problème 7 : ASSERTION DÉFENSIVE
+    // verifierProtectionsAvancees ne doit JAMAIS inverser BUY ↔ SELL.
+    // Elle peut seulement annuler (NE PAS TRADER) ou réduire le score.
+    const decisionInitiale = parsed.decision;
     if (alertes.length > 0) {
       parsed.protectionsAlertes = alertes.join(' | ');
       console.log('[PROTECTIONS] ' + parsed.decision + ' ' + symbole + ' : ' + alertes.join(' | '));
@@ -1807,6 +2140,14 @@ async function verifierProtectionsAvancees(parsed, userId) {
       } else if (scoreReduit) {
         parsed.score = Math.min(parsed.score || 5, 5);
       }
+    }
+    // Sécurité : si la décision finale n'est ni 'NE PAS TRADER' ni la décision initiale,
+    // c'est un bug → on force NE PAS TRADER pour rester sûr
+    if (parsed.decision !== 'NE PAS TRADER' && parsed.decision !== decisionInitiale) {
+      console.log('[PROTECTIONS-BUG] Décision modifiée de ' + decisionInitiale + ' vers ' + parsed.decision + ' → forçage NE PAS TRADER');
+      parsed.decision = 'NE PAS TRADER';
+      parsed.score = 0;
+      parsed.protectionsAlertes = (parsed.protectionsAlertes || '') + ' | BUG SÉCURITÉ : décision inversée détectée';
     }
 
     return parsed;
@@ -2459,7 +2800,8 @@ async function cleanupTracking() {
 }
 
 // Lancer toutes les 90s (un peu plus rapide pour ne pas rater TP2)
-setInterval(gererTpPartielsWrapper, 90 * 1000);
+// FIX : Réduit de 90s à 30s pour éviter de rater un TP1 dans les marchés rapides
+setInterval(gererTpPartielsWrapper, 30 * 1000);
 // Cleanup tous les jours
 setInterval(cleanupTracking, 24 * 60 * 60 * 1000);
 
@@ -2826,7 +3168,23 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
     if (result === 'sl') {
       const analyse = await analysesDb.findOneAsync({ _id: req.params.id, userId: req.session.userId });
       if (analyse && !analyse.leconId) {
-        const perteEstimee = analyse.tradeProfit || -1;
+        // ✅ FIX BUG 13 : ne pas utiliser -1 comme fallback (post-mortem déclenché à tort)
+        // On exige soit un tradeProfit réel, soit on calcule depuis SL réel via MetaApi
+        let perteEstimee = null;
+        if (typeof analyse.tradeProfit === 'number' && analyse.tradeProfit < 0) {
+          perteEstimee = analyse.tradeProfit;
+        } else if (analyse.entree && analyse.sl && analyse.lots) {
+          // Calcul fiable : distance × valeur par lot
+          const dist = Math.abs(parseFloat(analyse.entree) - parseFloat(analyse.sl));
+          const inst = (analyse.instrument || '').toUpperCase();
+          const valeurParLot = inst.includes('XAU') ? 100 : inst.includes('JPY') ? 909 : 100000;
+          perteEstimee = -(dist * valeurParLot * parseFloat(analyse.lots));
+        }
+        // Si on n'a pas pu calculer, on skip le post-mortem (au lieu de mettre -1)
+        if (perteEstimee === null) {
+          console.log('[POST-MORTEM] Skip analyse ' + analyse._id + ' : pas de tradeProfit ni de données pour calculer la perte');
+          return res.json({ ok: true, postMortemSkipped: true });
+        }
         const analyseAvecPerte = {
           ...analyse,
           tradeProfit: perteEstimee,
@@ -3042,7 +3400,44 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
   const files = req.files || {};
   const allFiles = [files.imageH1?.[0], files.imageM30?.[0], files.imageM15?.[0], files.imageM5?.[0], files.imageM1?.[0]].filter(Boolean);
 
+  // ✅ FIX BUG 11 : déduplication analyses simultanées
+  // Empêche le double-clic / appels parallèles du même user
+  if (!global._analysesEnCours) global._analysesEnCours = new Set();
+  if (global._analysesEnCours.has(req.session.userId)) {
+    allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+    return res.status(429).json({
+      error: 'analysis_in_progress',
+      message: '⏳ Une analyse est déjà en cours. Patiente quelques secondes avant de relancer.'
+    });
+  }
+  global._analysesEnCours.add(req.session.userId);
+  // Auto-cleanup après 60s au cas où la requête se bloque
+  const cleanupTimer = setTimeout(() => global._analysesEnCours.delete(req.session.userId), 60000);
+
   try {
+    // ─── FIX problème 11 : éviter analyses simultanées du même user ─────
+    const _userId = req.session.userId;
+    if (_userId && _analysisLocks.has(_userId)) {
+      const lockTime = _analysisLocks.get(_userId);
+      // Lock valide pendant 60s max (au-delà, on considère que l'analyse précédente a planté)
+      if (Date.now() - lockTime < 60 * 1000) {
+        console.log('[ANALYZE-LOCK] Analyse déjà en cours pour ' + _userId);
+        return res.status(429).json({
+          error: 'Analyse déjà en cours, attendez la fin avant de relancer',
+          retryAfter: 60 - Math.round((Date.now() - lockTime) / 1000)
+        });
+      }
+    }
+    if (_userId) _analysisLocks.set(_userId, Date.now());
+
+    // Libérer automatiquement le lock à la fin de la requête (succès ou erreur)
+    res.on('finish', () => {
+      if (_userId) _analysisLocks.delete(_userId);
+    });
+    res.on('close', () => {
+      if (_userId) _analysisLocks.delete(_userId);
+    });
+
     const user = await db.findOneAsync({ _id: req.session.userId });
     if (!user) return res.status(401).json({ error: 'Non connecté' });
     if (user.banned) {
@@ -3165,6 +3560,54 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
       consecutiveLosses
     });
 
+    // ═══════════════════════════════════════════════════════════════
+    // 🛡️ FIX problème 3 : DÉTECTION DE CONFLIT CONTEXTUEL pré-IA
+    // Si dealing range et structure pointent dans des directions opposées
+    // sans MSS récent qui les réconcilierait → on ne consulte même pas Claude
+    // ═══════════════════════════════════════════════════════════════
+    let conflitDetecte = false;
+    let raisonConflit = null;
+    if (global._ictCache && global._ictCache[req.session.userId]) {
+      const cache = global._ictCache[req.session.userId];
+      // Cache valide < 5 min
+      if (cache.time && (Date.now() - cache.time) < 5 * 60 * 1000) {
+        const a = cache.analyse;
+        const dr = a?.dealingRange;
+        const sM15 = a?.structureM15;
+        if (dr && sM15) {
+          const drBullish = dr.zone === 'DISCOUNT';
+          const drBearish = dr.zone === 'PREMIUM';
+          const structBullish = sM15.trend === 'UP' || sM15.event?.type === 'MSS_BULLISH' || sM15.event?.type === 'BOS_BULLISH';
+          const structBearish = sM15.trend === 'DOWN' || sM15.event?.type === 'MSS_BEARISH' || sM15.event?.type === 'BOS_BEARISH';
+
+          // Conflit : zone dit BUY mais structure dit DOWN sans MSS_BULLISH
+          if (drBullish && structBearish && sM15.event?.type !== 'MSS_BULLISH') {
+            conflitDetecte = true;
+            raisonConflit = 'Zone DISCOUNT (favorise BUY) mais structure M15 ' + sM15.trend + ' (favorise SELL) sans MSS_BULLISH récent → contexte contradictoire';
+          }
+          // Conflit inverse : zone PREMIUM mais structure UP
+          if (drBearish && structBullish && sM15.event?.type !== 'MSS_BEARISH') {
+            conflitDetecte = true;
+            raisonConflit = 'Zone PREMIUM (favorise SELL) mais structure M15 ' + sM15.trend + ' (favorise BUY) sans MSS_BEARISH récent → contexte contradictoire';
+          }
+        }
+      }
+    }
+
+    if (conflitDetecte) {
+      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — analyse Claude évitée');
+      const reponseConflit = {
+        decision: 'NE PAS TRADER',
+        score: 4,
+        commentaire: 'Contexte contradictoire détecté côté serveur : ' + raisonConflit,
+        instrument: req.body.instrument || 'XAUUSD',
+        contexteContradictoire: true,
+        conflitRaison: raisonConflit
+      };
+      try { await analysesDb.insertAsync({ ...reponseConflit, userId: req.session.userId, createdAt: new Date() }); } catch(e) {}
+      return res.json(reponseConflit);
+    }
+
     content.push({
       type: 'text',
       text: `Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.instrument || 'XAUUSD'}.${capital ? ` Capital: $${capital}.` : ''}
@@ -3258,6 +3701,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "structureLevel": "<niveau cassé si event ou null>",
   "obQuality": "<HIGH | MEDIUM | LOW | NONE>",
   "sweepDetected": "<description sweep récent ou 'AUCUN'>",
+  "slUnit": "<dollars | pips — UNITÉ EXACTE du SL en valeur absolue, ne pas mélanger>",
+  "slDistance": "<distance SL en valeur absolue dans l'unité ci-dessus>",
   "killZoneActive": "<${killZone.name}>",
   "scoreContext": "<X/7 — DOL+P/D+MSS+H1>",
   "scorePattern": "<X/6 — CRT+OB+FVG+sweep>",
@@ -3351,7 +3796,21 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       const entree = parseFloat(parsed.entree);
       const sl = parseFloat(parsed.sl);
       const isBuy = parsed.decision === 'BUY';
-      if (entree && sl) {
+
+      // ─── FIX problème 6 : VALIDATION DIRECTION SL ─────────────────
+      // Si BUY mais sl > entree → erreur grave de l'IA, on annule le trade
+      // (un SL "au-dessus" pour BUY signifie qu'elle s'est trompée)
+      if (isBuy && sl >= entree) {
+        console.log('[SL-DIRECTION] BUY mais SL ' + sl + ' >= entrée ' + entree + ' → trade annulé');
+        parsed.decision = 'NE PAS TRADER';
+        parsed.slDirectionAlerte = 'SL incohérent : pour un BUY le SL doit être SOUS l\'entrée. SL=' + sl + ' Entrée=' + entree;
+      } else if (!isBuy && sl <= entree) {
+        console.log('[SL-DIRECTION] SELL mais SL ' + sl + ' <= entrée ' + entree + ' → trade annulé');
+        parsed.decision = 'NE PAS TRADER';
+        parsed.slDirectionAlerte = 'SL incohérent : pour un SELL le SL doit être AU-DESSUS de l\'entrée. SL=' + sl + ' Entrée=' + entree;
+      }
+
+      if (entree && sl && parsed.decision !== 'NE PAS TRADER') {
         const dist = Math.abs(entree - sl);
         const slCorrige = isBuy ? entree - dist : entree + dist;
         // R:R adaptatifs : setup A+ = TP plus ambitieux, setup B = plus défensif
@@ -3381,6 +3840,40 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 6/10 pour trader';
     }
 
+    // ═════════════════════════════════════════════════════════════
+    // 🛡️ HARD-BLOCKS POST-IA (problèmes 1 + 4 du document)
+    // Ces validations vérifient la cohérence entre la décision Claude
+    // et les champs ICT qu'il a lui-même retournés. Si Claude se contredit
+    // (ex: BUY en PREMIUM sans MSS), on annule.
+    // ═════════════════════════════════════════════════════════════
+    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
+      const hardBlocks = [];
+      const isBuy = parsed.decision === 'BUY';
+
+      // BLOCK 1 : BUY en PREMIUM sans MSS_BULLISH = piège classique
+      if (isBuy && parsed.premiumDiscount === 'PREMIUM' &&
+          parsed.structureEvent !== 'MSS_BULLISH' && parsed.structureEvent !== 'BOS_BULLISH') {
+        hardBlocks.push('BUY en zone PREMIUM sans MSS bullish — achat au sommet du range');
+      }
+      // BLOCK 2 : SELL en DISCOUNT sans MSS_BEARISH
+      if (!isBuy && parsed.premiumDiscount === 'DISCOUNT' &&
+          parsed.structureEvent !== 'MSS_BEARISH' && parsed.structureEvent !== 'BOS_BEARISH') {
+        hardBlocks.push('SELL en zone DISCOUNT sans MSS bearish — vente en bas du range');
+      }
+      // BLOCK 3 : RSI M15 extrême incohérent avec direction
+      const rsiM15 = parseFloat(parsed.rsi || parsed.rsiM15 || 0);
+      if (rsiM15 > 0) {
+        if (isBuy && rsiM15 > 78) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' > 78 (surachat extrême) avec BUY');
+        if (!isBuy && rsiM15 < 22) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 22 (survente extrême) avec SELL');
+      }
+
+      if (hardBlocks.length > 0) {
+        console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé : ' + hardBlocks.join(' | '));
+        parsed.decision = 'NE PAS TRADER';
+        parsed.hardBlockAlerte = 'Trade annulé par hard-block serveur : ' + hardBlocks.join(' | ');
+      }
+    }
+
     // ─── ANTI-PIÈGE RANGE ASIATIQUE (vérification post-IA) ────
     parsed = verifierPiegeRangeAsiatique(parsed);
 
@@ -3395,7 +3888,15 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       const score = parsed.score || 0;
       const risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
       parsed.risquePct = risquePct;
-      parsed.lots = calculerLots(capital, risquePct, parsed.slPips, parsed.instrument || '');
+
+      // ✅ FIX BUG 5 : utiliser la distance directe |entrée - SL| en dollars
+      // (plus fiable que les heuristiques sur slPips)
+      let slDistanceDollars = null;
+      if (parsed.entree && parsed.sl) {
+        const distDirect = Math.abs(parseFloat(parsed.entree) - parseFloat(parsed.sl));
+        if (distDirect > 0 && !isNaN(distDirect)) slDistanceDollars = distDirect;
+      }
+      parsed.lots = calculerLots(capital, risquePct, parsed.slPips, parsed.instrument || '', slDistanceDollars);
       parsed.montantRisque = (capital * risquePct / 100).toFixed(2);
 
       // ─── LOT DYNAMIQUE (anti-drawdown / anti-tilt) ──────────
@@ -3439,6 +3940,10 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   } catch (err) {
     allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e){} });
     res.status(500).json({ error: 'Erreur: ' + err.message });
+  } finally {
+    // ✅ FIX BUG 11 : libérer le slot d'analyse en cours
+    clearTimeout(cleanupTimer);
+    if (global._analysesEnCours) global._analysesEnCours.delete(req.session.userId);
   }
 });
 
