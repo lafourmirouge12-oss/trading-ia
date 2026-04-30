@@ -1715,34 +1715,128 @@ const ict = {
 const promptRules = { getReglesText };
 
 
-async function getBlocIndicateursTechniques(userId, symbole) {
-  if (!metaApi) return '';
+// ═══════════════════════════════════════════════════════════════════
+// 🚀 FETCH UNIFIÉ — économise 60-70% des appels MetaApi
+// ═══════════════════════════════════════════════════════════════════
+// Avant : chaque fonction (OBFVG, Indicateurs, Protections) faisait son propre
+// deploy + sa propre récupération de bougies. Résultat : 8-12 appels par /analyze.
+//
+// Maintenant : un seul deploy, récupération PARALLÈLE de tous les TF, cache 90s
+// pour que les fonctions appelées dans la foulée réutilisent les données.
+//
+// Cache key : userId + symbole (un cache par utilisateur+instrument)
+// TTL : 90s (suffit pour qu'une /analyze complète réutilise sans risque de staleness)
+
+const _marketDataCache = new Map(); // key → { data, time }
+const MARKET_CACHE_TTL_MS = 90 * 1000;
+
+async function fetchAllMarketData(userId, symbole) {
+  if (!metaApi) return null;
+  const cacheKey = userId + ':' + (symbole || 'XAUUSD').toUpperCase();
+
+  // ─── Cache hit ? ──────────────────────────────────────────────
+  const cached = _marketDataCache.get(cacheKey);
+  if (cached && (Date.now() - cached.time) < MARKET_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   try {
     const user = await db.findOneAsync({ _id: userId });
-    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return '';
+    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
 
     const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    if (account.state !== 'DEPLOYED') return '';
+    // On suppose que le deploy est géré en amont par /analyze.
+    // Si pas DEPLOYED, on retourne null et chaque fonction tombera silencieusement.
+    if (account.state !== 'DEPLOYED') return null;
+
     const connection = account.getRPCConnection();
     await connection.connect();
     await connection.waitSynchronized();
 
+    // ─── Résolution du symbole avec suffixes ─────────────────────
     const sym = (symbole || 'XAUUSD').toUpperCase();
     const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-
-    let candlesH1 = [], candlesM15 = [], candlesM5 = [], prixActuel = null;
-
+    let symbolResolu = null;
+    let testCandles = [];
     for (const sfx of suffixes) {
       try {
         const symFull = sym + sfx;
-        candlesH1 = await connection.getHistoricalCandles(symFull, '1h', undefined, 60) || [];
-        candlesM15 = await connection.getHistoricalCandles(symFull, '15m', undefined, 60) || [];
-        candlesM5 = await connection.getHistoricalCandles(symFull, '5m', undefined, 60) || [];
-        const tick = await connection.getSymbolPrice(symFull);
-        if (tick && tick.bid) prixActuel = (tick.bid + tick.ask) / 2;
-        if (candlesH1.length && candlesM15.length) break;
+        testCandles = await connection.getHistoricalCandles(symFull, '15m', undefined, 5) || [];
+        if (testCandles.length) {
+          symbolResolu = symFull;
+          break;
+        }
       } catch(e) {}
     }
+    if (!symbolResolu) return null;
+
+    // ─── Récupération PARALLÈLE de tous les TF (1 seul deploy, 5 appels en parallèle) ─
+    const [candlesH1, candlesM30, candlesM15, candlesM5, tickInfo] = await Promise.all([
+      connection.getHistoricalCandles(symbolResolu, '1h', undefined, 60).catch(() => []),
+      connection.getHistoricalCandles(symbolResolu, '30m', undefined, 60).catch(() => []),
+      connection.getHistoricalCandles(symbolResolu, '15m', undefined, 60).catch(() => []),
+      connection.getHistoricalCandles(symbolResolu, '5m', undefined, 60).catch(() => []),
+      connection.getSymbolPrice(symbolResolu).catch(() => null)
+    ]);
+
+    let prixActuel = null;
+    if (tickInfo && tickInfo.bid) prixActuel = (tickInfo.bid + tickInfo.ask) / 2;
+
+    const data = {
+      symbolResolu,
+      candlesH1,
+      candlesM30,
+      candlesM15,
+      candlesM5,
+      prixActuel,
+      time: Date.now()
+    };
+
+    // Stocker en cache
+    _marketDataCache.set(cacheKey, { data, time: Date.now() });
+
+    // Cleanup automatique : virer les entrées plus vieilles que 5 min
+    if (_marketDataCache.size > 50) {
+      const now = Date.now();
+      for (const [k, v] of _marketDataCache.entries()) {
+        if (now - v.time > 5 * 60 * 1000) _marketDataCache.delete(k);
+      }
+    }
+
+    return data;
+  } catch(err) {
+    console.log('[FETCH-MARKET-DATA] Erreur:', err.message);
+    return null;
+  }
+}
+
+// Helper pour invalider le cache d'un user (utile quand il fait une nouvelle analyse)
+function invaliderCacheMarket(userId, symbole) {
+  if (!userId) return;
+  if (symbole) {
+    _marketDataCache.delete(userId + ':' + symbole.toUpperCase());
+  } else {
+    // Invalider toutes les entrées du user
+    for (const k of _marketDataCache.keys()) {
+      if (k.startsWith(userId + ':')) _marketDataCache.delete(k);
+    }
+  }
+}
+
+async function getBlocIndicateursTechniques(userId, symbole) {
+  if (!metaApi) return '';
+  try {
+    // ─── OPTIMISATION : utiliser le cache unifié ──────────────────
+    // Si appelée pendant une /analyze, les bougies sont déjà en cache,
+    // pas de nouvel appel MetaApi
+    const marketData = await fetchAllMarketData(userId, symbole);
+    if (!marketData) return '';
+
+    const candlesH1 = marketData.candlesH1;
+    const candlesM15 = marketData.candlesM15;
+    const candlesM5 = marketData.candlesM5;
+    const prixActuel = marketData.prixActuel;
+
     if (!candlesM15.length) return '';
 
     // Calcul des indicateurs
@@ -1831,28 +1925,15 @@ async function verifierProtectionsAvancees(parsed, userId) {
   if (!metaApi) return parsed;
 
   try {
-    const user = await db.findOneAsync({ _id: userId });
-    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return parsed;
-
-    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    if (account.state !== 'DEPLOYED') return parsed; // pas de deploy ici, économie
-    const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized();
-
+    // ─── OPTIMISATION : utiliser le cache unifié ──────────────────
     const symbole = (parsed.instrument || 'XAUUSD').toUpperCase();
-    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+    const marketData = await fetchAllMarketData(userId, symbole);
+    if (!marketData) return parsed;
 
-    let candlesM15 = [], prixActuel = null;
-    for (const sfx of suffixes) {
-      try {
-        const sym = symbole + sfx;
-        candlesM15 = await connection.getHistoricalCandles(sym, '15m', undefined, 30) || [];
-        const tick = await connection.getSymbolPrice(sym);
-        if (tick && tick.bid) prixActuel = (tick.bid + tick.ask) / 2;
-        if (candlesM15.length && prixActuel) break;
-      } catch(e) {}
-    }
+    const candlesM15 = marketData.candlesM15;
+    const prixActuel = marketData.prixActuel;
+    const symbolResolu = marketData.symbolResolu;
+
     if (!candlesM15.length || !prixActuel) return parsed;
 
     const isBuy = parsed.decision === 'BUY';
@@ -1975,17 +2056,10 @@ async function verifierProtectionsAvancees(parsed, userId) {
 
     // ─── PROTECTION 5 : ANTI-CONTRE-TENDANCE ROBUSTE (5 méthodes + vote) ─
     // 5 méthodes indépendantes par TF (H1 et M30) + vote majoritaire 3+/5.
-    // Pré-check choppy bloque les faux positifs en marché chaotique.
+    // OPTIMISATION : utilise le cache marketData (pas de nouvel appel MetaApi)
     try {
-      let candlesH1 = [], candlesM30 = [];
-      for (const sfx of suffixes) {
-        try {
-          const sym = symbole + sfx;
-          if (!candlesH1.length) candlesH1 = await connection.getHistoricalCandles(sym, '1h', undefined, 60) || [];
-          if (!candlesM30.length) candlesM30 = await connection.getHistoricalCandles(sym, '30m', undefined, 60) || [];
-          if (candlesH1.length && candlesM30.length) break;
-        } catch(e) {}
-      }
+      const candlesH1 = marketData.candlesH1 || [];
+      const candlesM30 = marketData.candlesM30 || [];
 
       if (candlesH1.length >= 50 && candlesM30.length >= 50) {
         const tH1 = detecterTendanceRobuste(candlesH1);
@@ -2050,14 +2124,8 @@ async function verifierProtectionsAvancees(parsed, userId) {
     // simple "score réduit". Si RSI M30 < 40 ET signal BUY → annulé.
     // Symétrique pour SELL avec RSI > 60.
     try {
-      let candlesM30 = [];
-      for (const sfx of suffixes) {
-        try {
-          const sym = symbole + sfx;
-          candlesM30 = await connection.getHistoricalCandles(sym, '30m', undefined, 30) || [];
-          if (candlesM30.length) break;
-        } catch(e) {}
-      }
+      // OPTIMISATION : utilise le cache marketData
+      const candlesM30 = marketData.candlesM30 || [];
       if (candlesM30.length >= 15) {
         const rsiM30 = calculerRSI(candlesM30, 14);
         if (rsiM30 !== null) {
@@ -2378,37 +2446,15 @@ function detecterFairValueGaps(candles) {
 async function getBlocOBFVG(userId, symbole) {
   if (!metaApi) return '';
   try {
-    const user = await db.findOneAsync({ _id: userId });
-    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return '';
+    // ─── OPTIMISATION : utiliser le cache unifié ──────────────────
+    const marketData = await fetchAllMarketData(userId, symbole);
+    if (!marketData) return '';
 
-    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    if (account.state !== 'DEPLOYED') return '';
-    const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized();
+    const candlesM15 = marketData.candlesM15;
+    const candlesM5 = marketData.candlesM5;
+    const candlesH1 = marketData.candlesH1;
 
-    // Récupérer 50 bougies M15, 30 M5, 50 H1 (pour dealing range)
-    let candlesM15 = [], candlesM5 = [], candlesH1 = [];
-    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-    let symbolResolu = null;
-    for (const sfx of suffixes) {
-      try {
-        const sym = symbole + sfx;
-        candlesM15 = await connection.getHistoricalCandles(sym, '15m', undefined, 50) || [];
-        candlesM5 = await connection.getHistoricalCandles(sym, '5m', undefined, 30) || [];
-        if (candlesM15.length || candlesM5.length) {
-          symbolResolu = sym;
-          break;
-        }
-      } catch(e) {}
-    }
     if (!candlesM15.length && !candlesM5.length) return '';
-
-    if (symbolResolu) {
-      try {
-        candlesH1 = await connection.getHistoricalCandles(symbolResolu, '1h', undefined, 50) || [];
-      } catch(e) { candlesH1 = []; }
-    }
 
     // ─── ANALYSE ICT COMPLÈTE (DOL, P/D, MSS, kill zone, ATR) ─────
     const analyseICT = await ict.analyseComplete(candlesM15, candlesH1, candlesM5);
