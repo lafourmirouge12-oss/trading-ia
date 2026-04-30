@@ -140,7 +140,13 @@ if (metaApi) {
 
 // ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
 // La cle est dans MT5_ENCRYPT_KEY (32 chars) — DOIT etre dans .env / Render
-const ENCRYPT_KEY = (process.env.MT5_ENCRYPT_KEY || '').padEnd(32, '0').slice(0, 32);
+// ✅ FIX BUG CRITIQUE : si MT5_ENCRYPT_KEY manquant → crash immédiat au démarrage
+// Avant : fallback silencieux sur clé = 32 zéros → sécurité nulle
+if (!process.env.MT5_ENCRYPT_KEY && process.env.NODE_ENV === 'production') {
+  console.error('[CRYPTO] FATAL : MT5_ENCRYPT_KEY absent du .env en production — arrêt du serveur');
+  process.exit(1);
+}
+const ENCRYPT_KEY = (process.env.MT5_ENCRYPT_KEY || 'dev-only-key-NOT-for-production!!').padEnd(32, '0').slice(0, 32);
 const IV_LENGTH = 16;
 
 function encryptStr(text) {
@@ -169,8 +175,10 @@ function decryptStr(payload) {
 
 const app = express();
 const port = process.env.PORT || 3000;
-const upload = multer({ dest: 'uploads/' });
-const uploadMulti = multer({ dest: 'uploads/' });
+// ✅ FIX BUG : multer sans limite → upload de Go possible (DoS, coûts stockage)
+const MULTER_LIMITS = { fileSize: 15 * 1024 * 1024 }; // 15 MB max par image
+const upload = multer({ dest: 'uploads/', limits: MULTER_LIMITS });
+const uploadMulti = multer({ dest: 'uploads/', limits: MULTER_LIMITS });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
@@ -233,7 +241,13 @@ function isPaiementEnRetard(user) {
   if (user.role === 'admin') return false;
   if (!user.subscribed) return false;
   if (!user.paidUntil) return true;
-  return new Date() > new Date(user.paidUntil);
+  const expired = new Date() > new Date(user.paidUntil);
+  // Log uniquement quand ça expire (utile pour le debug admin)
+  if (expired) {
+    const expiredAt = new Date(user.paidUntil).toISOString();
+    console.log('[PAYMENT] Abonnement expiré pour ' + user.email + ' (paidUntil: ' + expiredAt + ')');
+  }
+  return expired;
 }
 
 function canAnalyze(user) {
@@ -2831,6 +2845,162 @@ async function creerNotification(userId, type, titre, message, data = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// 📧 ALERTE EMAIL SETUP A+ (score ≥ 8) — broadcast à tous les clients
+// ═══════════════════════════════════════════════════════════════════
+// Déclenché automatiquement après chaque analyse dont le score ≥ 8
+// Envoie un email à tous les clients abonnés (subscribed=true + non bannis)
+// avec le setup complet : direction, instrument, entrée, SL, TP1/2/3, score, raison IA.
+// Envoi en parallèle via Promise.allSettled (1 échec ne bloque pas les autres).
+
+async function envoyerAlerteSetupAPlus(parsed, analyseId) {
+  // Sécurités : on n'envoie que si score ≥ 8 et décision BUY ou SELL
+  const score = parseFloat(parsed.score) || 0;
+  if (score < 8) return;
+  if (parsed.decision !== 'BUY' && parsed.decision !== 'SELL') return;
+
+  try {
+    // Récupérer tous les clients abonnés, vérifiés, non bannis
+    const clients = await db.findAsync({
+      role: { $ne: 'admin' },
+      subscribed: true,
+      isVerified: true,
+      banned: { $ne: true }
+    });
+
+    if (!clients || clients.length === 0) {
+      console.log('[ALERTE-EMAIL] Aucun client abonné à notifier');
+      return;
+    }
+
+    // ─── Construction des données du setup ───────────────────────
+    const isBuy   = parsed.decision === 'BUY';
+    const couleur  = isBuy ? '#00ff88' : '#ff3060';
+    const emoji    = isBuy ? '🟢' : '🔴';
+    const scoreEmoji = score >= 9 ? '🏆' : '⭐';
+    const urgence  = score >= 9.5 ? '🔴 ULTRA URGENT' : score >= 9 ? '🟠 URGENT' : '🟡 SETUP A+';
+
+    const instrument = parsed.instrument || 'XAUUSD';
+    const entree     = parsed.entree     || '—';
+    const sl         = parsed.sl         || '—';
+    const tp1        = parsed.tp1        || '—';
+    const tp2        = parsed.tp2        || '—';
+    const tp3        = parsed.tp3        || '—';
+    const lots       = parsed.lots       || '—';
+    const raison     = parsed.raisonCourte || parsed.raison || parsed.analyse || 'Setup validé par l\'IA';
+
+    // Lien vers l'app (le client clique et arrive directement sur son dashboard)
+    const lienApp = BASE_URL;
+
+    // ─── Template HTML email ──────────────────────────────────────
+    const htmlEmail = `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#020510;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:30px 16px;">
+
+    <!-- HEADER -->
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-size:11px;letter-spacing:4px;color:#00f5ff;text-transform:uppercase;margin-bottom:6px;">AI-MAZZA</div>
+      <div style="height:1px;background:linear-gradient(90deg,transparent,#00f5ff,transparent);margin-bottom:18px;opacity:0.4;"></div>
+      <div style="font-size:13px;letter-spacing:3px;color:rgba(255,255,255,0.5);text-transform:uppercase;">${urgence}</div>
+    </div>
+
+    <!-- DÉCISION PRINCIPALE -->
+    <div style="background:rgba(0,20,50,0.9);border:2px solid ${couleur};border-radius:6px;padding:20px;text-align:center;margin-bottom:16px;">
+      <div style="font-size:36px;font-weight:900;letter-spacing:6px;color:${couleur};margin-bottom:6px;">${emoji} ${parsed.decision} ${instrument}</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:2px;">SETUP DÉTECTÉ PAR L'IA</div>
+    </div>
+
+    <!-- SCORE -->
+    <div style="background:rgba(0,10,30,0.9);border:1px solid rgba(0,245,255,0.15);border-radius:6px;padding:16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="color:rgba(255,255,255,0.4);font-size:11px;letter-spacing:2px;text-transform:uppercase;">Score IA</div>
+      <div style="font-size:28px;font-weight:900;color:${score >= 9 ? '#ffd700' : '#00ff88'};">${scoreEmoji} ${score}/10</div>
+    </div>
+
+    <!-- NIVEAUX DU TRADE -->
+    <div style="background:rgba(0,20,50,0.9);border:1px solid rgba(0,245,255,0.15);border-radius:6px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:10px;letter-spacing:3px;color:rgba(0,245,255,0.6);text-transform:uppercase;margin-bottom:14px;">📊 Niveaux du trade</div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:8px 0;color:rgba(255,255,255,0.4);font-size:12px;letter-spacing:1px;text-transform:uppercase;width:50%;">Entrée</td>
+          <td style="padding:8px 0;color:#fff;font-size:16px;font-weight:bold;text-align:right;">${entree}</td>
+        </tr>
+        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px 0;color:rgba(255,48,96,0.8);font-size:12px;letter-spacing:1px;text-transform:uppercase;">Stop Loss</td>
+          <td style="padding:8px 0;color:#ff3060;font-size:16px;font-weight:bold;text-align:right;">${sl}</td>
+        </tr>
+        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px 0;color:rgba(0,255,136,0.8);font-size:12px;letter-spacing:1px;text-transform:uppercase;">TP1 (R:R 1.5)</td>
+          <td style="padding:8px 0;color:#00ff88;font-size:16px;font-weight:bold;text-align:right;">${tp1}</td>
+        </tr>
+        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px 0;color:rgba(0,255,136,0.6);font-size:12px;letter-spacing:1px;text-transform:uppercase;">TP2 (R:R 2.5)</td>
+          <td style="padding:8px 0;color:rgba(0,255,136,0.7);font-size:14px;font-weight:bold;text-align:right;">${tp2}</td>
+        </tr>
+        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px 0;color:rgba(0,255,136,0.5);font-size:12px;letter-spacing:1px;text-transform:uppercase;">TP3 (R:R 4.0)</td>
+          <td style="padding:8px 0;color:rgba(0,255,136,0.5);font-size:14px;font-weight:bold;text-align:right;">${tp3}</td>
+        </tr>
+        ${lots !== '—' ? `<tr style="border-top:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:8px 0;color:rgba(255,215,0,0.7);font-size:12px;letter-spacing:1px;text-transform:uppercase;">Lots suggérés</td>
+          <td style="padding:8px 0;color:#ffd700;font-size:14px;font-weight:bold;text-align:right;">${lots}</td>
+        </tr>` : ''}
+      </table>
+    </div>
+
+    <!-- JUSTIFICATION IA -->
+    <div style="background:rgba(128,0,255,0.06);border:1px solid rgba(128,0,255,0.2);border-radius:6px;padding:16px;margin-bottom:20px;">
+      <div style="font-size:10px;letter-spacing:3px;color:rgba(128,0,255,0.7);text-transform:uppercase;margin-bottom:10px;">🤖 Analyse IA</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.6;">${raison}</div>
+    </div>
+
+    <!-- BOUTON CTA -->
+    <div style="text-align:center;margin-bottom:24px;">
+      <a href="${lienApp}" style="display:inline-block;background:${couleur};color:#020510;padding:16px 40px;text-decoration:none;font-weight:bold;font-size:13px;letter-spacing:3px;text-transform:uppercase;border-radius:3px;">
+        ${isBuy ? '🟢' : '🔴'} VOIR LE SETUP COMPLET
+      </a>
+    </div>
+
+    <!-- AVERTISSEMENT -->
+    <div style="text-align:center;padding:16px;border-top:1px solid rgba(255,255,255,0.06);">
+      <p style="font-size:11px;color:rgba(255,255,255,0.25);line-height:1.5;margin:0;">
+        ⚠️ Ce signal est fourni à titre informatif. Le trading comporte des risques. Gérez votre risque avant toute entrée en position.<br>
+        <span style="color:rgba(255,255,255,0.15);">AI-Mazza — Setup #${analyseId ? analyseId.substring(0, 8) : '—'}</span>
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+
+    // ─── Envoi en parallèle à tous les clients ────────────────────
+    console.log('[ALERTE-EMAIL] Envoi setup A+ (score ' + score + ') à ' + clients.length + ' client(s)...');
+
+    const envois = clients.map(client =>
+      transporter.sendMail({
+        from: '"AI-Mazza 🔥" <' + process.env.BREVO_SENDER + '>',
+        to: client.email,
+        subject: emoji + ' SETUP A+ DÉTECTÉ — ' + parsed.decision + ' ' + instrument + ' | Score ' + score + '/10',
+        html: htmlEmail
+      }).then(() => {
+        console.log('[ALERTE-EMAIL] ✅ Envoyé à ' + client.email);
+      }).catch(err => {
+        console.log('[ALERTE-EMAIL] ❌ Échec pour ' + client.email + ' : ' + err.message);
+      })
+    );
+
+    // Promise.allSettled = on attend tout sans bloquer si un email échoue
+    await Promise.allSettled(envois);
+    console.log('[ALERTE-EMAIL] Broadcast terminé (' + clients.length + ' client(s))');
+
+  } catch(err) {
+    // Ne JAMAIS crasher l'analyse à cause d'un email
+    console.log('[ALERTE-EMAIL] Erreur générale:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // 💰 LOT DYNAMIQUE (réduction si drawdown jour)
 // ═══════════════════════════════════════════════════════════════════
 // Si l'utilisateur a perdu plus de 5% de son capital sur la journée,
@@ -2840,8 +3010,10 @@ async function creerNotification(userId, type, titre, message, data = {}) {
 async function getFacteurRisque(userId, capital) {
   if (!capital || capital <= 0) return { facteur: 1, alerte: null };
   try {
+    // ✅ FIX BUG : setHours() utilisait l'heure locale serveur (pas UTC)
+    // → début du jour décalé si serveur pas en UTC. Fix : UTC explicite.
     const debutJour = new Date();
-    debutJour.setHours(0, 0, 0, 0);
+    debutJour.setUTCHours(0, 0, 0, 0);
 
     const analysesJour = await analysesDb.findAsync({
       userId,
@@ -2855,12 +3027,21 @@ async function getFacteurRisque(userId, capital) {
       if (typeof a.tradeProfit === 'number' && a.tradeProfit < 0) {
         perteJour += Math.abs(a.tradeProfit);
         nbSL++;
-      } else if (a.feedbackResult === 'sl' && a.lots && a.slPips) {
-        // Estimation : pour XAU, 1 lot × $1 de SL ≈ $100
-        const slDollars = a.slPips < 30 ? a.slPips : a.slPips / 10;
-        const perteEstimee = slDollars * 100 * a.lots;
-        perteJour += perteEstimee;
-        nbSL++;
+      } else if (a.feedbackResult === 'sl' && a.lots && a.slPips && a.entree && a.sl) {
+        // ✅ FIX BUG : estimation perte via distance réelle entrée-SL (avant: hardcodé XAU uniquement)
+        const dist = Math.abs(parseFloat(a.entree) - parseFloat(a.sl));
+        const inst = (a.instrument || 'XAUUSD').toUpperCase();
+        // Valeur par lot selon instrument (cohérent avec calculerLots)
+        let valParLot;
+        if (inst.includes('XAU')) valParLot = 100;
+        else if (inst.includes('JPY')) valParLot = 909;
+        else if (inst.includes('NAS') || inst.includes('US100') || inst.includes('SPX') || inst.includes('US500')) valParLot = 1;
+        else valParLot = 100000;
+        const perteEstimee = dist * valParLot * parseFloat(a.lots);
+        if (!isNaN(perteEstimee) && perteEstimee > 0) {
+          perteJour += perteEstimee;
+          nbSL++;
+        }
       }
     }
 
@@ -3533,28 +3714,9 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
   const cleanupTimer = setTimeout(() => global._analysesEnCours.delete(req.session.userId), 60000);
 
   try {
-    // ─── FIX problème 11 : éviter analyses simultanées du même user ─────
+    // ✅ FIX BUG : _analysisLocks était redondant avec global._analysesEnCours (double dédup)
+    // Retiré : le seul système actif est global._analysesEnCours (libéré dans le finally)
     const _userId = req.session.userId;
-    if (_userId && _analysisLocks.has(_userId)) {
-      const lockTime = _analysisLocks.get(_userId);
-      // Lock valide pendant 60s max (au-delà, on considère que l'analyse précédente a planté)
-      if (Date.now() - lockTime < 60 * 1000) {
-        console.log('[ANALYZE-LOCK] Analyse déjà en cours pour ' + _userId);
-        return res.status(429).json({
-          error: 'Analyse déjà en cours, attendez la fin avant de relancer',
-          retryAfter: 60 - Math.round((Date.now() - lockTime) / 1000)
-        });
-      }
-    }
-    if (_userId) _analysisLocks.set(_userId, Date.now());
-
-    // Libérer automatiquement le lock à la fin de la requête (succès ou erreur)
-    res.on('finish', () => {
-      if (_userId) _analysisLocks.delete(_userId);
-    });
-    res.on('close', () => {
-      if (_userId) _analysisLocks.delete(_userId);
-    });
 
     const user = await db.findOneAsync({ _id: req.session.userId });
     if (!user) return res.status(401).json({ error: 'Non connecté' });
@@ -3570,7 +3732,7 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
       }
       if (isPaiementEnRetard(user)) {
         allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
-        return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme.' });
+        return res.json({ error: 'paiement_en_retard', message: '⚠️ Abonnement expiré — Contacte @bigtazz pour renouveler ton accès hebdomadaire.' });
       }
       if (!canAnalyze(user)) {
         allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
@@ -3933,7 +4095,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
         const slCorrige = isBuy ? entree - dist : entree + dist;
         // R:R adaptatifs : setup A+ = TP plus ambitieux, setup B = plus défensif
         const score = parseFloat(parsed.score) || 7;
-        const rr1 = score >= 9 ? 1.5 : (score >= 7 ? 1.5 : 1.0);
+        // ✅ FIX BUG : rr1 était 1.5 dans les deux cas (score>=9 et score 7-8) — pas de différenciation A+
+        const rr1 = score >= 9 ? 2.0 : (score >= 7 ? 1.5 : 1.0);
         const rr2 = score >= 9 ? 2.5 : (score >= 7 ? 2.0 : 2.0);
         const rr3 = score >= 9 ? 4.0 : (score >= 7 ? 3.0 : 3.0);
         const tp1 = isBuy ? entree + dist * rr1 : entree - dist * rr1;
@@ -3978,8 +4141,13 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
           parsed.structureEvent !== 'MSS_BEARISH' && parsed.structureEvent !== 'BOS_BEARISH') {
         hardBlocks.push('SELL en zone DISCOUNT sans MSS bearish — vente en bas du range');
       }
-      // BLOCK 3 : RSI M15 extrême incohérent avec direction
-      const rsiM15 = parseFloat(parsed.rsi || parsed.rsiM15 || 0);
+      // ✅ FIX BUG 10 : parsed.rsi/rsiM15 jamais dans la réponse IA → block RSI inopérant
+      // On utilise le cache market data (déjà calculé dans verifierProtectionsAvancees)
+      // Note : verifierProtectionsAvancees gère déjà ce cas — ce block est un double-check
+      // pour les situations où le cache n'est pas dispo. On utilise parsed.rsiUtilise comme proxy.
+      const rsiM15Str = String(parsed.rsiUtilise || '');
+      const rsiM15Match = rsiM15Str.match(/M15[^\d]*(\d+(?:\.\d+)?)/);
+      const rsiM15 = rsiM15Match ? parseFloat(rsiM15Match[1]) : 0;
       if (rsiM15 > 0) {
         if (isBuy && rsiM15 > 78) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' > 78 (surachat extrême) avec BUY');
         if (!isBuy && rsiM15 < 22) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 22 (survente extrême) avec SELL');
@@ -4030,11 +4198,14 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 
     const analysisId = uuidv4();
 
+    // ✅ FIX BUG : slPips, entree (champ 'entree'), risquePct manquaient → getFacteurRisque
+    // et le post-mortem ne pouvaient pas calculer les pertes estimées correctement
     await analysesDb.insertAsync({
       _id: analysisId,
       userId: req.session.userId,
       decision: parsed.decision,
-      entry: parsed.entree,
+      entry: parsed.entree,    // champ 'entry' pour compatibilité historique
+      entree: parsed.entree,   // champ 'entree' pour les fonctions qui lisent ce champ
       sl: parsed.sl,
       tp: parsed.tp1,
       tp2: parsed.tp2,
@@ -4042,10 +4213,18 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       score: parsed.score,
       instrument: parsed.instrument,
       lots: parsed.lots,
+      slPips: parsed.slPips,           // ✅ FIX : manquait → perte estimée = 0
+      risquePct: parsed.risquePct,     // ✅ FIX : manquait → contexte drawdown incorrect
+      montantRisque: parsed.montantRisque,
       manipulation: parsed.manipulation,
       crt: parsed.crt,
+      crtKasper: parsed.crtKasper || null,
       rangeHaut: parsed.rangeHaut,
       rangeBas: parsed.rangeBas,
+      ob: parsed.ob || null,
+      fvg: parsed.fvg || null,
+      entreeLevel: parsed.entreeLevel || null,
+      confluences: parsed.confluences || null,
       feedbackResult: null,
       createdAt: new Date()
     });
@@ -4053,11 +4232,20 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
     if (user.role !== 'admin') await db.updateAsync({ _id: user._id }, { $inc: { analysisCount: 1 } }, {});
     const analysesLeft = analysesRestantes(user);
 
+    // ─── ALERTE EMAIL SETUP A+ (score >= 8, BUY ou SELL) ──────────
+    // Lance en arriere-plan : ne bloque PAS la reponse au client
+    if ((parsed.score || 0) >= 8 && (parsed.decision === 'BUY' || parsed.decision === 'SELL')) {
+      envoyerAlerteSetupAPlus(parsed, analysisId).catch(e =>
+        console.log('[ALERTE-EMAIL] Erreur silencieuse:', e.message)
+      );
+    }
+
     res.json({ ...parsed, analysesLeft, analysisId });
 
   } catch (err) {
     allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e){} });
-    res.status(500).json({ error: 'Erreur: ' + err.message });
+    // ✅ FIX BUG : vérifier que la réponse n'a pas déjà été envoyée (évite Cannot set headers)
+    if (!res.headersSent) res.status(500).json({ error: 'Erreur: ' + err.message });
   } finally {
     // ✅ FIX BUG 11 : libérer le slot d'analyse en cours
     clearTimeout(cleanupTimer);
@@ -4236,6 +4424,23 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
+// ─── POST /admin/alerte-email : envoyer manuellement une alerte email ─
+// L'admin peut tester ou forcer un broadcast même sans analyse IA
+app.post('/admin/alerte-email', checkAdmin, async (req, res) => {
+  try {
+    const { decision, instrument, entree, sl, tp1, tp2, tp3, score, raison, lots } = req.body;
+    if (!decision || !instrument || !score) {
+      return res.status(400).json({ error: 'Champs requis : decision, instrument, score' });
+    }
+    const fakeParsed = { decision, instrument, entree, sl, tp1, tp2, tp3, score: parseFloat(score), lots,
+      raisonCourte: raison || 'Setup manuel envoyé par l\'admin' };
+    await envoyerAlerteSetupAPlus(fakeParsed, 'ADMIN-' + Date.now());
+    res.json({ success: true, message: 'Alerte envoyée à tous les clients abonnés' });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
   try {
     const { status, plan, note } = req.body;
@@ -4251,13 +4456,21 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
     }
     let paidUntil = null;
     if (subscribed) {
+      // ✅ FIX BUG : ancien calcul donnait parfois seulement 1-2 jours si validation
+      // en fin de semaine (ex: dimanche → paidUntil = ce soir même).
+      // Nouvelle logique : toujours 7 jours PLEINS → dimanche soir de la semaine qui suit J+7.
+      // Ex: validation lundi → expire dimanche dans 13 jours (semaine complète garantie)
+      // Ex: validation vendredi → expire dimanche dans 9 jours (idem)
       const now = new Date();
-      const nextSunday = new Date(now);
-      const day = now.getDay();
-      const daysUntilSunday = day === 0 ? 7 : 7 - day;
-      nextSunday.setDate(now.getDate() + daysUntilSunday);
-      nextSunday.setHours(23, 59, 59, 999);
+      const plusSeptJours = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const dayApres7 = plusSeptJours.getUTCDay(); // 0=dim, 1=lun...
+      // Aller jusqu'au dimanche suivant J+7
+      const daysUntilSundayAfter7 = dayApres7 === 0 ? 0 : 7 - dayApres7;
+      const nextSunday = new Date(plusSeptJours);
+      nextSunday.setUTCDate(plusSeptJours.getUTCDate() + daysUntilSundayAfter7);
+      nextSunday.setUTCHours(23, 59, 59, 999);
       paidUntil = nextSunday.toISOString();
+      console.log('[PAYMENT] paidUntil calculé : ' + paidUntil + ' (7j complets garantis)');
     }
     await db.updateAsync({ _id: req.params.id }, {
       $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax, analysisCount: 0, paidUntil }

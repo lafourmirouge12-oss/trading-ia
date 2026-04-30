@@ -829,6 +829,98 @@
 .notif-title { font-weight: 700; color: #fff; font-size: 13px; margin-bottom: 4px; }
 .notif-msg { color: #bbb; font-size: 12px; line-height: 1.4; }
 .notif-time { color: #777; font-size: 11px; margin-top: 4px; }
+
+    /* ═══ BANDEAU ALERTE SETUP A+ ═══ */
+    .aplus-banner {
+      width: 100%; max-width: 700px;
+      display: none;
+      margin-bottom: 14px;
+      border-radius: 6px;
+      overflow: hidden;
+      animation: aplusFadeIn 0.5s ease;
+    }
+    .aplus-banner.show { display: block; }
+    @keyframes aplusFadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .aplus-inner {
+      background: linear-gradient(135deg, rgba(0,20,50,0.97), rgba(10,0,40,0.97));
+      border: 2px solid;
+      border-radius: 6px;
+      padding: 14px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .aplus-inner::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, currentColor, transparent);
+      opacity: 0.6;
+    }
+    .aplus-inner.buy  { border-color: var(--green); color: var(--green); }
+    .aplus-inner.sell { border-color: var(--red);   color: var(--red);   }
+    .aplus-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px; flex-wrap: wrap; gap: 8px;
+    }
+    .aplus-badge {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px; letter-spacing: 3px;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border: 1px solid currentColor;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.05);
+      animation: blink 1.5s infinite;
+    }
+    .aplus-time {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.35);
+    }
+    .aplus-main {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    }
+    .aplus-dir {
+      font-family: 'Orbitron', monospace;
+      font-size: 22px; font-weight: 900; letter-spacing: 4px;
+    }
+    .aplus-levels {
+      display: flex; gap: 16px; flex-wrap: wrap; flex: 1;
+    }
+    .aplus-level { display: flex; flex-direction: column; gap: 2px; }
+    .aplus-lbl {
+      font-family: 'Orbitron', monospace;
+      font-size: 7px; letter-spacing: 2px;
+      color: rgba(255,255,255,0.35); text-transform: uppercase;
+    }
+    .aplus-val {
+      font-family: 'Orbitron', monospace;
+      font-size: 13px; font-weight: 700;
+      color: rgba(255,255,255,0.85);
+    }
+    /* Lots personnalisés dans le bandeau */
+    #aplusLots { transition: color 0.3s; }
+    .aplus-score {
+      font-family: 'Orbitron', monospace;
+      font-size: 20px; font-weight: 900;
+      padding: 6px 12px;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.04);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .aplus-close {
+      position: absolute; top: 10px; right: 12px;
+      background: transparent; border: none;
+      color: rgba(255,255,255,0.3);
+      font-size: 16px; cursor: pointer; line-height: 1;
+    }
+    .aplus-close:hover { color: rgba(255,255,255,0.7); }
   </style>
 </head>
 <body>
@@ -870,6 +962,51 @@
   </div>
 
   <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
+  <!-- ═══ BANDEAU ALERTE SETUP A+ ═══ -->
+  <!-- Apparaît quand un autre client génère un setup score >= 8 -->
+  <!-- Mis à jour par le polling notifications (toutes les 60s) -->
+  <div class="aplus-banner" id="aplusBanner">
+    <div class="aplus-inner" id="aplusInner">
+      <button class="aplus-close" onclick="closeAplusBanner()">✕</button>
+      <div class="aplus-top">
+        <div class="aplus-badge" id="aplusUrgence">🔴 SETUP A+</div>
+        <div class="aplus-time" id="aplusTime">à l'instant</div>
+      </div>
+      <div class="aplus-main">
+        <div class="aplus-dir" id="aplusDir">BUY XAUUSD</div>
+        <div class="aplus-levels">
+          <div class="aplus-level">
+            <div class="aplus-lbl">Entrée</div>
+            <div class="aplus-val" id="aplusEntry">—</div>
+          </div>
+          <div class="aplus-level">
+            <div class="aplus-lbl">Stop</div>
+            <div class="aplus-val" style="color:var(--red)" id="aplusSL">—</div>
+          </div>
+          <div class="aplus-level">
+            <div class="aplus-lbl">TP1</div>
+            <div class="aplus-val" style="color:var(--green)" id="aplusTP1">—</div>
+          </div>
+          <div class="aplus-level">
+            <div class="aplus-lbl">TP2</div>
+            <div class="aplus-val" style="color:rgba(0,255,136,0.6)" id="aplusTP2">—</div>
+          </div>
+        </div>
+        <div class="aplus-score" id="aplusScore">—/10</div>
+      </div>
+      <!-- LOT PERSONNALISÉ + STATUT -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div class="aplus-lbl">Ton lot</div>
+          <div id="aplusLots" style="font-family:'Orbitron',monospace;font-size:15px;font-weight:700;color:var(--gold);">—</div>
+          <div id="aplusMontant" style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;color:rgba(255,255,255,0.35);margin-top:2px;"></div>
+        </div>
+        <div id="aplusStatut" style="display:none;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:8px 14px;border:1px solid;border-radius:3px;text-align:center;"></div>
+      </div>
+    </div>
+  </div>
+
+
 
   <!-- ═══ POST-MORTEM : analyser les trades perdants pour faire évoluer l'IA ═══ -->
   <div class="postmortem-banner" id="postmortemBanner" style="display:none;">
@@ -1024,7 +1161,20 @@
 
     <!-- ═══ FALLBACK manuel si MT5 pas connecté ═══ -->
     <div class="box" id="capitalManualBox">
-      <div class="box-title">◈ Capital MetaTrader — Obligatoire</div>
+      <div class="box-title">◈ Instrument &amp; Capital — Obligatoire</div>
+      <div class="cap-row" style="margin-bottom:10px;">
+        <span class="cap-sym" style="font-size:13px;">📈</span>
+        <select id="instrumentSelect" style="flex:1;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:11px 14px;color:#fff;font-family:'Orbitron',monospace;font-size:12px;outline:none;">
+          <option value="XAUUSD">XAUUSD — Or</option>
+          <option value="XAGUSD">XAGUSD — Argent</option>
+          <option value="EURUSD">EURUSD</option>
+          <option value="GBPUSD">GBPUSD</option>
+          <option value="USDJPY">USDJPY</option>
+          <option value="USDCHF">USDCHF</option>
+          <option value="US100">US100 — Nasdaq</option>
+          <option value="US500">US500 — S&amp;P 500</option>
+        </select>
+      </div>
       <div class="cap-row">
         <span class="cap-sym">$</span>
         <input type="number" class="cap-input" id="capInput" placeholder="Ex: 600" min="1" step="any"/>
@@ -1202,17 +1352,17 @@
       <div class="tp-card" id="tpCard1" onclick="selectTP(1)">
         <div class="tp-lbl">◈ TP 1</div>
         <div class="tp-val" id="tp1Val">—</div>
-        <div class="tp-rr">RR 1:2</div>
+        <div class="tp-rr" id="tp1RR">RR —</div>
       </div>
       <div class="tp-card" id="tpCard2" onclick="selectTP(2)">
         <div class="tp-lbl">◈ TP 2</div>
         <div class="tp-val" id="tp2Val">—</div>
-        <div class="tp-rr">RR 1:3</div>
+        <div class="tp-rr" id="tp2RR">RR —</div>
       </div>
       <div class="tp-card" id="tpCard3" onclick="selectTP(3)">
         <div class="tp-lbl">◈ TP 3</div>
         <div class="tp-val" id="tp3Val">—</div>
-        <div class="tp-rr">RR 1:4</div>
+        <div class="tp-rr" id="tp3RR">RR —</div>
       </div>
     </div>
 
@@ -1220,7 +1370,7 @@
       <div style="font-size:20px">🔒</div>
       <div>
         <div style="font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(128,0,255,0.7);text-transform:uppercase;margin-bottom:4px;">◈ Break Even</div>
-        <div class="be-txt">Dès que <strong style="color:var(--green)">TP1 atteint</strong> → déplacez SL à : <span class="be-price" id="bePrice">—</span></div>
+        <div class="be-txt">Dès que <strong style="color:var(--green)">TP1 atteint</strong> → SL déplacé auto à <span class="be-price" id="bePrice">—</span> <span style="font-size:11px;color:rgba(128,0,255,0.5)">+buffer ATR (géré par le bot)</span></div>
       </div>
     </div>
 
@@ -1294,7 +1444,7 @@ function startIdleTimer() {
   idleSleepTimer = setTimeout(() => {
     fetch('/api/idle', { method: 'POST' }).catch(() => {});
     console.log('[J4keIA] Aucune activité — API mise en veille');
-  }, 10000); // 10 secondes
+  }, 5 * 60 * 1000); // FIX : 10s → 5min (évite de couper l'utilisateur qui charge juste la page)
 }
 
 // Réinitialiser le timer à chaque interaction
@@ -1382,7 +1532,9 @@ fetch('/me').then(r=>r.json()).then(u=>{
   if(u.mt5 && u.mt5.connected){
     mt5IsConnected = true;
     document.getElementById('mt5ConnectBox').style.display='none';
-    document.getElementById('capitalManualBox').style.display='none';
+    document.getElementById('capitalManualBox').style.display='block'; // ✅ FIX : laisser visible pour le select instrument
+    document.getElementById('capInput').style.display='none'; // Cacher seulement l'input capital (MT5 gère ça)
+    document.querySelector('#capitalManualBox .cap-row:last-child').style.display='none'; // cacher ligne capital
     document.getElementById('mt5ConnectedBox').style.display='block';
     document.getElementById('mt5Capital').textContent='$'+(u.mt5.capital||0);
     document.getElementById('mt5LoginDisplay').textContent=u.mt5.login;
@@ -1549,7 +1701,14 @@ async function placerOrdre() {
   const sl     = parsePrice(a.sl);
   // Utilise le TP choisi par le client
   const tpKey  = 'tp' + selectedTP;
-  const tp     = parsePrice(a[tpKey]) || parsePrice(a.tp1);
+  // ✅ FIX BUG : si TP sélectionné = null, on alerte l'user au lieu de fallback silencieux sur TP1
+  let tp = parsePrice(a[tpKey]);
+  if (!tp) {
+    const fallback = parsePrice(a.tp1);
+    if (!fallback) { alert('TP invalide, réanalyse nécessaire.'); return; }
+    console.warn('[PLACER] TP' + selectedTP + ' non disponible → fallback TP1');
+    tp = fallback;
+  }
   const lots   = a.lots || 0.01;
   const isBuy  = String(a.decision).toUpperCase().includes('BUY');
 
@@ -1688,7 +1847,10 @@ function fallbackCopy(text) {
 
 async function sendFb(res){
   document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
-  document.querySelector('.fb-btn.'+res).classList.add('sel');
+  // BUG FIX : res='pending' mais la classe CSS est 'pend' — mapper correctement
+  const clsMap = { tp: 'tp', sl: 'sl', pending: 'pend' };
+  const targetCls = document.querySelector('.fb-btn.' + (clsMap[res] || res));
+  if (targetCls) targetCls.classList.add('sel');
 
   // Si SL ou TP : afficher un loader pendant que l'IA bosse
   if (res === 'sl' || res === 'tp') {
@@ -1811,6 +1973,11 @@ async function loadHist(){
           <div class="hi-lv"><div class="hi-lv-lbl">Stop Loss</div><div class="hi-lv-val" style="color:var(--red)">${a.sl||'—'}</div></div>
           <div class="hi-lv"><div class="hi-lv-lbl">TP1</div><div class="hi-lv-val" style="color:var(--green)">${a.tp||'—'}</div></div>
         </div>
+        ${(a.tp2||a.tp3)?`<div class="hi-lvs" style="margin-top:4px;">
+          ${a.tp2?`<div class="hi-lv"><div class="hi-lv-lbl">TP2</div><div class="hi-lv-val" style="color:rgba(0,255,136,0.6)">${a.tp2}</div></div>`:''}
+          ${a.tp3?`<div class="hi-lv"><div class="hi-lv-lbl">TP3</div><div class="hi-lv-val" style="color:rgba(0,255,136,0.4)">${a.tp3}</div></div>`:''}
+          ${a.score?`<div class="hi-lv"><div class="hi-lv-lbl">Score</div><div class="hi-lv-val" style="color:${parseFloat(a.score)>=8?'var(--gold)':'var(--cyan)'}">${a.score}/10</div></div>`:''}
+        </div>`:''}
         <div class="hi-fbs">
           <button class="hfb tp ${a.feedbackResult==='tp'?'on':''}" onclick="sendHFb('${a._id}','tp')">✅ TP</button>
           <button class="hfb sl ${a.feedbackResult==='sl'?'on':''}" onclick="sendHFb('${a._id}','sl')">❌ SL</button>
@@ -1866,6 +2033,9 @@ async function analyze(){
 
   const fd=new FormData();
   fd.append('capital',cap);
+  // ✅ FIX BUG CRITIQUE : instrument jamais envoyé → serveur recevait toujours XAUUSD par défaut
+  const instrEl = document.getElementById('instrumentSelect');
+  fd.append('instrument', instrEl ? instrEl.value : 'XAUUSD');
   const fileH1 = document.getElementById('fileH1')?.files[0];
   const fileM5 = document.getElementById('fileM5')?.files[0];
   if(fileH1)  fd.append('imageH1', fileH1);
@@ -1879,9 +2049,19 @@ async function analyze(){
     const d=await r.json();
 
     if(d.error==='session_conflict'){window.location.href='/login.html';return;}
+    // ✅ FIX BUG : 429 analysis_in_progress jamais géré → bouton restait bloqué indéfiniment
+    if(r.status===429||d.error==='analysis_in_progress'){
+      document.getElementById('statusTxt').textContent='EN ATTENTE';
+      alert(d.message||'⏳ Une analyse est déjà en cours. Attends quelques secondes.');
+      btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
+      document.getElementById('loadBar').classList.remove('on');
+      document.getElementById('loadTxt').classList.remove('on');
+      return;
+    }
     if(d.error==='paiement_en_retard'){
       document.getElementById('impayeBanner').classList.add('show');
       document.getElementById('statusTxt').textContent='IMPAYÉ';
+      btn.disabled=false; // ✅ FIX BUG : btn.disabled pas reset sur impayé
       btn.textContent='⚠ Impayé';
       document.getElementById('loadBar').classList.remove('on');
       document.getElementById('loadTxt').classList.remove('on');
@@ -1924,6 +2104,19 @@ async function analyze(){
     }
     if (d.protectionsAlertes) {
       alerts.push({ type: 'danger', icon: '🛡️', title: 'Protections avancées déclenchées', msg: d.protectionsAlertes });
+    }
+    // ✅ FIX BUG : alertes serveur manquantes (jamais affichées avant)
+    if (d.hardBlockAlerte) {
+      alerts.push({ type: 'danger', icon: '🚫', title: 'Hard-block ICT déclenché', msg: d.hardBlockAlerte });
+    }
+    if (d.slDirectionAlerte) {
+      alerts.push({ type: 'danger', icon: '⚠️', title: 'SL incohérent corrigé', msg: d.slDirectionAlerte });
+    }
+    if (d.scoreGuardAlerte) {
+      alerts.push({ type: 'danger', icon: '📉', title: 'Score insuffisant', msg: d.scoreGuardAlerte });
+    }
+    if (d.contexteContradictoire) {
+      alerts.push({ type: 'danger', icon: '⚡', title: 'Contexte contradictoire', msg: d.conflitRaison || 'Dealing range et structure opposés sans MSS' });
     }
     alerts.forEach(a => {
       const div = document.createElement('div');
@@ -2011,6 +2204,22 @@ async function analyze(){
     document.getElementById('tp1Val').textContent=d.tp1||'—';
     document.getElementById('tp2Val').textContent=d.tp2||'—';
     document.getElementById('tp3Val').textContent=d.tp3||'—';
+    // ✅ FIX BUG 10 : RR calculé dynamiquement depuis les vrais prix (avant: statique 1:2/1:3/1:4)
+    (function(){
+      const entreeNum = parseFloat(d.entree);
+      const slNum = parseFloat(d.sl);
+      const distSL = entreeNum && slNum ? Math.abs(entreeNum - slNum) : 0;
+      ['tp1','tp2','tp3'].forEach((k,i) => {
+        const tpNum = parseFloat(d[k]);
+        const rrEl = document.getElementById((k)+'RR');
+        if(rrEl && tpNum && distSL > 0){
+          const rr = Math.abs(tpNum - entreeNum) / distSL;
+          rrEl.textContent = 'RR 1:' + rr.toFixed(1);
+        } else if(rrEl) {
+          rrEl.textContent = '—';
+        }
+      });
+    })();
     document.getElementById('bePrice').textContent=d.entree||'—';
     document.getElementById('smTendance').textContent=d.tendance||'—';
     document.getElementById('smConfl').textContent=d.confluence||'—';
@@ -2069,11 +2278,11 @@ async function analyze(){
   }catch(e){
     document.getElementById('statusTxt').textContent='ERREUR SERVEUR';
     console.error(e);
+    // ✅ FIX BUG : reset UI en cas d'erreur réseau (avant était oublié)
+    btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
+    document.getElementById('loadBar').classList.remove('on');
+    document.getElementById('loadTxt').classList.remove('on');
   }
-
-  btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
-  document.getElementById('loadBar').classList.remove('on');
-  document.getElementById('loadTxt').classList.remove('on');
 }
 // ═══ POST-MORTEM : analyse des trades perdants ═══
 let currentPmAnalysisId = null;
@@ -2277,6 +2486,110 @@ function closeSetupsModal() {
 loadLearningBadges();
 
 // ═══ NOTIFICATIONS ═══
+// ─── BANDEAU SETUP A+ ────────────────────────────────────────────
+// Lit les dernières notifs de type 'setup_aplus' (moins de 15 min)
+// et affiche le bandeau si trouvé et pas encore fermé par l'utilisateur
+let aplusBannerDismissedId = null; // ID du dernier bandeau fermé manuellement
+
+function closeAplusBanner() {
+  const banner = document.getElementById('aplusBanner');
+  if (banner) {
+    // Mémoriser l'ID pour ne pas réafficher la même notif
+    aplusBannerDismissedId = banner.dataset.notifId || null;
+    banner.classList.remove('show');
+  }
+}
+
+async function afficherAplusBanner(notif) {
+  const d = notif.data || {};
+  const isBuy = (d.decision || '').toUpperCase() === 'BUY';
+  const score = parseFloat(d.score) || 0;
+  const couleurCls = isBuy ? 'buy' : 'sell';
+  const urgence = score >= 9.5 ? '🔴 ULTRA URGENT' : score >= 9 ? '🟠 URGENT' : '🟡 SETUP A+';
+
+  document.getElementById('aplusInner').className = 'aplus-inner ' + couleurCls;
+  document.getElementById('aplusUrgence').textContent = urgence;
+  document.getElementById('aplusDir').textContent = (isBuy ? '▲ BUY ' : '▼ SELL ') + (d.instrument || 'XAUUSD');
+  document.getElementById('aplusEntry').textContent = d.entree || d.entry || '—';
+  document.getElementById('aplusSL').textContent = d.sl || '—';
+  document.getElementById('aplusTP1').textContent = d.tp1 || '—';
+  document.getElementById('aplusTP2').textContent = d.tp2 || '—';
+  document.getElementById('aplusScore').textContent = score ? score + '/10' : '—';
+
+  // ─── LOT PERSONNALISÉ AU CAPITAL DU CLIENT ────────────────────────────
+  // Le serveur a calculé ce lot spécifiquement pour ce client
+  // (son capital × son % de risque) — pas le lot copié du client original
+  const lotsEl = document.getElementById('aplusLots');
+  const montantEl = document.getElementById('aplusMontant');
+  if (lotsEl) {
+    if (d.lots) {
+      lotsEl.textContent = d.lots + ' lot' + (parseFloat(d.lots) > 1 ? 's' : '');
+      lotsEl.style.color = 'var(--gold)';
+      lotsEl.style.fontStyle = 'normal';
+      if (montantEl && d.montantRisque) {
+        montantEl.textContent = 'risque $' + d.montantRisque + ' (' + (d.risquePct || 3) + '%)';
+      }
+    } else {
+      lotsEl.textContent = 'Connecte ton MT5 pour voir ton lot';
+      lotsEl.style.color = 'rgba(255,255,255,0.35)';
+      lotsEl.style.fontStyle = 'italic';
+      if (montantEl) montantEl.textContent = '';
+    }
+  }
+
+  // ─── STATUT TP / SL (pour les clients qui voient le setup en retard) ───
+  // Si TP ou SL a déjà été touché, on l'affiche clairement
+  const statutEl = document.getElementById('aplusStatut');
+  if (statutEl && d.sourceAnalysisId) {
+    statutEl.style.display = 'block';
+    statutEl.textContent = '⏳ Vérification...';
+    try {
+      const r = await fetch('/analyses/source/' + d.sourceAnalysisId + '/statut');
+      const st = await r.json();
+      if (st.statut === 'tp') {
+        statutEl.textContent = '✅ TP ATTEINT — setup clôturé avec profit';
+        statutEl.style.color = 'var(--green)';
+        statutEl.style.background = 'rgba(0,255,136,0.08)';
+        statutEl.style.borderColor = 'rgba(0,255,136,0.3)';
+      } else if (st.statut === 'sl') {
+        statutEl.textContent = '❌ SL TOUCHÉ — setup stoppé en perte';
+        statutEl.style.color = 'var(--red)';
+        statutEl.style.background = 'rgba(255,48,96,0.08)';
+        statutEl.style.borderColor = 'rgba(255,48,96,0.3)';
+      } else if (st.statut === 'pending') {
+        statutEl.textContent = '⏳ EN COURS — trade toujours ouvert';
+        statutEl.style.color = 'var(--gold)';
+        statutEl.style.background = 'rgba(255,215,0,0.06)';
+        statutEl.style.borderColor = 'rgba(255,215,0,0.3)';
+      } else {
+        const ageMin = Math.floor((Date.now() - new Date(notif.createdAt)) / 60000);
+        if (ageMin < 5) {
+          statutEl.textContent = '🔴 SIGNAL ACTIF — vient d\'être détecté';
+          statutEl.style.color = 'var(--red)';
+          statutEl.style.background = 'rgba(255,48,96,0.06)';
+          statutEl.style.borderColor = 'rgba(255,48,96,0.3)';
+        } else {
+          statutEl.textContent = '🟡 Résultat non encore renseigné';
+          statutEl.style.color = 'rgba(255,255,255,0.4)';
+          statutEl.style.background = 'transparent';
+          statutEl.style.borderColor = 'rgba(255,255,255,0.1)';
+        }
+      }
+    } catch(e) { statutEl.textContent = '—'; statutEl.style.display = 'block'; }
+  }
+
+  // Temps relatif
+  const diffMin = Math.floor((Date.now() - new Date(notif.createdAt)) / 60000);
+  document.getElementById('aplusTime').textContent =
+    diffMin < 1 ? "à l'instant" : diffMin < 60 ? "il y a " + diffMin + " min" : "il y a " + Math.floor(diffMin/60) + "h";
+
+  const banner = document.getElementById('aplusBanner');
+  banner.dataset.notifId = notif._id;
+  banner.classList.add('show');
+
+  if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+}
+
 async function loadNotifications() {
   try {
     const r = await fetch('/notifications');
@@ -2287,6 +2600,20 @@ async function loadNotifications() {
       badge.style.display = 'flex';
     } else {
       badge.style.display = 'none';
+    }
+
+    // ─── Vérifier s'il y a un setup A+ récent (< 15 min) à afficher ──
+    const aplusNotif = (data.notifications || []).find(n =>
+      n.type === 'setup_aplus' &&
+      (Date.now() - new Date(n.createdAt)) < 15 * 60 * 1000 &&
+      n._id !== aplusBannerDismissedId
+    );
+    if (aplusNotif) {
+      afficherAplusBanner(aplusNotif);
+    } else if (!aplusNotif) {
+      // Cacher le bandeau si le setup est expiré
+      const banner = document.getElementById('aplusBanner');
+      if (banner && !banner.dataset.notifId) banner.classList.remove('show');
     }
     const list = document.getElementById('notifList');
     if (!data.notifications || !data.notifications.length) {
