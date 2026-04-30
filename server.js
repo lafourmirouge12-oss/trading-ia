@@ -1207,6 +1207,7 @@ async function gererTpPartiels3Tier({
         // On vérifie d'abord s'il y a au moins 1 position via cache léger,
         // puis on deploy seulement si nécessaire.
         if (account.state !== 'DEPLOYED') {
+          // Auto-deploy temporaire pour traiter les TP partiels
           try {
             await account.deploy();
             if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
@@ -2781,12 +2782,10 @@ async function getFacteurRisque(userId, capital) {
 //   - SL → BE + buffer (ATR×0.3, mini 2$ XAU) après TP1
 //   - SL → lock 50% du gain TP1 après TP2
 //   - Trailing structurel sur swings M5 pour le runner
+// Wrapper TP partiels : 1 tick toutes les 5 min (économie MetaApi)
 async function gererTpPartielsWrapper() {
   await gererTpPartiels3Tier({
-    metaApi,
-    db,
-    analysesDb,
-    positionsTrackingDb,
+    metaApi, db, analysesDb, positionsTrackingDb,
     creerNotification: typeof creerNotification === 'function' ? creerNotification : null
   });
 }
@@ -2800,8 +2799,9 @@ async function cleanupTracking() {
 }
 
 // Lancer toutes les 90s (un peu plus rapide pour ne pas rater TP2)
-// FIX : Réduit de 90s à 30s pour éviter de rater un TP1 dans les marchés rapides
-setInterval(gererTpPartielsWrapper, 30 * 1000);
+// Économie MetaApi : 1 tick toutes les 5 min
+// (capture les TP qui se forment sur > 5 min, économise massivement les deploys)
+setInterval(gererTpPartielsWrapper, 5 * 60 * 1000);
 // Cleanup tous les jours
 setInterval(cleanupTracking, 24 * 60 * 60 * 1000);
 
