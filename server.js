@@ -2182,6 +2182,78 @@ async function verifierProtectionsAvancees(parsed, userId) {
       }
     }
 
+    // ─── PROTECTION 8b : R:R MINIMUM CÔTÉ SERVEUR ───────────────────
+    // Vérifie que le TP1 offre au moins un R:R de 1.2 par rapport au SL.
+    // L'IA peut proposer des setups mal calibrés (TP trop proche du SL).
+    // On ne laisse pas passer un trade avec un RR < 1.2 sur le TP1.
+    // RR calculé sur l'entrée (pas le prix actuel — déjà vérifié en protection 3).
+    if (entree > 0 && sl > 0 && tp > 0) {
+      const distSLEntree = Math.abs(entree - sl);
+      const distTPEntree = Math.abs(tp - entree);
+      const rrEntree = distSLEntree > 0 ? distTPEntree / distSLEntree : 0;
+      if (rrEntree < 1.2) {
+        tradeAnnule = true;
+        alertes.push(`🚫 R:R insuffisant : TP1 à ${distTPEntree.toFixed(1)}$ vs SL à ${distSLEntree.toFixed(1)}$ → R:R ${rrEntree.toFixed(2)} < 1.2 minimum requis, trade annulé`);
+      } else if (rrEntree < 1.5) {
+        scoreReduit = true;
+        alertes.push(`R:R TP1 ${rrEntree.toFixed(2)} faible (< 1.5 idéal) → score réduit`);
+      }
+    }
+
+    // ─── PROTECTION 8c : NEWS ÉCONOMIQUES MAJEURES ──────────────────
+    // Bloque tout trade dans une fenêtre de ±30 min autour des news rouges
+    // majeures : NFP (1er vendredi du mois 14h30 UTC), FOMC (env. 20h UTC),
+    // CPI US (mercredi ~14h30 UTC), BCE (~13h45 UTC le jeudi de décision).
+    // On ne peut pas requêter un calendrier économique externe (pas de réseau),
+    // donc on bloque les CRÉNEAUX horaires statistiquement dangereux.
+    // L'utilisateur peut toujours trader hors de ces fenêtres.
+    try {
+      const now = new Date();
+      const dayUTC = now.getUTCDay();   // 0=dim, 1=lun ... 5=ven, 6=sam
+      const hourUTC = now.getUTCHours();
+      const minUTC = now.getUTCMinutes();
+      const totalMinUTC = hourUTC * 60 + minUTC;
+
+      // Fenêtre de blocage = ±30 min autour de l'événement
+      const WINDOW = 30; // minutes
+      const dansLaFenetre = (cibleH, cibleM) => {
+        const cibleTotal = cibleH * 60 + cibleM;
+        return Math.abs(totalMinUTC - cibleTotal) <= WINDOW;
+      };
+
+      const newsAlerte = [];
+
+      // NFP : 1er vendredi du mois à 14h30 UTC
+      // Heuristique : vendredi + jour <= 7 → c'est le 1er vendredi
+      if (dayUTC === 5 && now.getUTCDate() <= 7 && dansLaFenetre(14, 30)) {
+        newsAlerte.push('NFP (1er vendredi du mois, 14h30 UTC)');
+      }
+
+      // CPI US : mercredi à 14h30 UTC (toujours publiés le mercredi)
+      // Pas tous les mercredis mais assez fréquent pour bloquer par défaut
+      if (dayUTC === 3 && dansLaFenetre(14, 30)) {
+        newsAlerte.push('CPI US possible (mercredi 14h30 UTC)');
+      }
+
+      // FOMC : décisions ~20h00 UTC (mercredi, environ 8×/an)
+      // Même logique : mercredi soir = créneau FOMC potentiel
+      if (dayUTC === 3 && dansLaFenetre(20, 0)) {
+        newsAlerte.push('FOMC possible (mercredi 20h00 UTC)');
+      }
+
+      // BCE : décisions ~13h45 UTC, conférences ~14h30 UTC (jeudi ~8×/an)
+      if (dayUTC === 4 && (dansLaFenetre(13, 45) || dansLaFenetre(14, 30))) {
+        newsAlerte.push('BCE possible (jeudi 13h45/14h30 UTC)');
+      }
+
+      if (newsAlerte.length > 0) {
+        tradeAnnule = true;
+        alertes.push(`🚫 FENÊTRE NEWS ROUGE : ${newsAlerte.join(', ')} — trading suspendu ±30 min autour de la publication (volatilité non analysable)`);
+      }
+    } catch(newsErr) {
+      console.log('[PROTECTION-NEWS] Erreur:', newsErr.message);
+    }
+
     // ─── PROTECTION 9 : RSI EXTRÊME M15 (HARD BLOCK, pas juste textuel) ─
     // Override serveur dur si RSI dans zone extrême opposée au sens
     if (rsi !== null) {
