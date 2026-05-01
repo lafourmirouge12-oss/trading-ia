@@ -32,8 +32,46 @@ const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
 // Stocke chaque deploy avec timestamp pour forcer l'undeploy si oublié
 // Évite que MetaApi facture en arrière-plan en cas de crash/bug
 
-const deployTracker = {}; // { accountId: { deployedAt: ms, login: string } }
-const MAX_DEPLOY_MS = 2 * 60 * 1000; // FIX problème 9 : 5min → 2min // 2 minutes max (réduit de 5 → 2 pour limiter les coûts MetaApi)
+let deployTracker = {}; // sera initialisé après loadTracker // { accountId: { deployedAt: ms, login: string } }
+// ═══════════════════════════════════════════════════════════════════
+// 🛡️ WATCHDOG ULTRA-RENFORCÉ — protection contre les comptes "fantômes"
+// ═══════════════════════════════════════════════════════════════════
+// Objectif : qu'AUCUN compte MetaApi ne reste deployed > 90s sans raison.
+//
+// Stratégie multi-couches :
+//   1. Tracker en mémoire (rapide) + persisté sur disque (survit aux restarts)
+//   2. Watchdog interne toutes les 30s → undeploy comptes du tracker > 90s
+//   3. Boot scan au démarrage → undeploy tous les comptes orphelins
+//   4. Hard scan toutes les 10 min → scanne TOUS les comptes MetaApi et
+//      undeploy ceux qui sont deployed depuis trop longtemps (FILET DE SÉCURITÉ
+//      ULTIME contre les comptes fantômes que le tracker a perdu)
+//
+// Persistance : on stocke le tracker dans deploy-tracker.json toutes les 10s.
+// Si le serveur crash, au redémarrage on relit le fichier et on continue.
+
+const MAX_DEPLOY_MS = 90 * 1000; // 90 secondes max (réduit de 2 min)
+const WATCHDOG_INTERVAL = 30 * 1000; // check toutes les 30s
+const HARD_SCAN_INTERVAL = 10 * 60 * 1000; // scan profond toutes les 10 min
+const TRACKER_FILE = path.join(__dirname, 'deploy-tracker.json');
+
+// Charger le tracker au démarrage
+function loadTracker() {
+  try {
+    if (fs.existsSync(TRACKER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TRACKER_FILE, 'utf-8'));
+      console.log('[WATCHDOG] Tracker rechargé : ' + Object.keys(data).length + ' comptes en mémoire');
+      return data || {};
+    }
+  } catch(e) { console.log('[WATCHDOG] Erreur lecture tracker:', e.message); }
+  return {};
+}
+
+// Sauvegarder le tracker (appelé après chaque modif + toutes les 10s)
+function saveTracker() {
+  try {
+    fs.writeFileSync(TRACKER_FILE, JSON.stringify(deployTracker, null, 2));
+  } catch(e) { console.log('[WATCHDOG] Erreur écriture tracker:', e.message); }
+}
 
 // Marquer un compte comme deployé
 function trackDeploy(accountId, login) {
@@ -43,6 +81,7 @@ function trackDeploy(accountId, login) {
     login: login || 'unknown'
   };
   console.log('[WATCHDOG] Deploy tracked: ' + accountId + ' (' + login + ')');
+  saveTracker();
 }
 
 // Marquer un compte comme undeployé (le retire du tracker)
@@ -51,10 +90,11 @@ function trackUndeploy(accountId) {
     const elapsed = Math.round((Date.now() - deployTracker[accountId].deployedAt) / 1000);
     console.log('[WATCHDOG] Undeploy tracked: ' + accountId + ' (apres ' + elapsed + 's)');
     delete deployTracker[accountId];
+    saveTracker();
   }
 }
 
-// Watchdog principal : verifie toutes les 60s qu'aucun compte n'est deployé > 5 min
+// Watchdog interne : vérifie le tracker toutes les 30s
 async function watchdogCheck() {
   if (!metaApi) return;
   const now = Date.now();
@@ -64,20 +104,78 @@ async function watchdogCheck() {
 
   if (expired.length === 0) return;
 
-  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 5 min → undeploy force');
+  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 90s → undeploy force');
 
   for (const [accountId, data] of expired) {
     try {
       const account = await metaApi.metatraderAccountApi.getAccount(accountId);
       if (account && account.state !== 'UNDEPLOYED') {
         await account.undeploy();
-        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ')');
+        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ', age ' + Math.round((now - data.deployedAt)/1000) + 's)');
       }
     } catch (err) {
       console.log('[WATCHDOG] Erreur undeploy ' + accountId + ':', err.message);
     } finally {
       delete deployTracker[accountId];
+      saveTracker();
     }
+  }
+}
+
+// HARD SCAN : filet de sécurité ultime contre les comptes "fantômes"
+// Scanne TOUS les comptes MetaApi (pas seulement ceux du tracker) et
+// undeploy ceux qui sont DEPLOYED. Toutes les 10 min.
+async function hardScanComptesFantomes() {
+  if (!metaApi) return;
+  try {
+    const accountsApi = metaApi.metatraderAccountApi;
+    let allAccounts = [];
+
+    if (typeof accountsApi.getAccountsWithInfiniteScrollPagination === 'function') {
+      let page = 0;
+      while (page < 50) {
+        try {
+          const resp = await accountsApi.getAccountsWithInfiniteScrollPagination({ limit: 100, offset: page * 100 });
+          const items = resp.items || resp || [];
+          if (items.length === 0) break;
+          allAccounts.push(...items);
+          if (items.length < 100) break;
+          page++;
+        } catch(e) { break; }
+      }
+    } else if (typeof accountsApi.getAccounts === 'function') {
+      allAccounts = await accountsApi.getAccounts({});
+    }
+
+    const aimDeployed = allAccounts.filter(a =>
+      String(a.name || '').startsWith('AIM-') && a.state !== 'UNDEPLOYED'
+    );
+
+    if (aimDeployed.length > 0) {
+      console.log('[HARD-SCAN] ⚠️ ' + aimDeployed.length + ' compte(s) AIM deployed détectés');
+
+      for (const acc of aimDeployed) {
+        // Si ce compte n'est PAS dans le tracker OU son temps tracker > 90s → undeploy
+        const tracked = deployTracker[acc.id];
+        const now = Date.now();
+        const ageTracker = tracked ? (now - tracked.deployedAt) : Infinity;
+
+        if (!tracked || ageTracker > MAX_DEPLOY_MS) {
+          try {
+            await acc.undeploy();
+            console.log('[HARD-SCAN] ✅ Compte fantôme undeployed: ' + acc.login + ' (id=' + acc.id + ', tracked=' + (tracked ? Math.round(ageTracker/1000)+'s' : 'NON') + ')');
+            if (deployTracker[acc.id]) {
+              delete deployTracker[acc.id];
+              saveTracker();
+            }
+          } catch(e) {
+            console.log('[HARD-SCAN] Erreur undeploy ' + acc.login + ':', e.message);
+          }
+        }
+      }
+    }
+  } catch(err) {
+    console.log('[HARD-SCAN] Erreur:', err.message);
   }
 }
 
@@ -131,11 +229,25 @@ async function watchdogBootScan() {
   }
 }
 
-// Lancer le watchdog toutes les 60 secondes
+// ─── INIT WATCHDOG ULTRA-RENFORCÉ ─────────────────────────────────
+// Au démarrage : recharge le tracker depuis le fichier (survit aux crashs)
+deployTracker = loadTracker();
+
 if (metaApi) {
-  setInterval(watchdogCheck, 60 * 1000);
-  // Boot scan apres 30s (laisse le temps au serveur de se stabiliser)
+  // Watchdog interne : check le tracker toutes les 30s (était 60s)
+  setInterval(watchdogCheck, WATCHDOG_INTERVAL);
+
+  // Boot scan : 30s après le démarrage (laisse MetaApi se stabiliser)
   setTimeout(watchdogBootScan, 30 * 1000);
+
+  // HARD SCAN : filet de sécurité ultime, scan complet toutes les 10 min
+  // Détecte les comptes "fantômes" (deployed mais hors du tracker)
+  setInterval(hardScanComptesFantomes, HARD_SCAN_INTERVAL);
+
+  // Sauvegarde le tracker toutes les 10s (au cas où le serveur crashe)
+  setInterval(saveTracker, 10 * 1000);
+
+  console.log('[WATCHDOG] Multi-couches actif : interne 30s, hard scan 10min, max ' + (MAX_DEPLOY_MS/1000) + 's deployed');
 }
 
 // ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
@@ -185,11 +297,17 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 587,
-  secure: false,
+  secure: false, // STARTTLS sur port 587 (pas SSL direct)
   auth: {
     user: process.env.BREVO_USER,
     pass: process.env.BREVO_PASS
-  }
+  },
+  // ✅ FIX DÉLIVRABILITÉ : options pour Render (proxy TLS) + timeout raisonnable
+  tls: { rejectUnauthorized: false },
+  pool: true,          // connexions réutilisées (plus efficace pour broadcast)
+  maxConnections: 3,   // max 3 connexions simultanées vers Brevo
+  rateDelta: 1000,     // espace les envois d'au moins 1s
+  rateLimit: 3         // max 3 emails/s (respect des limites Brevo free)
 });
 
 const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
@@ -2318,6 +2436,15 @@ async function verifierProtectionsAvancees(parsed, userId) {
 async function getPrixActuel(userId, symbole) {
   if (!metaApi) return null;
   try {
+    // ─── ÉCONOMIE : utiliser le cache si dispo (zero deploy) ───────
+    if (typeof fetchAllMarketData === 'function') {
+      const cached = await fetchAllMarketData(userId, symbole);
+      if (cached && cached.prixActuel) {
+        return cached.prixActuel;
+      }
+    }
+
+    // Fallback : pas de cache, on doit deploy temporairement
     const user = await db.findOneAsync({ _id: userId });
     if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
 
@@ -2892,82 +3019,77 @@ async function envoyerAlerteSetupAPlus(parsed, analyseId) {
     const lienApp = BASE_URL;
 
     // ─── Template HTML email ──────────────────────────────────────
+    // ✅ FIX SPAM : template fond BLANC (fond noir = signal phishing pour Gmail/Outlook)
+    // Les filtres anti-spam scorent très mal les emails dark-mode non standards
     const htmlEmail = `
 <!DOCTYPE html>
 <html lang="fr">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#020510;font-family:Arial,sans-serif;">
-  <div style="max-width:560px;margin:0 auto;padding:30px 16px;">
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:24px 16px;">
 
     <!-- HEADER -->
-    <div style="text-align:center;margin-bottom:24px;">
-      <div style="font-size:11px;letter-spacing:4px;color:#00f5ff;text-transform:uppercase;margin-bottom:6px;">AI-MAZZA</div>
-      <div style="height:1px;background:linear-gradient(90deg,transparent,#00f5ff,transparent);margin-bottom:18px;opacity:0.4;"></div>
-      <div style="font-size:13px;letter-spacing:3px;color:rgba(255,255,255,0.5);text-transform:uppercase;">${urgence}</div>
-    </div>
+    <div style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);margin-bottom:0;">
 
-    <!-- DÉCISION PRINCIPALE -->
-    <div style="background:rgba(0,20,50,0.9);border:2px solid ${couleur};border-radius:6px;padding:20px;text-align:center;margin-bottom:16px;">
-      <div style="font-size:36px;font-weight:900;letter-spacing:6px;color:${couleur};margin-bottom:6px;">${emoji} ${parsed.decision} ${instrument}</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:2px;">SETUP DÉTECTÉ PAR L'IA</div>
-    </div>
+      <!-- Barre de couleur selon direction -->
+      <div style="background:${isBuy ? '#16a34a' : '#dc2626'};padding:20px 24px;text-align:center;">
+        <div style="font-size:11px;letter-spacing:3px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:6px;">J4keIA — Signal de trading</div>
+        <div style="font-size:28px;font-weight:900;color:#ffffff;margin-bottom:4px;">${isBuy ? '▲' : '▼'} ${parsed.decision} ${instrument}</div>
+        <div style="display:inline-block;background:rgba(255,255,255,0.2);padding:4px 14px;border-radius:20px;font-size:12px;color:#fff;font-weight:600;">Score IA : ${scoreEmoji} ${score}/10</div>
+      </div>
 
-    <!-- SCORE -->
-    <div style="background:rgba(0,10,30,0.9);border:1px solid rgba(0,245,255,0.15);border-radius:6px;padding:16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div style="color:rgba(255,255,255,0.4);font-size:11px;letter-spacing:2px;text-transform:uppercase;">Score IA</div>
-      <div style="font-size:28px;font-weight:900;color:${score >= 9 ? '#ffd700' : '#00ff88'};">${scoreEmoji} ${score}/10</div>
-    </div>
+      <!-- NIVEAUX DU TRADE -->
+      <div style="padding:20px 24px;background:#ffffff;">
+        <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">Niveaux du trade</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:10px 0;color:#374151;font-size:13px;font-weight:600;">Entrée</td>
+            <td style="padding:10px 0;color:#111827;font-size:16px;font-weight:700;text-align:right;">${entree}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:10px 0;color:#374151;font-size:13px;font-weight:600;">Stop Loss</td>
+            <td style="padding:10px 0;color:#dc2626;font-size:16px;font-weight:700;text-align:right;">${sl}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:10px 0;color:#374151;font-size:13px;font-weight:600;">TP1</td>
+            <td style="padding:10px 0;color:#16a34a;font-size:16px;font-weight:700;text-align:right;">${tp1}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:10px 0;color:#374151;font-size:13px;font-weight:600;">TP2</td>
+            <td style="padding:10px 0;color:#16a34a;font-size:14px;font-weight:700;text-align:right;">${tp2}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6;">
+            <td style="padding:10px 0;color:#374151;font-size:13px;font-weight:600;">TP3</td>
+            <td style="padding:10px 0;color:#16a34a;font-size:14px;font-weight:700;text-align:right;">${tp3}</td>
+          </tr>
+          ${lots !== '—' ? `<tr>
+            <td style="padding:10px 0;color:#374151;font-size:13px;font-weight:600;">Lots suggérés</td>
+            <td style="padding:10px 0;color:#d97706;font-size:14px;font-weight:700;text-align:right;">${lots}</td>
+          </tr>` : ''}
+        </table>
+      </div>
 
-    <!-- NIVEAUX DU TRADE -->
-    <div style="background:rgba(0,20,50,0.9);border:1px solid rgba(0,245,255,0.15);border-radius:6px;padding:16px;margin-bottom:16px;">
-      <div style="font-size:10px;letter-spacing:3px;color:rgba(0,245,255,0.6);text-transform:uppercase;margin-bottom:14px;">📊 Niveaux du trade</div>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr>
-          <td style="padding:8px 0;color:rgba(255,255,255,0.4);font-size:12px;letter-spacing:1px;text-transform:uppercase;width:50%;">Entrée</td>
-          <td style="padding:8px 0;color:#fff;font-size:16px;font-weight:bold;text-align:right;">${entree}</td>
-        </tr>
-        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
-          <td style="padding:8px 0;color:rgba(255,48,96,0.8);font-size:12px;letter-spacing:1px;text-transform:uppercase;">Stop Loss</td>
-          <td style="padding:8px 0;color:#ff3060;font-size:16px;font-weight:bold;text-align:right;">${sl}</td>
-        </tr>
-        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
-          <td style="padding:8px 0;color:rgba(0,255,136,0.8);font-size:12px;letter-spacing:1px;text-transform:uppercase;">TP1 (R:R 1.5)</td>
-          <td style="padding:8px 0;color:#00ff88;font-size:16px;font-weight:bold;text-align:right;">${tp1}</td>
-        </tr>
-        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
-          <td style="padding:8px 0;color:rgba(0,255,136,0.6);font-size:12px;letter-spacing:1px;text-transform:uppercase;">TP2 (R:R 2.5)</td>
-          <td style="padding:8px 0;color:rgba(0,255,136,0.7);font-size:14px;font-weight:bold;text-align:right;">${tp2}</td>
-        </tr>
-        <tr style="border-top:1px solid rgba(255,255,255,0.05);">
-          <td style="padding:8px 0;color:rgba(0,255,136,0.5);font-size:12px;letter-spacing:1px;text-transform:uppercase;">TP3 (R:R 4.0)</td>
-          <td style="padding:8px 0;color:rgba(0,255,136,0.5);font-size:14px;font-weight:bold;text-align:right;">${tp3}</td>
-        </tr>
-        ${lots !== '—' ? `<tr style="border-top:1px solid rgba(255,255,255,0.05);">
-          <td style="padding:8px 0;color:rgba(255,215,0,0.7);font-size:12px;letter-spacing:1px;text-transform:uppercase;">Lots suggérés</td>
-          <td style="padding:8px 0;color:#ffd700;font-size:14px;font-weight:bold;text-align:right;">${lots}</td>
-        </tr>` : ''}
-      </table>
-    </div>
+      <!-- ANALYSE IA -->
+      <div style="padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+        <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Analyse IA</div>
+        <div style="font-size:13px;color:#374151;line-height:1.6;">${raison}</div>
+      </div>
 
-    <!-- JUSTIFICATION IA -->
-    <div style="background:rgba(128,0,255,0.06);border:1px solid rgba(128,0,255,0.2);border-radius:6px;padding:16px;margin-bottom:20px;">
-      <div style="font-size:10px;letter-spacing:3px;color:rgba(128,0,255,0.7);text-transform:uppercase;margin-bottom:10px;">🤖 Analyse IA</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.6;">${raison}</div>
-    </div>
+      <!-- BOUTON CTA -->
+      <div style="padding:20px 24px;text-align:center;background:#ffffff;border-top:1px solid #e5e7eb;">
+        <a href="${lienApp}" style="display:inline-block;background:${isBuy ? '#16a34a' : '#dc2626'};color:#ffffff;padding:14px 36px;text-decoration:none;font-weight:700;font-size:14px;border-radius:6px;">
+          Voir le setup complet
+        </a>
+      </div>
 
-    <!-- BOUTON CTA -->
-    <div style="text-align:center;margin-bottom:24px;">
-      <a href="${lienApp}" style="display:inline-block;background:${couleur};color:#020510;padding:16px 40px;text-decoration:none;font-weight:bold;font-size:13px;letter-spacing:3px;text-transform:uppercase;border-radius:3px;">
-        ${isBuy ? '🟢' : '🔴'} VOIR LE SETUP COMPLET
-      </a>
-    </div>
-
-    <!-- AVERTISSEMENT -->
-    <div style="text-align:center;padding:16px;border-top:1px solid rgba(255,255,255,0.06);">
-      <p style="font-size:11px;color:rgba(255,255,255,0.25);line-height:1.5;margin:0;">
-        ⚠️ Ce signal est fourni à titre informatif. Le trading comporte des risques. Gérez votre risque avant toute entrée en position.<br>
-        <span style="color:rgba(255,255,255,0.15);">AI-Mazza — Setup #${analyseId ? analyseId.substring(0, 8) : '—'}</span>
-      </p>
+      <!-- FOOTER -->
+      <div style="padding:14px 24px;text-align:center;background:#f9fafb;border-top:1px solid #e5e7eb;">
+        <p style="font-size:11px;color:#9ca3af;line-height:1.5;margin:0;">
+          Ce signal est fourni à titre informatif. Le trading comporte des risques.<br>
+          J4keIA — Ref #${analyseId ? analyseId.substring(0, 8) : '—'} &nbsp;|&nbsp;
+          <a href="mailto:${process.env.BREVO_SENDER}?subject=unsubscribe" style="color:#9ca3af;">Se désabonner</a>
+        </p>
+      </div>
     </div>
 
   </div>
@@ -2977,22 +3099,81 @@ async function envoyerAlerteSetupAPlus(parsed, analyseId) {
     // ─── Envoi en parallèle à tous les clients ────────────────────
     console.log('[ALERTE-EMAIL] Envoi setup A+ (score ' + score + ') à ' + clients.length + ' client(s)...');
 
-    const envois = clients.map(client =>
-      transporter.sendMail({
-        from: '"AI-Mazza 🔥" <' + process.env.BREVO_SENDER + '>',
-        to: client.email,
-        subject: emoji + ' SETUP A+ DÉTECTÉ — ' + parsed.decision + ' ' + instrument + ' | Score ' + score + '/10',
-        html: htmlEmail
-      }).then(() => {
-        console.log('[ALERTE-EMAIL] ✅ Envoyé à ' + client.email);
-      }).catch(err => {
-        console.log('[ALERTE-EMAIL] ❌ Échec pour ' + client.email + ' : ' + err.message);
-      })
-    );
+    // ─── NOTIF IN-APP : remplit la cloche pour ceux dans l'app ────
+    // En plus de l'email, on créé une notif dans la DB pour que la cloche
+    // s'allume si le client est déjà connecté à l'app
+    for (const client of clients) {
+      try {
+        // Recalculer le lot pour CE client (capital perso, pas celui du shareur)
+        let lotsClient = parsed.lots; // fallback
+        let montantClient = parsed.montantRisque;
+        if (client.mt5 && client.mt5.capital && parsed.slPips) {
+          const capitalC = parseFloat(client.mt5.capital);
+          const risquePctC = score >= 8 ? 3 : score >= 6 ? 2 : 1;
+          const slDistC = parsed.entree && parsed.sl ? Math.abs(parseFloat(parsed.entree) - parseFloat(parsed.sl)) : null;
+          const lotsCalc = calculerLots(capitalC, risquePctC, parsed.slPips, parsed.instrument || '', slDistC);
+          if (lotsCalc) {
+            lotsClient = lotsCalc;
+            montantClient = (capitalC * risquePctC / 100).toFixed(2);
+          }
+        }
 
-    // Promise.allSettled = on attend tout sans bloquer si un email échoue
-    await Promise.allSettled(envois);
-    console.log('[ALERTE-EMAIL] Broadcast terminé (' + clients.length + ' client(s))');
+        await creerNotification(
+          client._id,
+          'aplus_signal',
+          (score >= 9 ? '🏆' : '⭐') + ' Setup A+ ' + parsed.decision + ' ' + (parsed.instrument || 'XAUUSD'),
+          'Score ' + score + '/10 — ' + (parsed.raisonCourte || 'Setup A+ détecté par l\'IA'),
+          {
+            decision: parsed.decision,
+            instrument: parsed.instrument || 'XAUUSD',
+            entree: parsed.entree,
+            sl: parsed.sl,
+            tp1: parsed.tp1,
+            tp2: parsed.tp2,
+            tp3: parsed.tp3,
+            score: score,
+            lots: lotsClient,
+            montantRisque: montantClient,
+            risquePct: (score >= 8 ? 3 : score >= 6 ? 2 : 1),
+            sourceAnalysisId: analyseId
+          }
+        );
+      } catch(e) { console.log('[ALERTE-NOTIF] Erreur ' + client.email + ':', e.message); }
+    }
+
+    // ✅ FIX SPAM : envoi séquentiel avec délai (évite le throttling Brevo + meilleure délivrabilité)
+    // Envoi 1 par 1 avec 300ms d'intervalle max — pour 50 clients = ~15s total, acceptable
+    let envoyes = 0, echecs = 0;
+    for (const client of clients) {
+      try {
+        // ✅ FIX SPAM : sujet sans emojis agressifs, sans majuscules excessives, sans pipe
+        // Les mots "URGENT", "DÉTECTÉ", "🔥" en from → score spam très élevé
+        const sujetPropre = (isBuy ? '[BUY]' : '[SELL]') + ' ' + instrument + ' — Signal score ' + score + '/10 — J4keIA';
+
+        await transporter.sendMail({
+          // ✅ FIX SPAM : pas d'emoji dans le nom d'expéditeur
+          from: '"J4keIA Trading" <' + process.env.BREVO_SENDER + '>',
+          to: client.email,
+          subject: sujetPropre,
+          // ✅ FIX RGPD/SPAM : header List-Unsubscribe obligatoire depuis Gmail 2024
+          // Sans ça → bouton "Se désabonner" absent → utilisateurs cliquent "Spam"
+          headers: {
+            'List-Unsubscribe': '<mailto:' + process.env.BREVO_SENDER + '?subject=unsubscribe>',
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            'X-Entity-Ref-ID': analyseId || ('signal-' + Date.now())
+          },
+          html: htmlEmail
+        });
+        envoyes++;
+        console.log('[ALERTE-EMAIL] ✅ Envoyé à ' + client.email);
+        // Petit délai entre chaque envoi pour ne pas throttler Brevo
+        await new Promise(r => setTimeout(r, 300));
+      } catch(err) {
+        echecs++;
+        console.log('[ALERTE-EMAIL] ❌ Échec pour ' + client.email + ' : ' + err.message);
+      }
+    }
+    console.log('[ALERTE-EMAIL] Broadcast terminé — ' + envoyes + ' envoyés, ' + echecs + ' échecs');
 
   } catch(err) {
     // Ne JAMAIS crasher l'analyse à cause d'un email
@@ -3172,7 +3353,8 @@ async function surveillerTradesEtApprendre() {
     }
   } catch(err) { console.log('[APPRENTISSAGE] Erreur globale:', err.message); }
 }
-setInterval(surveillerTradesEtApprendre, 5 * 60 * 1000);
+// ÉCONOMIE : 5 min → 30 min (apprentissage pas urgent, économise ~83% des appels)
+setInterval(surveillerTradesEtApprendre, 30 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════
 // 🛡️ RATE LIMITER (protège la facture Anthropic)
