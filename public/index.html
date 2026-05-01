@@ -1159,10 +1159,10 @@
       </div>
     </div>
 
-    <!-- ═══ FALLBACK manuel si MT5 pas connecté ═══ -->
-    <div class="box" id="capitalManualBox">
-      <div class="box-title">◈ Instrument &amp; Capital — Obligatoire</div>
-      <div class="cap-row" style="margin-bottom:10px;">
+    <!-- ═══ INSTRUMENT — toujours visible peu importe MT5 ═══ -->
+    <div class="box" id="instrumentBox">
+      <div class="box-title">◈ Instrument</div>
+      <div class="cap-row">
         <span class="cap-sym" style="font-size:13px;">📈</span>
         <select id="instrumentSelect" style="flex:1;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:11px 14px;color:#fff;font-family:'Orbitron',monospace;font-size:12px;outline:none;">
           <option value="XAUUSD">XAUUSD — Or</option>
@@ -1175,7 +1175,12 @@
           <option value="US500">US500 — S&amp;P 500</option>
         </select>
       </div>
-      <div class="cap-row">
+    </div>
+
+    <!-- ═══ FALLBACK manuel si MT5 pas connecté ═══ -->
+    <div class="box" id="capitalManualBox">
+      <div class="box-title">◈ Capital MetaTrader — Obligatoire</div>
+      <div class="cap-row" id="capInputRow">
         <span class="cap-sym">$</span>
         <input type="number" class="cap-input" id="capInput" placeholder="Ex: 600" min="1" step="any"/>
       </div>
@@ -1532,9 +1537,7 @@ fetch('/me').then(r=>r.json()).then(u=>{
   if(u.mt5 && u.mt5.connected){
     mt5IsConnected = true;
     document.getElementById('mt5ConnectBox').style.display='none';
-    document.getElementById('capitalManualBox').style.display='block'; // ✅ FIX : laisser visible pour le select instrument
-    document.getElementById('capInput').style.display='none'; // Cacher seulement l'input capital (MT5 gère ça)
-    document.querySelector('#capitalManualBox .cap-row:last-child').style.display='none'; // cacher ligne capital
+    document.getElementById('capitalManualBox').style.display='none';
     document.getElementById('mt5ConnectedBox').style.display='block';
     document.getElementById('mt5Capital').textContent='$'+(u.mt5.capital||0);
     document.getElementById('mt5LoginDisplay').textContent=u.mt5.login;

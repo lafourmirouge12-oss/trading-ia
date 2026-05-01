@@ -32,46 +32,8 @@ const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
 // Stocke chaque deploy avec timestamp pour forcer l'undeploy si oublié
 // Évite que MetaApi facture en arrière-plan en cas de crash/bug
 
-let deployTracker = {}; // sera initialisé après loadTracker // { accountId: { deployedAt: ms, login: string } }
-// ═══════════════════════════════════════════════════════════════════
-// 🛡️ WATCHDOG ULTRA-RENFORCÉ — protection contre les comptes "fantômes"
-// ═══════════════════════════════════════════════════════════════════
-// Objectif : qu'AUCUN compte MetaApi ne reste deployed > 90s sans raison.
-//
-// Stratégie multi-couches :
-//   1. Tracker en mémoire (rapide) + persisté sur disque (survit aux restarts)
-//   2. Watchdog interne toutes les 30s → undeploy comptes du tracker > 90s
-//   3. Boot scan au démarrage → undeploy tous les comptes orphelins
-//   4. Hard scan toutes les 10 min → scanne TOUS les comptes MetaApi et
-//      undeploy ceux qui sont deployed depuis trop longtemps (FILET DE SÉCURITÉ
-//      ULTIME contre les comptes fantômes que le tracker a perdu)
-//
-// Persistance : on stocke le tracker dans deploy-tracker.json toutes les 10s.
-// Si le serveur crash, au redémarrage on relit le fichier et on continue.
-
-const MAX_DEPLOY_MS = 90 * 1000; // 90 secondes max (réduit de 2 min)
-const WATCHDOG_INTERVAL = 30 * 1000; // check toutes les 30s
-const HARD_SCAN_INTERVAL = 10 * 60 * 1000; // scan profond toutes les 10 min
-const TRACKER_FILE = path.join(__dirname, 'deploy-tracker.json');
-
-// Charger le tracker au démarrage
-function loadTracker() {
-  try {
-    if (fs.existsSync(TRACKER_FILE)) {
-      const data = JSON.parse(fs.readFileSync(TRACKER_FILE, 'utf-8'));
-      console.log('[WATCHDOG] Tracker rechargé : ' + Object.keys(data).length + ' comptes en mémoire');
-      return data || {};
-    }
-  } catch(e) { console.log('[WATCHDOG] Erreur lecture tracker:', e.message); }
-  return {};
-}
-
-// Sauvegarder le tracker (appelé après chaque modif + toutes les 10s)
-function saveTracker() {
-  try {
-    fs.writeFileSync(TRACKER_FILE, JSON.stringify(deployTracker, null, 2));
-  } catch(e) { console.log('[WATCHDOG] Erreur écriture tracker:', e.message); }
-}
+const deployTracker = {}; // { accountId: { deployedAt: ms, login: string } }
+const MAX_DEPLOY_MS = 2 * 60 * 1000; // FIX problème 9 : 5min → 2min // 2 minutes max (réduit de 5 → 2 pour limiter les coûts MetaApi)
 
 // Marquer un compte comme deployé
 function trackDeploy(accountId, login) {
@@ -81,7 +43,6 @@ function trackDeploy(accountId, login) {
     login: login || 'unknown'
   };
   console.log('[WATCHDOG] Deploy tracked: ' + accountId + ' (' + login + ')');
-  saveTracker();
 }
 
 // Marquer un compte comme undeployé (le retire du tracker)
@@ -90,11 +51,10 @@ function trackUndeploy(accountId) {
     const elapsed = Math.round((Date.now() - deployTracker[accountId].deployedAt) / 1000);
     console.log('[WATCHDOG] Undeploy tracked: ' + accountId + ' (apres ' + elapsed + 's)');
     delete deployTracker[accountId];
-    saveTracker();
   }
 }
 
-// Watchdog interne : vérifie le tracker toutes les 30s
+// Watchdog principal : verifie toutes les 60s qu'aucun compte n'est deployé > 5 min
 async function watchdogCheck() {
   if (!metaApi) return;
   const now = Date.now();
@@ -104,78 +64,20 @@ async function watchdogCheck() {
 
   if (expired.length === 0) return;
 
-  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 90s → undeploy force');
+  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 5 min → undeploy force');
 
   for (const [accountId, data] of expired) {
     try {
       const account = await metaApi.metatraderAccountApi.getAccount(accountId);
       if (account && account.state !== 'UNDEPLOYED') {
         await account.undeploy();
-        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ', age ' + Math.round((now - data.deployedAt)/1000) + 's)');
+        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ')');
       }
     } catch (err) {
       console.log('[WATCHDOG] Erreur undeploy ' + accountId + ':', err.message);
     } finally {
       delete deployTracker[accountId];
-      saveTracker();
     }
-  }
-}
-
-// HARD SCAN : filet de sécurité ultime contre les comptes "fantômes"
-// Scanne TOUS les comptes MetaApi (pas seulement ceux du tracker) et
-// undeploy ceux qui sont DEPLOYED. Toutes les 10 min.
-async function hardScanComptesFantomes() {
-  if (!metaApi) return;
-  try {
-    const accountsApi = metaApi.metatraderAccountApi;
-    let allAccounts = [];
-
-    if (typeof accountsApi.getAccountsWithInfiniteScrollPagination === 'function') {
-      let page = 0;
-      while (page < 50) {
-        try {
-          const resp = await accountsApi.getAccountsWithInfiniteScrollPagination({ limit: 100, offset: page * 100 });
-          const items = resp.items || resp || [];
-          if (items.length === 0) break;
-          allAccounts.push(...items);
-          if (items.length < 100) break;
-          page++;
-        } catch(e) { break; }
-      }
-    } else if (typeof accountsApi.getAccounts === 'function') {
-      allAccounts = await accountsApi.getAccounts({});
-    }
-
-    const aimDeployed = allAccounts.filter(a =>
-      String(a.name || '').startsWith('AIM-') && a.state !== 'UNDEPLOYED'
-    );
-
-    if (aimDeployed.length > 0) {
-      console.log('[HARD-SCAN] ⚠️ ' + aimDeployed.length + ' compte(s) AIM deployed détectés');
-
-      for (const acc of aimDeployed) {
-        // Si ce compte n'est PAS dans le tracker OU son temps tracker > 90s → undeploy
-        const tracked = deployTracker[acc.id];
-        const now = Date.now();
-        const ageTracker = tracked ? (now - tracked.deployedAt) : Infinity;
-
-        if (!tracked || ageTracker > MAX_DEPLOY_MS) {
-          try {
-            await acc.undeploy();
-            console.log('[HARD-SCAN] ✅ Compte fantôme undeployed: ' + acc.login + ' (id=' + acc.id + ', tracked=' + (tracked ? Math.round(ageTracker/1000)+'s' : 'NON') + ')');
-            if (deployTracker[acc.id]) {
-              delete deployTracker[acc.id];
-              saveTracker();
-            }
-          } catch(e) {
-            console.log('[HARD-SCAN] Erreur undeploy ' + acc.login + ':', e.message);
-          }
-        }
-      }
-    }
-  } catch(err) {
-    console.log('[HARD-SCAN] Erreur:', err.message);
   }
 }
 
@@ -229,25 +131,11 @@ async function watchdogBootScan() {
   }
 }
 
-// ─── INIT WATCHDOG ULTRA-RENFORCÉ ─────────────────────────────────
-// Au démarrage : recharge le tracker depuis le fichier (survit aux crashs)
-deployTracker = loadTracker();
-
+// Lancer le watchdog toutes les 60 secondes
 if (metaApi) {
-  // Watchdog interne : check le tracker toutes les 30s (était 60s)
-  setInterval(watchdogCheck, WATCHDOG_INTERVAL);
-
-  // Boot scan : 30s après le démarrage (laisse MetaApi se stabiliser)
+  setInterval(watchdogCheck, 60 * 1000);
+  // Boot scan apres 30s (laisse le temps au serveur de se stabiliser)
   setTimeout(watchdogBootScan, 30 * 1000);
-
-  // HARD SCAN : filet de sécurité ultime, scan complet toutes les 10 min
-  // Détecte les comptes "fantômes" (deployed mais hors du tracker)
-  setInterval(hardScanComptesFantomes, HARD_SCAN_INTERVAL);
-
-  // Sauvegarde le tracker toutes les 10s (au cas où le serveur crashe)
-  setInterval(saveTracker, 10 * 1000);
-
-  console.log('[WATCHDOG] Multi-couches actif : interne 30s, hard scan 10min, max ' + (MAX_DEPLOY_MS/1000) + 's deployed');
 }
 
 // ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
@@ -2430,15 +2318,6 @@ async function verifierProtectionsAvancees(parsed, userId) {
 async function getPrixActuel(userId, symbole) {
   if (!metaApi) return null;
   try {
-    // ─── ÉCONOMIE : utiliser le cache si dispo (zero deploy) ───────
-    if (typeof fetchAllMarketData === 'function') {
-      const cached = await fetchAllMarketData(userId, symbole);
-      if (cached && cached.prixActuel) {
-        return cached.prixActuel;
-      }
-    }
-
-    // Fallback : pas de cache, on doit deploy temporairement
     const user = await db.findOneAsync({ _id: userId });
     if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
 
@@ -3098,48 +2977,6 @@ async function envoyerAlerteSetupAPlus(parsed, analyseId) {
     // ─── Envoi en parallèle à tous les clients ────────────────────
     console.log('[ALERTE-EMAIL] Envoi setup A+ (score ' + score + ') à ' + clients.length + ' client(s)...');
 
-    // ─── NOTIF IN-APP : remplit la cloche pour ceux dans l'app ────
-    // En plus de l'email, on créé une notif dans la DB pour que la cloche
-    // s'allume si le client est déjà connecté à l'app
-    for (const client of clients) {
-      try {
-        // Recalculer le lot pour CE client (capital perso, pas celui du shareur)
-        let lotsClient = parsed.lots; // fallback
-        let montantClient = parsed.montantRisque;
-        if (client.mt5 && client.mt5.capital && parsed.slPips) {
-          const capitalC = parseFloat(client.mt5.capital);
-          const risquePctC = score >= 8 ? 3 : score >= 6 ? 2 : 1;
-          const slDistC = parsed.entree && parsed.sl ? Math.abs(parseFloat(parsed.entree) - parseFloat(parsed.sl)) : null;
-          const lotsCalc = calculerLots(capitalC, risquePctC, parsed.slPips, parsed.instrument || '', slDistC);
-          if (lotsCalc) {
-            lotsClient = lotsCalc;
-            montantClient = (capitalC * risquePctC / 100).toFixed(2);
-          }
-        }
-
-        await creerNotification(
-          client._id,
-          'aplus_signal',
-          (score >= 9 ? '🏆' : '⭐') + ' Setup A+ ' + parsed.decision + ' ' + (parsed.instrument || 'XAUUSD'),
-          'Score ' + score + '/10 — ' + (parsed.raisonCourte || 'Setup A+ détecté par l\'IA'),
-          {
-            decision: parsed.decision,
-            instrument: parsed.instrument || 'XAUUSD',
-            entree: parsed.entree,
-            sl: parsed.sl,
-            tp1: parsed.tp1,
-            tp2: parsed.tp2,
-            tp3: parsed.tp3,
-            score: score,
-            lots: lotsClient,
-            montantRisque: montantClient,
-            risquePct: (score >= 8 ? 3 : score >= 6 ? 2 : 1),
-            sourceAnalysisId: analyseId
-          }
-        );
-      } catch(e) { console.log('[ALERTE-NOTIF] Erreur ' + client.email + ':', e.message); }
-    }
-
     const envois = clients.map(client =>
       transporter.sendMail({
         from: '"AI-Mazza 🔥" <' + process.env.BREVO_SENDER + '>',
@@ -3335,8 +3172,7 @@ async function surveillerTradesEtApprendre() {
     }
   } catch(err) { console.log('[APPRENTISSAGE] Erreur globale:', err.message); }
 }
-// ÉCONOMIE : 5 min → 30 min (apprentissage pas urgent, économise ~83% des appels)
-setInterval(surveillerTradesEtApprendre, 30 * 60 * 1000);
+setInterval(surveillerTradesEtApprendre, 5 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════
 // 🛡️ RATE LIMITER (protège la facture Anthropic)
