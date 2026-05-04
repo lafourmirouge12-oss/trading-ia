@@ -1380,7 +1380,10 @@ fetch('/me').then(r=>r.json()).then(u=>{
 
   // GATING UI : calculer isPremium depuis u.plan (hasPremium n'existe pas dans /me)
   window.userPlan = u.plan || 'free';
-  window.hasPremium = (u.plan === 'premium' || u.plan === 'elite' || u.role === 'admin');
+  // FIX : hasPremium doit être cohérent avec hasPremiumAccess() côté serveur
+  // Le serveur exige subscribed=true ET plan premium/elite
+  // On utilise u.hasPremium retourné directement par /me (source de vérité unique)
+  window.hasPremium = u.hasPremium || u.role === 'admin';
 
   if(u.paiementEnRetard){
     document.getElementById('impayeBanner').classList.add('show');
@@ -1406,43 +1409,49 @@ fetch('/me').then(r=>r.json()).then(u=>{
   // Désactivé : le post-mortem se déclenche maintenant via le bouton "❌ SL touché"
   // loadPendingPostMortems();
 
-  // ─── GATING : MT5 réservé Pro/Elite ────────────────────────────
-  // Si l'utilisateur n'a pas le plan Pro/Elite, on cache la section MT5
-  // et on affiche un message d'upgrade à la place
-  // Gating plans : MT5 + leçons + setups → premium/elite seulement
+  // ─── GATING : MT5, leçons, setups → réservés Premium/Elite ────
   if (!window.hasPremium) {
-    // Cacher la box de connexion MT5 (pas la box capital manuelle)
+    // Plan free/starter : cacher tout ce qui est premium
     const mt5Box = document.getElementById('mt5ConnectBox');
     if (mt5Box) mt5Box.style.display = 'none';
-    // Cacher le lien "Connecte ton MT5" dans le fallback capital
+    const mt5Con = document.getElementById('mt5ConnectedBox');
+    if (mt5Con) mt5Con.style.display = 'none';
     const fallbackLink = document.querySelector('#capitalManualBox .mt5-fallback-link');
     if (fallbackLink) fallbackLink.style.display = 'none';
-    // Cacher les boutons apprentissage (leçons / setups gagnants)
     const learningBar = document.querySelector('.learning-bar');
     if (learningBar) learningBar.style.display = 'none';
-  }
-
-  // ─── Affichage MT5 connecte ou pas ────────────────────────────
-  if(u.mt5 && u.mt5.connected){
-    mt5IsConnected = true;
-    document.getElementById('mt5ConnectBox').style.display='none';
-    document.getElementById('capitalManualBox').style.display='none';
-    document.getElementById('mt5ConnectedBox').style.display='block';
-
-    // Pré-remplir le capital caché pour les analyses (value lisible même si display:none)
-    const capEl = document.getElementById('capInput');
-    if(capEl) capEl.value = u.mt5.capital || '';
-    document.getElementById('mt5Capital').textContent = '$' + (u.mt5.capital || 0);
-    document.getElementById('mt5LoginDisplay').textContent = u.mt5.login;
-    document.getElementById('mt5ServerDisplay').textContent = u.mt5.server;
-    const badge = document.getElementById('mt5TypeBadge');
-    if(badge){
-      badge.textContent = u.mt5.accountType === 'real' ? 'RÉEL' : 'DÉMO';
-      badge.className = 'mt5-type-badge ' + (u.mt5.accountType === 'real' ? 'real' : 'demo');
-    }
+    // Afficher le bloc capital manuel (sans lien MT5)
+    document.getElementById('capitalManualBox').style.display = 'block';
   } else {
-    document.getElementById('capitalManualBox').style.display='block';
-  }
+    // ─── Premium/Elite : afficher les sections selon état MT5 ───
+    const learningBar = document.querySelector('.learning-bar');
+    if (learningBar) learningBar.style.display = 'flex';
+
+    if(u.mt5 && u.mt5.connected){
+      // ─── MT5 déjà connecté → afficher le panneau "connecté" ─────
+      mt5IsConnected = true;
+      document.getElementById('mt5ConnectBox').style.display='none';
+      document.getElementById('capitalManualBox').style.display='none';
+      document.getElementById('mt5ConnectedBox').style.display='block';
+      // Pré-remplir le capital caché pour les analyses
+      const capEl = document.getElementById('capInput');
+      if(capEl) capEl.value = u.mt5.capital || '';
+      document.getElementById('mt5Capital').textContent = '$' + (u.mt5.capital || 0);
+      document.getElementById('mt5LoginDisplay').textContent = u.mt5.login;
+      document.getElementById('mt5ServerDisplay').textContent = u.mt5.server;
+      const badge = document.getElementById('mt5TypeBadge');
+      if(badge){
+        badge.textContent = u.mt5.accountType === 'real' ? 'RÉEL' : 'DÉMO';
+        badge.className = 'mt5-type-badge ' + (u.mt5.accountType === 'real' ? 'real' : 'demo');
+      }
+    } else {
+      // ─── Premium/Elite mais MT5 pas encore connecté ──────────────
+      // Afficher le FORMULAIRE de connexion MT5 (c'est ça qui manquait !)
+      document.getElementById('mt5ConnectBox').style.display='block';
+      document.getElementById('capitalManualBox').style.display='block';
+      document.getElementById('mt5ConnectedBox').style.display='none';
+    }
+  }  // fin du bloc hasPremium
   loadHist();
 });
 
