@@ -1357,6 +1357,11 @@ function selectTP(num) {
 
 fetch('/me').then(r=>r.json()).then(u=>{
   if(u.error==='session_conflict'||u.error==='banned'){window.location.href='/login.html';return;}
+
+  // GATING UI : stocker hasPremium en global pour le frontend
+  window.userPlan = u.plan || 'free';
+  window.hasPremium = !!u.hasPremium;
+
   if(u.paiementEnRetard){
     document.getElementById('impayeBanner').classList.add('show');
     document.getElementById('analyzeBtn').disabled=true;
@@ -1380,6 +1385,31 @@ fetch('/me').then(r=>r.json()).then(u=>{
   // Charger les trades perdants en attente d'analyse post-mortem
   // Désactivé : le post-mortem se déclenche maintenant via le bouton "❌ SL touché"
   // loadPendingPostMortems();
+
+  // ─── GATING : MT5 réservé Pro/Elite ────────────────────────────
+  // Si l'utilisateur n'a pas le plan Pro/Elite, on cache la section MT5
+  // et on affiche un message d'upgrade à la place
+  if (!u.hasPremium && u.role !== 'admin') {
+    const mt5Box = document.getElementById('mt5ConnectBox');
+    const mt5Connected = document.getElementById('mt5ConnectedBox');
+    if (mt5Box) mt5Box.style.display = 'none';
+    if (mt5Connected) mt5Connected.style.display = 'none';
+
+    // Afficher un upgrade banner à la place du capital manual
+    const capManualBox = document.getElementById('capitalManualBox');
+    if (capManualBox && !document.getElementById('upgradeBannerMT5')) {
+      const upgradeMsg = document.createElement('div');
+      upgradeMsg.id = 'upgradeBannerMT5';
+      upgradeMsg.style.cssText = 'background:linear-gradient(135deg,rgba(255,215,0,0.08),rgba(255,0,150,0.05));border:1px solid rgba(255,215,0,0.3);border-radius:6px;padding:14px;margin-bottom:12px;';
+      upgradeMsg.innerHTML = '<div style="color:#ffd700;font-size:11px;letter-spacing:2px;margin-bottom:6px;font-weight:700;">⭐ PASSE EN PRO OU ELITE</div>' +
+        '<div style="color:rgba(255,255,255,0.85);font-size:13px;line-height:1.5;">Connecte ton MT5, reçois les alertes setups A+ par mail, profite de l\'IA personnalisée qui apprend de tes trades.</div>';
+      capManualBox.parentNode.insertBefore(upgradeMsg, capManualBox);
+    }
+    // continuer normalement avec l'input capital manuel
+    document.getElementById('capitalManualBox').style.display='block';
+    loadHist();
+    return;
+  }
 
   // ─── Affichage MT5 connecte ou pas ────────────────────────────
   if(u.mt5 && u.mt5.connected){
@@ -2324,8 +2354,14 @@ async function loadNotifications() {
       else if (diffMin < 60) timeStr = `il y a ${diffMin}min`;
       else if (diffMin < 1440) timeStr = `il y a ${Math.floor(diffMin/60)}h`;
       else timeStr = time.toLocaleDateString('fr-FR');
+
+      // Différencier visuellement les notifs A+
+      const isAplus = n.type === 'setup_aplus' || n.type === 'aplus_signal';
+      const aplusStyle = isAplus ? 'border-left:3px solid #ffd700;background:rgba(255,215,0,0.05);' : '';
+      const onclick = isAplus ? `ouvrirSetupAplus('${n._id}', ${JSON.stringify(n.data || {}).replace(/"/g, '&quot;')})` : `markRead('${n._id}')`;
+
       return `
-        <div class="notif-item ${n.lue ? '' : 'unread'}" onclick="markRead('${n._id}')">
+        <div class="notif-item ${n.lue ? '' : 'unread'}" style="${aplusStyle}" onclick="${onclick}">
           <div class="notif-title">${n.titre}</div>
           <div class="notif-msg">${n.message}</div>
           <div class="notif-time">${timeStr}</div>
@@ -2333,6 +2369,165 @@ async function loadNotifications() {
       `;
     }).join('');
   } catch(e) {}
+}
+
+// ═══ MODAL SETUP A+ : ouverture détaillée + bouton trade auto ═══
+function ouvrirSetupAplus(notifId, data) {
+  // Marquer comme lue
+  fetch('/notifications/' + notifId + '/lue', { method: 'POST' }).catch(()=>{});
+
+  // Fermer le panel notif
+  closeNotifPanel();
+
+  // Construire le modal
+  const isBuy = (data.decision || '').toUpperCase() === 'BUY';
+  const couleur = isBuy ? '#00ff88' : '#ff3060';
+  const emoji = isBuy ? '🟢' : '🔴';
+  const score = parseFloat(data.score) || 0;
+  const scoreEmoji = score >= 9 ? '🏆' : '⭐';
+
+  // Vérifier si le user a MT5 connecté pour activer le bouton auto
+  const peutOrdreAuto = window.hasPremium && data.lots;
+
+  const modalHTML = `
+    <div id="aplusModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(5px);" onclick="if(event.target===this)fermerModalAplus()">
+      <div style="background:linear-gradient(180deg,#0a0e1c,#020510);border:2px solid ${couleur};border-radius:14px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;padding:24px;box-shadow:0 0 40px ${couleur}33;">
+
+        <!-- Close -->
+        <div style="text-align:right;"><button onclick="fermerModalAplus()" style="background:none;border:none;color:#fff;font-size:24px;cursor:pointer;">×</button></div>
+
+        <!-- Header -->
+        <div style="text-align:center;margin-bottom:18px;">
+          <div style="font-size:11px;letter-spacing:4px;color:#00f5ff;margin-bottom:6px;">SETUP A+ DÉTECTÉ</div>
+          <div style="font-size:28px;font-weight:900;letter-spacing:4px;color:${couleur};">${emoji} ${data.decision} ${data.instrument || 'XAUUSD'}</div>
+        </div>
+
+        <!-- Score -->
+        <div style="background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.3);border-radius:8px;padding:12px;text-align:center;margin-bottom:14px;">
+          <div style="font-size:24px;font-weight:900;color:${score >= 9 ? '#ffd700' : '#00ff88'};">${scoreEmoji} ${score}/10</div>
+        </div>
+
+        <!-- Niveaux -->
+        <div style="background:rgba(0,20,50,0.6);border-radius:8px;padding:14px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div><div style="color:#888;font-size:11px;letter-spacing:1px;">ENTRÉE</div><div style="color:#fff;font-size:18px;font-weight:700;">${data.entree || '—'}</div></div>
+            <div><div style="color:#888;font-size:11px;letter-spacing:1px;">SL</div><div style="color:#ff6080;font-size:18px;font-weight:700;">${data.sl || '—'}</div></div>
+            <div><div style="color:#888;font-size:11px;letter-spacing:1px;">TP1</div><div style="color:#00ff88;font-size:16px;font-weight:700;">${data.tp1 || '—'}</div></div>
+            <div><div style="color:#888;font-size:11px;letter-spacing:1px;">TP2</div><div style="color:#00ff88;font-size:16px;font-weight:700;">${data.tp2 || '—'}</div></div>
+            <div><div style="color:#888;font-size:11px;letter-spacing:1px;">TP3</div><div style="color:#00ff88;font-size:16px;font-weight:700;">${data.tp3 || '—'}</div></div>
+            <div><div style="color:#888;font-size:11px;letter-spacing:1px;">LOTS</div><div style="color:${data.lots ? '#ffd700' : '#666'};font-size:16px;font-weight:700;">${data.lots || 'MT5 requis'}</div></div>
+          </div>
+          ${data.montantRisque ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);color:#bbb;font-size:12px;">Risque : <strong style="color:#ffd700;">$${data.montantRisque}</strong> (${data.risquePct || 3}%)</div>` : ''}
+        </div>
+
+        <!-- Boutons -->
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${peutOrdreAuto ? `
+            <button onclick="placerOrdreAplus('${notifId}', ${JSON.stringify(data).replace(/"/g, '&quot;').replace(/'/g, '&apos;')})" style="background:${couleur};color:#020510;padding:14px;border:none;border-radius:8px;font-weight:700;letter-spacing:2px;font-size:13px;cursor:pointer;">
+              🤖 ORDRE AUTOMATIQUE (lot $${data.lots})
+            </button>
+          ` : `
+            <div style="text-align:center;color:#888;font-size:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;">
+              ${!window.hasPremium ? '⭐ Passe en Pro/Elite pour l\\'ordre auto' : 'Connecte ton MT5 pour l\\'ordre auto'}
+            </div>
+          `}
+          <button onclick="fermerModalAplus()" style="background:transparent;color:#888;padding:10px;border:1px solid #333;border-radius:8px;font-size:12px;cursor:pointer;">
+            📝 Saisir manuellement (fermer)
+          </button>
+        </div>
+
+        <!-- Statut TP/SL si disponible -->
+        ${data.sourceAnalysisId ? `<div id="aplusModalStatut" style="margin-top:12px;padding:10px;border-radius:6px;text-align:center;font-size:12px;color:#888;">Vérification du statut...</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+  // Vérifier le statut TP/SL en arrière-plan
+  if (data.sourceAnalysisId) {
+    fetch('/analyses/source/' + data.sourceAnalysisId + '/statut').then(r => r.json()).then(st => {
+      const el = document.getElementById('aplusModalStatut');
+      if (!el) return;
+      if (st.statut === 'tp') { el.innerHTML = '✅ TP ATTEINT — setup déjà clôturé en gain'; el.style.background = 'rgba(0,255,136,0.1)'; el.style.color = '#00ff88'; }
+      else if (st.statut === 'sl') { el.innerHTML = '❌ SL TOUCHÉ — setup déjà clôturé en perte'; el.style.background = 'rgba(255,48,96,0.1)'; el.style.color = '#ff6080'; }
+      else if (st.statut === 'pending') { el.innerHTML = '⏳ Trade ouvert et en cours'; el.style.background = 'rgba(255,215,0,0.05)'; el.style.color = '#ffd700'; }
+      else { el.style.display = 'none'; }
+    }).catch(()=>{});
+  }
+}
+
+function fermerModalAplus() {
+  const modal = document.getElementById('aplusModal');
+  if (modal) modal.remove();
+}
+
+// ═══ DEEP-LINK : ouvrir un setup A+ depuis le lien email ═══
+// Quand le user clique le lien email "?aplus=ID", on ouvre le modal automatiquement
+async function ouvrirSetupDepuisURL() {
+  const params = new URLSearchParams(window.location.search);
+  const aplusId = params.get('aplus');
+  if (!aplusId) return;
+
+  try {
+    const r = await fetch('/aplus/' + aplusId);
+    if (!r.ok) {
+      const err = await r.json();
+      alert('Erreur : ' + (err.error || 'Setup introuvable'));
+      return;
+    }
+    const data = await r.json();
+
+    // Ouvrir le modal avec les données + bouton trade auto si MT5 connecté
+    ouvrirSetupAplus('email-link', data);
+
+    // Nettoyer l'URL pour ne pas réouvrir au refresh
+    const url = new URL(window.location.href);
+    url.searchParams.delete('aplus');
+    window.history.replaceState({}, '', url);
+  } catch(e) { console.error('[APLUS-DEEPLINK]', e); }
+}
+// Appel au chargement de la page après que /me ait déterminé hasPremium
+setTimeout(ouvrirSetupDepuisURL, 1500);
+
+async function placerOrdreAplus(notifId, data) {
+  if (!confirm('Placer un ordre ' + data.decision + ' ' + data.instrument + ' sur ton MT5 ?\n\nLot : ' + data.lots + '\nEntrée : ' + data.entree + '\nSL : ' + data.sl + '\nTP : ' + (data.tp1 || data.tp2 || data.tp3))) return;
+
+  try {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Envoi en cours...';
+
+    const r = await fetch('/mt5/place-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbol: data.instrument || 'XAUUSD',
+        direction: data.decision,
+        volume: parseFloat(data.lots),
+        entryPrice: parseFloat(data.entree),
+        sl: parseFloat(data.sl),
+        tp: parseFloat(data.tp1) || null,
+        tp1: data.tp1 || null,
+        tp2: data.tp2 || null,
+        tp3: data.tp3 || null,
+        score: data.score || 8,
+        analysisId: data.sourceAnalysisId || null
+      })
+    });
+    const result = await r.json();
+    if (result.success) {
+      btn.textContent = '✅ Ordre placé !';
+      btn.style.background = '#00ff88';
+      setTimeout(() => fermerModalAplus(), 2000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '🤖 ORDRE AUTOMATIQUE (lot $' + data.lots + ')';
+      alert('Erreur : ' + (result.error || 'Échec du placement de l\'ordre'));
+    }
+  } catch(err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 function openNotifPanel() {

@@ -32,8 +32,46 @@ const metaApi = (MetaApi && process.env.METAAPI_TOKEN)
 // Stocke chaque deploy avec timestamp pour forcer l'undeploy si oublié
 // Évite que MetaApi facture en arrière-plan en cas de crash/bug
 
-const deployTracker = {}; // { accountId: { deployedAt: ms, login: string } }
-const MAX_DEPLOY_MS = 2 * 60 * 1000; // FIX problème 9 : 5min → 2min // 2 minutes max (réduit de 5 → 2 pour limiter les coûts MetaApi)
+let deployTracker = {}; // { accountId: { deployedAt: ms, login: string } } — sera rechargé au démarrage
+
+// ═══════════════════════════════════════════════════════════════════
+// 🛡️ WATCHDOG ULTRA-RENFORCÉ — protection contre les comptes "fantômes"
+// ═══════════════════════════════════════════════════════════════════
+// Objectif : qu'AUCUN compte MetaApi ne reste deployed > 90s sans raison.
+//
+// Stratégie multi-couches :
+//   1. Tracker en mémoire + persisté sur disque (survit aux restarts)
+//   2. Watchdog interne toutes les 30s → undeploy comptes du tracker > 90s
+//   3. Boot scan au démarrage → undeploy tous les comptes orphelins
+//   4. Hard scan toutes les 10 min → scanne TOUS les comptes MetaApi et
+//      undeploy ceux qui sont deployed depuis trop longtemps (FILET ULTIME
+//      contre les comptes fantômes que le tracker a perdu)
+//
+// Persistance : tracker stocké dans deploy-tracker.json toutes les 10s.
+
+const MAX_DEPLOY_MS = 90 * 1000; // 90 secondes max
+const WATCHDOG_INTERVAL = 30 * 1000; // check toutes les 30s
+const HARD_SCAN_INTERVAL = 10 * 60 * 1000; // scan profond toutes les 10 min
+const TRACKER_FILE = path.join(__dirname, 'deploy-tracker.json');
+
+// Charger le tracker au démarrage
+function loadTracker() {
+  try {
+    if (fs.existsSync(TRACKER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TRACKER_FILE, 'utf-8'));
+      console.log('[WATCHDOG] Tracker rechargé : ' + Object.keys(data).length + ' comptes en mémoire');
+      return data || {};
+    }
+  } catch(e) { console.log('[WATCHDOG] Erreur lecture tracker:', e.message); }
+  return {};
+}
+
+// Sauvegarder le tracker (appelé après chaque modif + toutes les 10s)
+function saveTracker() {
+  try {
+    fs.writeFileSync(TRACKER_FILE, JSON.stringify(deployTracker, null, 2));
+  } catch(e) { console.log('[WATCHDOG] Erreur écriture tracker:', e.message); }
+}
 
 // Marquer un compte comme deployé
 function trackDeploy(accountId, login) {
@@ -43,6 +81,7 @@ function trackDeploy(accountId, login) {
     login: login || 'unknown'
   };
   console.log('[WATCHDOG] Deploy tracked: ' + accountId + ' (' + login + ')');
+  saveTracker();
 }
 
 // Marquer un compte comme undeployé (le retire du tracker)
@@ -51,10 +90,11 @@ function trackUndeploy(accountId) {
     const elapsed = Math.round((Date.now() - deployTracker[accountId].deployedAt) / 1000);
     console.log('[WATCHDOG] Undeploy tracked: ' + accountId + ' (apres ' + elapsed + 's)');
     delete deployTracker[accountId];
+    saveTracker();
   }
 }
 
-// Watchdog principal : verifie toutes les 60s qu'aucun compte n'est deployé > 5 min
+// Watchdog interne : vérifie le tracker toutes les 30s
 async function watchdogCheck() {
   if (!metaApi) return;
   const now = Date.now();
@@ -64,25 +104,79 @@ async function watchdogCheck() {
 
   if (expired.length === 0) return;
 
-  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 5 min → undeploy force');
+  console.log('[WATCHDOG] ' + expired.length + ' compte(s) deployes > 90s → undeploy force');
 
   for (const [accountId, data] of expired) {
     try {
       const account = await metaApi.metatraderAccountApi.getAccount(accountId);
       if (account && account.state !== 'UNDEPLOYED') {
         await account.undeploy();
-        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ')');
+        console.log('[WATCHDOG] ✅ Undeploy force pour ' + accountId + ' (login ' + data.login + ', age ' + Math.round((now - data.deployedAt)/1000) + 's)');
       }
     } catch (err) {
       console.log('[WATCHDOG] Erreur undeploy ' + accountId + ':', err.message);
     } finally {
       delete deployTracker[accountId];
+      saveTracker();
     }
   }
 }
 
+// HARD SCAN : filet de sécurité ultime contre les comptes "fantômes"
+async function hardScanComptesFantomes() {
+  if (!metaApi) return;
+  try {
+    const accountsApi = metaApi.metatraderAccountApi;
+    let allAccounts = [];
+
+    if (typeof accountsApi.getAccountsWithInfiniteScrollPagination === 'function') {
+      let page = 0;
+      while (page < 50) {
+        try {
+          const resp = await accountsApi.getAccountsWithInfiniteScrollPagination({ limit: 100, offset: page * 100 });
+          const items = resp.items || resp || [];
+          if (items.length === 0) break;
+          allAccounts.push(...items);
+          if (items.length < 100) break;
+          page++;
+        } catch(e) { break; }
+      }
+    } else if (typeof accountsApi.getAccounts === 'function') {
+      allAccounts = await accountsApi.getAccounts({});
+    }
+
+    const aimDeployed = allAccounts.filter(a =>
+      String(a.name || '').startsWith('AIM-') && a.state !== 'UNDEPLOYED'
+    );
+
+    if (aimDeployed.length > 0) {
+      console.log('[HARD-SCAN] ⚠️ ' + aimDeployed.length + ' compte(s) AIM deployed détectés');
+
+      for (const acc of aimDeployed) {
+        const tracked = deployTracker[acc.id];
+        const now = Date.now();
+        const ageTracker = tracked ? (now - tracked.deployedAt) : Infinity;
+
+        if (!tracked || ageTracker > MAX_DEPLOY_MS) {
+          try {
+            await acc.undeploy();
+            console.log('[HARD-SCAN] ✅ Compte fantôme undeployed: ' + acc.login + ' (id=' + acc.id + ', tracked=' + (tracked ? Math.round(ageTracker/1000)+'s' : 'NON') + ')');
+            if (deployTracker[acc.id]) {
+              delete deployTracker[acc.id];
+              saveTracker();
+            }
+          } catch(e) {
+            console.log('[HARD-SCAN] Erreur undeploy ' + acc.login + ':', e.message);
+          }
+        }
+      }
+    }
+  } catch(err) {
+    console.log('[HARD-SCAN] Erreur:', err.message);
+  }
+}
+
 // Scan au demarrage : trouve tous les comptes encore deployés et les arrete
-// (au cas ou le serveur a redemarre sans avoir fait undeploy)
 async function watchdogBootScan() {
   if (!metaApi) return;
   console.log('[WATCHDOG] Boot scan en cours...');
@@ -90,7 +184,6 @@ async function watchdogBootScan() {
     const accountsApi = metaApi.metatraderAccountApi;
     let allAccounts = [];
 
-    // Chercher tous les comptes (avec pagination si dispo)
     if (typeof accountsApi.getAccountsWithInfiniteScrollPagination === 'function') {
       let page = 0;
       while (page < 50) {
@@ -109,7 +202,6 @@ async function watchdogBootScan() {
       allAccounts = await accountsApi.getAccounts({});
     }
 
-    // Filtrer ceux qui sont deployes (utilise par AI-Mazza, ID commence par 'AIM-')
     const aimDeployed = allAccounts.filter(a =>
       String(a.name || '').startsWith('AIM-') &&
       a.state !== 'UNDEPLOYED'
@@ -131,11 +223,20 @@ async function watchdogBootScan() {
   }
 }
 
-// Lancer le watchdog toutes les 60 secondes
+// ─── INIT WATCHDOG ULTRA-RENFORCÉ ─────────────────────────────────
+deployTracker = loadTracker();
+
 if (metaApi) {
-  setInterval(watchdogCheck, 60 * 1000);
-  // Boot scan apres 30s (laisse le temps au serveur de se stabiliser)
+  // Watchdog interne : check toutes les 30s
+  setInterval(watchdogCheck, WATCHDOG_INTERVAL);
+  // Boot scan : 30s après démarrage
   setTimeout(watchdogBootScan, 30 * 1000);
+  // HARD SCAN : filet ultime, 10 min
+  setInterval(hardScanComptesFantomes, HARD_SCAN_INTERVAL);
+  // Sauvegarde tracker toutes les 10s
+  setInterval(saveTracker, 10 * 1000);
+
+  console.log('[WATCHDOG] Multi-couches actif : interne 30s, hard scan 10min, max ' + (MAX_DEPLOY_MS/1000) + 's deployed');
 }
 
 // ─── CHIFFREMENT AES-256 POUR CREDENTIALS MT5 ───────────────────────
@@ -218,6 +319,42 @@ app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/l
 app.get('/register.html', (req, res) => res.sendFile(path.join(__dirname, 'public/register.html')));
 app.get('/success.html', (req, res) => res.sendFile(path.join(__dirname, 'public/success.html')));
 
+// ═══════════════════════════════════════════════════════════════════
+// 🔒 GATING PRO/ELITE — accès aux fonctionnalités avancées
+// ═══════════════════════════════════════════════════════════════════
+// Plans : free | starter | premium (= "pro") | elite
+// Les plans "premium" et "elite" ont accès à :
+//   - Connexion MT5 + ordres auto
+//   - Apprentissage IA personnalisé (post-mortem, setups gagnants)
+//   - Alertes A+ par email + notif in-app
+//   - Cours / contenus premium
+//   - Réajustement automatique entrée (anti-piège)
+
+function hasPremiumAccess(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (!user.subscribed) return false;
+  // Seuls 'premium' (= pro) et 'elite' ont l'accès complet
+  return user.plan === 'premium' || user.plan === 'elite' || user.plan === 'pro';
+}
+
+// Middleware : bloque la route si l'utilisateur n'a pas le bon plan
+async function checkPremium(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  try {
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!hasPremiumAccess(user)) {
+      return res.status(403).json({
+        error: 'Cette fonctionnalité nécessite un abonnement Pro ou Elite',
+        requiresPlan: 'premium',
+        currentPlan: user?.plan || 'free'
+      });
+    }
+    req.user = user;
+    next();
+  } catch(e) { res.status(500).json({ error: e.message }); }
+}
+
 function checkAuth(req, res, next) {
   if (!req.session || !req.session.userId) return res.redirect('/login.html');
   next();
@@ -282,6 +419,14 @@ function calculerLots(capital, risquePct, slPips, instrument, slDistanceDollars 
       ? slDistanceDollars
       : (slPips < 5 ? slPips : slPips / 10);
     valeurMouvementParLot = 50;
+  } else if (inst.includes('BTC') || inst.includes('BITCOIN')) {
+    // BTC : 1 lot = 1 BTC. 1$ de mouvement = 1$ par lot
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
+    valeurMouvementParLot = 1;
+  } else if (inst.includes('ETH') || inst.includes('ETHEREUM')) {
+    // ETH : 1 lot = 1 ETH typically. 1$ = 1$ par lot
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
+    valeurMouvementParLot = 1;
   } else if (inst.includes('JPY')) {
     // Forex JPY : 1 pip = 0.01, 1 lot = ~$9 par pip
     slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0
@@ -289,11 +434,23 @@ function calculerLots(capital, risquePct, slPips, instrument, slDistanceDollars 
       : slPips * 0.01;
     valeurMouvementParLot = 909; // ~$9.09 par pip * 100 pips/dollar
   } else if (inst.includes('NAS') || inst.includes('NDX') || inst.includes('US100')) {
+    // NAS100 : 1 lot = 1 contract. 1 point = 1$ par lot
     slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
     valeurMouvementParLot = 1;
   } else if (inst.includes('SPX') || inst.includes('SP500') || inst.includes('US500')) {
     slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
     valeurMouvementParLot = 1;
+  } else if (inst.includes('US30') || inst.includes('DOW') || inst.includes('DJI')) {
+    // US30 : 1 lot = 1 contract Dow, 1 point = 1$ par lot (typique broker FX)
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
+    valeurMouvementParLot = 1;
+  } else if (inst.includes('GER40') || inst.includes('DAX') || inst.includes('GER30')) {
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
+    valeurMouvementParLot = 1;
+  } else if (inst.includes('OIL') || inst.includes('USOIL') || inst.includes('WTI') || inst.includes('UKOIL') || inst.includes('BRENT')) {
+    // Oil : 1 lot = 1000 barils, 1$ de mouvement = 1000$ par lot
+    slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0 ? slDistanceDollars : slPips;
+    valeurMouvementParLot = 1000;
   } else {
     // Forex standard : 1 pip = 0.0001, 1 lot = ~$10 par pip
     slEnDollars = slDistanceDollars !== null && slDistanceDollars > 0
@@ -311,22 +468,32 @@ function calculerLots(capital, risquePct, slPips, instrument, slDistanceDollars 
   lots = Math.round(lots * 100) / 100;
 
   // ─── PROTECTION : lot minimum coherent selon capital ──────────
-  // Si le calcul donne moins que ce qui est utile pour ce capital → ajuste
-  // Pour XAUUSD, le minimum utile :
-  //   - capital < $300 → 0.01 (tres petit compte)
-  //   - capital $300-1000 → 0.02 minimum (sinon profits ridicules)
-  //   - capital $1000-3000 → 0.03 minimum
-  //   - capital > $3000 → 0.05 minimum
+  // Pour XAUUSD ET autres actifs : si lot trop petit, pas de profit utile
+  let lotMinimum;
   if (inst.includes('XAU') || inst.includes('GOLD')) {
-    let lotMinimum;
     if (capital < 300) lotMinimum = 0.01;
     else if (capital < 1000) lotMinimum = 0.02;
     else if (capital < 3000) lotMinimum = 0.03;
     else lotMinimum = 0.05;
-    if (lots < lotMinimum) {
-      console.log('[LOTS] Calcul: ' + lots + ' → ajuste a ' + lotMinimum + ' (capital $' + capital + ')');
-      lots = lotMinimum;
-    }
+  } else if (inst.includes('BTC') || inst.includes('ETH')) {
+    // Crypto : lot très petit possible (0.01 BTC = $1000+ valeur exposition)
+    lotMinimum = 0.01;
+  } else if (inst.includes('NAS') || inst.includes('US100') || inst.includes('SPX') || inst.includes('US500') || inst.includes('US30') || inst.includes('GER40')) {
+    // Indices : 0.10 lot minimum utile
+    if (capital < 500) lotMinimum = 0.10;
+    else if (capital < 2000) lotMinimum = 0.20;
+    else lotMinimum = 0.50;
+  } else if (inst.includes('OIL') || inst.includes('WTI') || inst.includes('BRENT')) {
+    lotMinimum = 0.01; // Oil très volatil
+  } else {
+    // Forex standard : 0.01 par défaut sur petit compte
+    if (capital < 500) lotMinimum = 0.01;
+    else if (capital < 2000) lotMinimum = 0.05;
+    else lotMinimum = 0.10;
+  }
+  if (lots < lotMinimum) {
+    console.log('[LOTS] Calcul: ' + lots + ' → ajuste a ' + lotMinimum + ' (capital $' + capital + ', ' + inst + ')');
+    lots = lotMinimum;
   }
 
   // ─── PLAFOND DE SECURITE : ne jamais risquer plus de 5% du capital ──
@@ -2609,6 +2776,14 @@ async function getBlocOBFVG(userId, symbole) {
 async function enregistrerSetupGagnant(analyse) {
   if (typeof analyse.tradeProfit !== 'number' || analyse.tradeProfit <= 0) return;
   if (analyse.setupGagnantEnregistre) return;
+
+  // GATING : seuls les Pro/Elite contribuent à l'apprentissage
+  // (sinon on remplit la DB avec des trades de free qui ne sont pas pertinents)
+  try {
+    const userOwner = await db.findOneAsync({ _id: analyse.userId });
+    if (!hasPremiumAccess(userOwner)) return;
+  } catch(e) { return; }
+
   try {
     // Calculer le ratio R atteint
     const slDist = analyse.slPips || 0;
@@ -2711,6 +2886,9 @@ async function genererPostMortemAuto(analyse, userId) {
   try {
     const user = await db.findOneAsync({ _id: userId });
     if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
+
+    // GATING : post-mortem auto uniquement Pro/Elite
+    if (!hasPremiumAccess(user)) return null;
 
     const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
     if (account.state !== 'DEPLOYED') return null;
@@ -2870,11 +3048,14 @@ async function envoyerAlerteSetupAPlus(parsed, analyseId) {
   if (parsed.decision !== 'BUY' && parsed.decision !== 'SELL') return;
 
   try {
+    // GATING : seulement les Pro/Elite reçoivent les alertes A+
+    // Les free/starter ne reçoivent pas (incentive à upgrade)
     const clients = await db.findAsync({
       role: { $ne: 'admin' },
       subscribed: true,
       isVerified: true,
-      banned: { $ne: true }
+      banned: { $ne: true },
+      plan: { $in: ['premium', 'elite', 'pro'] }
     });
 
     if (!clients || clients.length === 0) {
@@ -2896,7 +3077,9 @@ async function envoyerAlerteSetupAPlus(parsed, analyseId) {
     const tp3        = parsed.tp3    || '—';
     const lots       = parsed.lots   || '—';
     const raison     = parsed.raisonCourte || parsed.raison || parsed.analyse || "Setup validé par l\'IA";
-    const lienApp    = BASE_URL;
+    // Lien profond vers le site avec ouverture auto du modal du setup
+    // Le frontend détecte ?aplus=ID dans l'URL et ouvre le modal correspondant
+    const lienApp    = BASE_URL + '/?aplus=' + (analyseId || '');
     const idCourt    = analyseId ? String(analyseId).substring(0, 8) : '—';
 
     const htmlEmail = `<!DOCTYPE html>
@@ -3068,6 +3251,9 @@ async function surveillerTradesEtApprendre() {
         const user = await db.findOneAsync({ _id: userId });
         if (!user || !user.mt5 || !user.mt5.metaApiAccountId) continue;
 
+        // GATING : apprentissage IA uniquement Pro/Elite (free/starter exclu)
+        if (!hasPremiumAccess(user)) continue;
+
         apprentissageAccount = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
 
         // ─── FIX COÛT METAAPI : ne deploy QUE si nécessaire ─────────────
@@ -3142,8 +3328,8 @@ async function surveillerTradesEtApprendre() {
     }
   } catch(err) { console.log('[APPRENTISSAGE] Erreur globale:', err.message); }
 }
-// FIX COÛT : 5min → 15min (deals ne se ferment pas si vite, économise 2/3 des appels MetaApi)
-setInterval(surveillerTradesEtApprendre, 15 * 60 * 1000);
+// FIX COÛT : 5min → 30min (apprentissage pas urgent, économise massivement)
+setInterval(surveillerTradesEtApprendre, 30 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════
 // 🛡️ RATE LIMITER (protège la facture Anthropic)
@@ -3403,6 +3589,8 @@ app.get('/me', checkAuth, async (req, res) => {
     analysisCount: user.analysisCount,
     analysisMax: user.analysisMax,
     subscribed: user.subscribed,
+    plan: user.plan || 'free',
+    hasPremium: hasPremiumAccess(user),
     paiementEnRetard: isPaiementEnRetard(user),
     paidUntil: user.paidUntil || null,
     mt5: user.mt5 ? {
@@ -3611,6 +3799,57 @@ app.get('/analyses/source/:id/statut', checkAuth, async (req, res) => {
       decision: analyse.decision || null
     });
   } catch(e) { res.json({ statut: null }); }
+});
+
+// ─── GET /aplus/:id — récupérer les détails d'un setup A+ pour un user ─────
+// Quand un user clique sur le lien email "Voir le setup", on lui retourne
+// les détails complets + le LOT RECALCULÉ pour SON capital.
+app.get('/aplus/:id', checkAuth, async (req, res) => {
+  try {
+    const analyse = await analysesDb.findOneAsync({ _id: req.params.id });
+    if (!analyse) return res.status(404).json({ error: 'Setup introuvable' });
+
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!hasPremiumAccess(user)) {
+      return res.status(403).json({ error: 'Plan Pro/Elite requis pour voir ce setup' });
+    }
+
+    // Recalculer le lot pour CE user (pas celui du shareur)
+    let lots = analyse.lots; // fallback
+    let montantRisque = analyse.montantRisque;
+    let risquePct = 3;
+    if (user.mt5 && user.mt5.capital && analyse.entree && analyse.sl) {
+      const score = parseFloat(analyse.score) || 7;
+      risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
+      const slDist = Math.abs(parseFloat(analyse.entree) - parseFloat(analyse.sl));
+      const lotsCalc = calculerLots(parseFloat(user.mt5.capital), risquePct, analyse.slPips, analyse.instrument || '', slDist);
+      if (lotsCalc) {
+        lots = lotsCalc;
+        montantRisque = (parseFloat(user.mt5.capital) * risquePct / 100).toFixed(2);
+      }
+    }
+
+    res.json({
+      _id: analyse._id,
+      decision: analyse.decision,
+      instrument: analyse.instrument,
+      entree: analyse.entree || analyse.entry,
+      sl: analyse.sl,
+      tp1: analyse.tp1 || analyse.tp,
+      tp2: analyse.tp2,
+      tp3: analyse.tp3,
+      score: analyse.score,
+      lots,
+      montantRisque,
+      risquePct,
+      sourceAnalysisId: analyse._id,
+      raisonCourte: analyse.raisonCourte || analyse.raison || null,
+      statut: analyse.feedbackResult || null,
+      hasMT5: !!(user.mt5 && user.mt5.metaApiAccountId)
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/notifications', checkAuth, async (req, res) => {
@@ -4241,8 +4480,14 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
           const instrument = parsed.instrument || 'XAUUSD';
           const risquePct  = sc >= 8 ? 3 : sc >= 6 ? 2 : 1;
 
-          // FIX cohérence : notif in-app envoyée aux mêmes clients que l'email (subscribed uniquement)
-          const clients = await db.findAsync({ role: { $ne: 'admin' }, subscribed: true, isVerified: true, banned: { $ne: true } });
+          // GATING : notifs in-app uniquement aux Pro/Elite (cohérence avec email)
+          const clients = await db.findAsync({
+            role: { $ne: 'admin' },
+            subscribed: true,
+            isVerified: true,
+            banned: { $ne: true },
+            plan: { $in: ['premium', 'elite', 'pro'] }
+          });
 
           for (const client of clients) {
             // ─── LOT PERSONNALISÉ AU CAPITAL DU CLIENT ──────────────────────
@@ -4654,6 +4899,9 @@ async function saveMT5Credentials(userId, mt5Data) {
 // Réutilise les comptes MetaApi existants (créés par le bot ou par le site)
 // Permet aussi de changer de compte (écrase l'ancienne connexion proprement)
 app.post('/mt5/connect', async (req, res) => {
+  // GATING : seulement Pro/Elite
+  const _u = await db.findOneAsync({ _id: req.session.userId });
+  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'Connexion MT5 reservee aux plans Pro/Elite. Mets a niveau ton abonnement.', requiresPlan: 'premium' });
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure cote serveur' });
 
@@ -4861,6 +5109,8 @@ app.post('/mt5/connect', async (req, res) => {
 // ─── POST /mt5/switch : changer de compte MT5 ────────────────────────
 // Undeploy l'ancien compte MetaApi AVANT de switch pour éviter la facturation inutile
 app.post('/mt5/switch', async (req, res) => {
+  const _u = await db.findOneAsync({ _id: req.session.userId });
+  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'Plan Pro/Elite requis' });
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   try {
     // Récupérer l'ancien compte MetaApi et l'undeploy proprement
@@ -4940,6 +5190,8 @@ app.get('/mt5/status', async (req, res) => {
 // ─── POST /mt5/refresh-capital : refresh capital depuis MT5 ─────────
 // Deploy le compte temporairement pour recuperer le capital actuel
 app.post('/mt5/refresh-capital', async (req, res) => {
+  const _u = await db.findOneAsync({ _id: req.session.userId });
+  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'Plan Pro/Elite requis' });
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
 
@@ -4977,7 +5229,7 @@ app.post('/mt5/place-order', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
 
-  const { symbol, direction, volume, entryPrice, sl, tp } = req.body;
+  const { symbol, direction, volume, entryPrice, sl, tp, analysisId, tp1, tp2, tp3, score } = req.body;
   if (!symbol || !direction || !volume || !entryPrice || !sl) {
     return res.status(400).json({ error: 'Donnees ordre incompletes' });
   }
@@ -4986,7 +5238,7 @@ app.post('/mt5/place-order', async (req, res) => {
 
   // ─── RESTRICTION PLAN : placement auto réservé Premium/Elite ────
   const planPO = (user && user.plan) ? user.plan.toLowerCase() : 'free';
-  if (user && user.role !== 'admin' && !['premium', 'elite', 'admin'].includes(planPO)) {
+  if (user && user.role !== 'admin' && !['premium', 'elite', 'pro', 'admin'].includes(planPO)) {
     return res.status(403).json({
       error: 'mt5_plan_required',
       message: 'Le placement automatique est réservé aux plans Premium et Elite.'
@@ -4995,6 +5247,65 @@ app.post('/mt5/place-order', async (req, res) => {
 
   if (!user || !user.mt5 || !user.mt5.metaApiAccountId) {
     return res.status(404).json({ error: 'MT5 non connecte. Connecte ton compte d\'abord.' });
+  }
+
+  // ─── COPIER L'ANALYSE DANS LA DB DU USER (pour TP partiel) ──────
+  // Quand un user clique "ordre auto" sur une notif A+ partagée par un autre,
+  // l'analyse n'existe pas dans SA DB → wrapper TP ne la trouve pas → pas de TP partiel.
+  // → On créé une copie de l'analyse pour CE user pour activer le tracking TP.
+  let analyseCopiee = null;
+  try {
+    let analyseSource = null;
+    if (analysisId) {
+      analyseSource = await analysesDb.findOneAsync({ _id: analysisId });
+    }
+
+    // Si analyse trouvée et qu'elle n'appartient pas déjà à ce user, la copier
+    if (analyseSource && analyseSource.userId !== req.session.userId) {
+      analyseCopiee = {
+        _id: uuidv4(),
+        userId: req.session.userId,
+        instrument: symbol,
+        decision: direction.toUpperCase(),
+        entree: parseFloat(entryPrice),
+        entry: parseFloat(entryPrice),
+        sl: parseFloat(sl),
+        tp1: tp1 || analyseSource.tp1 || tp || null,
+        tp2: tp2 || analyseSource.tp2 || null,
+        tp3: tp3 || analyseSource.tp3 || null,
+        tp: tp || tp1 || analyseSource.tp1 || null,
+        score: score || analyseSource.score || 8,
+        lots: parseFloat(volume),
+        createdAt: new Date(),
+        sourceFromAplusBroadcast: true,
+        sourceAnalysisId: analysisId
+      };
+      await analysesDb.insertAsync(analyseCopiee);
+      console.log('[MT5-ORDER] Analyse copiée pour user ' + req.session.userId + ' (source: ' + analysisId + ')');
+    } else if (!analysisId && (tp1 || tp)) {
+      // Pas d'analysisId fourni, mais le frontend a envoyé les TP → créer quand même l'analyse pour le tracking
+      analyseCopiee = {
+        _id: uuidv4(),
+        userId: req.session.userId,
+        instrument: symbol,
+        decision: direction.toUpperCase(),
+        entree: parseFloat(entryPrice),
+        entry: parseFloat(entryPrice),
+        sl: parseFloat(sl),
+        tp1: tp1 || tp || null,
+        tp2: tp2 || null,
+        tp3: tp3 || null,
+        tp: tp || tp1 || null,
+        score: score || 7,
+        lots: parseFloat(volume),
+        createdAt: new Date(),
+        sourceFromManualOrder: true
+      };
+      await analysesDb.insertAsync(analyseCopiee);
+    }
+  } catch(copyErr) {
+    console.log('[MT5-ORDER] Erreur copie analyse:', copyErr.message);
+    // continue quand même : l'ordre sera placé, juste pas de TP partiel auto
   }
 
   let account;
