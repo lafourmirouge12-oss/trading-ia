@@ -1215,7 +1215,7 @@
     </div>
 
     <div class="levels">
-      <div class="lv entry"><div class="lv-lbl">Entrée</div><div class="lv-val" id="lvEntry">—</div><div class="lv-sub">M1 précis</div></div>
+      <div class="lv entry"><div class="lv-lbl">Entrée</div><div class="lv-val" id="lvEntry">—</div><div class="lv-sub" id="lvEntrySub">M1 précis</div></div>
       <div class="lv sl"><div class="lv-lbl">Stop Loss</div><div class="lv-val" id="lvSL">—</div><div class="lv-sub" id="lvSLpips">—</div></div>
       <div class="lv tp"><div class="lv-lbl">Take Profit 1</div><div class="lv-val" id="lvTP1">—</div><div class="lv-sub" id="lvTP1pips">—</div></div>
     </div>
@@ -2014,6 +2014,8 @@ async function analyze(){
     if (d.hardBlockAlerte) alerts.push({ type: 'danger', icon: '🚫', title: 'Hard-block ICT', msg: d.hardBlockAlerte });
     if (d.slDirectionAlerte) alerts.push({ type: 'danger', icon: '⚠️', title: 'SL incohérent corrigé', msg: d.slDirectionAlerte });
     if (d.scoreGuardAlerte) alerts.push({ type: 'danger', icon: '📉', title: 'Score insuffisant', msg: d.scoreGuardAlerte });
+    if (d.entreeInvalideAlerte) alerts.push({ type: 'danger', icon: '🔢', title: 'Entrée non numérique', msg: d.entreeInvalideAlerte });
+    if (d.numInvalideAlerte) alerts.push({ type: 'danger', icon: '🔢', title: 'SL/TP non numérique', msg: d.numInvalideAlerte });
     if (d.contexteContradictoire) alerts.push({ type: 'danger', icon: '⚡', title: 'Contexte contradictoire', msg: d.conflitRaison || 'Dealing range et structure opposés' });
     alerts.forEach(a => {
       const div = document.createElement('div');
@@ -2094,6 +2096,15 @@ async function analyze(){
     } else {lotsBox.style.display='none';}
 
     document.getElementById('lvEntry').textContent=d.entree||'—';
+    // Afficher la description du niveau d'entrée (si l'IA l'a fournie)
+    const lvEntrySub = document.getElementById('lvEntrySub');
+    if (lvEntrySub) {
+      if (d.entreeLevel && d.entreeLevel.trim()) {
+        lvEntrySub.textContent = d.entreeLevel.length > 60 ? d.entreeLevel.substring(0, 60) + '…' : d.entreeLevel;
+      } else {
+        lvEntrySub.textContent = 'M1 précis';
+      }
+    }
     document.getElementById('lvSL').textContent=d.sl||'—';
     document.getElementById('lvSLpips').textContent=d.slPips?d.slPips+' pips':'';
     document.getElementById('lvTP1').textContent=d.tp1||'—';

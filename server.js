@@ -1943,9 +1943,24 @@ async function fetchAllMarketData(userId, symbole) {
     if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
 
     const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    // On suppose que le deploy est géré en amont par /analyze.
-    // Si pas DEPLOYED, on retourne null et chaque fonction tombera silencieusement.
-    if (account.state !== 'DEPLOYED') return null;
+
+    // ─── DEPLOY TEMPORAIRE SI NÉCESSAIRE ──────────────────────────
+    // CRITIQUE : si on retourne null quand compte UNDEPLOYED, toutes les
+    // protections (anti-contre-tendance, RSI extrême, etc.) sont skippées.
+    // Résultat : trades contre-tendance qui passent → perte du dépôt.
+    // → On deploy temporairement, on récupère les bougies, on undeploy après.
+    let deployedHere = false;
+    if (account.state !== 'DEPLOYED') {
+      try {
+        await account.deploy();
+        if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
+        deployedHere = true;
+        await account.waitConnected();
+      } catch(deployErr) {
+        console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
+        return null;
+      }
+    }
 
     const connection = account.getRPCConnection();
     await connection.connect();
@@ -2001,8 +2016,33 @@ async function fetchAllMarketData(userId, symbole) {
       }
     }
 
+    // ─── UNDEPLOY si on a deployé temporairement (économie MetaApi) ───
+    // Le watchdog l'undeploy aussi en filet de sécurité, mais on le fait
+    // explicitement ici pour réduire au maximum le temps deployed
+    if (deployedHere) {
+      // On undeploy en arrière-plan (pas await pour ne pas bloquer le retour)
+      // Le wrapper TP / les autres fonctions peuvent re-deploy si besoin
+      account.undeploy().then(() => {
+        if (typeof trackUndeploy === 'function') trackUndeploy(account.id);
+      }).catch(e => {
+        console.log('[FETCH-MARKET] Undeploy auto échoué : ' + e.message);
+      });
+    }
+
     return data;
   } catch(err) {
+    // En cas d'erreur, undeploy quand même si on a deployé
+    if (typeof deployedHere !== 'undefined' && deployedHere) {
+      try {
+        const u = await db.findOneAsync({ _id: userId });
+        if (u && u.mt5 && u.mt5.metaApiAccountId) {
+          const a = await metaApi.metatraderAccountApi.getAccount(u.mt5.metaApiAccountId);
+          if (a && a.state === 'DEPLOYED') {
+            a.undeploy().then(() => { if (typeof trackUndeploy === 'function') trackUndeploy(a.id); }).catch(()=>{});
+          }
+        }
+      } catch(e) {}
+    }
     console.log('[FETCH-MARKET-DATA] Erreur:', err.message);
     return null;
   }
@@ -4224,9 +4264,9 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "tendanceM5": "<M5 ou 'Non fourni'>",
   "tendanceM1": "<M1 ou 'Non fourni'>",
   "confluence": "<alignement TF>",
-  "entree": "<prix d'entrée précis>",
+  "entree": <NOMBRE UNIQUE OBLIGATOIRE — ex: 4558.50 — JAMAIS de zone "4558-4562", JAMAIS de texte, JAMAIS de plage>,
   "entreeType": "LIMIT" ou "MARKET",
-  "entreeLevel": "<description du niveau ex 'Retest OB H1 à 4675'>",
+  "entreeLevel": "<TEXTE descriptif uniquement ici, ex: 'Retest FVG bullish créée par displacement depuis 4528' ou 'Retest OB H1 4675'>",
   "entreeStatut": "IMMEDIATE" ou "EN_ATTENTE",
   "sl": "<stop loss — min 50 pips XAU sauf CRT Kasper qui peut descendre à 30 pips>",
   "slPips": <nombre>,
@@ -4374,12 +4414,57 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       }
     }
 
+    // ─── VALIDATION ENTREE = NOMBRE PUR (sinon trade annulé) ────
+    // Bug constaté : l'IA mettait parfois "4558-4562 (retest FVG ...)" dans entree
+    // au lieu d'un nombre. Résultat : SL distance fausse, MT5 confus.
+    // → On vérifie que entree est un nombre simple.
+    if (parsed.decision !== 'NE PAS TRADER' && parsed.entree !== undefined && parsed.entree !== null) {
+      const entreeStr = String(parsed.entree).trim();
+      const entreeNum = parseFloat(entreeStr);
+      // Doit être un nombre valide ET la string ne doit pas contenir d'autres chiffres
+      // ex: "4558" → ok, "4558.50" → ok, "4558-4562" → KO, "4558 (retest...)" → KO
+      const matchPur = /^-?\d+(\.\d+)?$/.test(entreeStr);
+      if (isNaN(entreeNum) || entreeNum <= 0 || !matchPur) {
+        console.log('[ENTREE-INVALIDE] L\'IA a retourné une entree non numérique : "' + entreeStr + '" → trade annulé');
+        // Si entreeLevel est vide, on déplace le contenu d'entree dedans pour ne pas perdre l'info
+        if (!parsed.entreeLevel || parsed.entreeLevel.trim() === '') {
+          parsed.entreeLevel = entreeStr;
+        }
+        parsed.decision = 'NE PAS TRADER';
+        parsed.entreeInvalideAlerte = 'Entree non numerique fournie par IA : "' + entreeStr.substring(0, 80) + '" — trade annulé pour sécurité';
+        parsed.entree = null;
+      } else {
+        // Normaliser : remplacer la string par le nombre arrondi à 2 décimales
+        parsed.entree = parseFloat(entreeNum.toFixed(2));
+      }
+    }
+
     // ─── GARDE SCORE MINIMUM CÔTÉ SERVEUR ──────────────────────
     // Même si l'IA rate la règle, on force le refus si score < 6
     if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < 6) {
       console.log('[SCORE-GUARD] Score ' + parsed.score + ' < 6 → NE PAS TRADER forcé côté serveur');
       parsed.decision = 'NE PAS TRADER';
       parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 6/10 pour trader';
+    }
+
+    // ─── VALIDATION SL/TP = NOMBRES PURS ───────────────────────
+    // Même protection que pour entree : SL/TP doivent être des nombres
+    if (parsed.decision !== 'NE PAS TRADER') {
+      const champsNum = ['sl', 'tp1', 'tp2', 'tp3'];
+      for (const champ of champsNum) {
+        if (parsed[champ] === undefined || parsed[champ] === null || parsed[champ] === '') continue;
+        const str = String(parsed[champ]).trim();
+        const num = parseFloat(str);
+        const pur = /^-?\d+(\.\d+)?$/.test(str);
+        if (isNaN(num) || !pur) {
+          console.log('[NUM-INVALIDE] ' + champ + ' non numérique : "' + str + '" → annulé');
+          parsed.decision = 'NE PAS TRADER';
+          parsed.numInvalideAlerte = champ + ' = "' + str.substring(0, 60) + '" non numérique';
+          break;
+        } else {
+          parsed[champ] = parseFloat(num.toFixed(2));
+        }
+      }
     }
 
     // ═════════════════════════════════════════════════════════════
