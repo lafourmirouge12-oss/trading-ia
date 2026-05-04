@@ -345,7 +345,8 @@ async function checkPremium(req, res, next) {
     const user = await db.findOneAsync({ _id: req.session.userId });
     if (!hasPremiumAccess(user)) {
       return res.status(403).json({
-        error: 'Cette fonctionnalité nécessite un abonnement Pro ou Elite',
+        error: 'mt5_plan_required',
+        message: '🔒 Connexion MT5 réservée aux plans Pro et Elite. Contacte @bigtazz pour upgrader.',
         requiresPlan: 'premium',
         currentPlan: user?.plan || 'free'
       });
@@ -364,6 +365,18 @@ function checkAdmin(req, res, next) {
     return res.status(403).json({ error: 'Accès refusé' });
   }
   next();
+}
+
+
+// ─── Middleware restriction plan Premium/Elite ──────────────────────
+function checkPremiumPlan(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  db.findOneAsync({ _id: req.session.userId }).then(user => {
+    if (!user) return res.status(401).json({ error: 'Utilisateur non trouvé' });
+    if (user.role === 'admin') return next();
+    if (hasPremiumAccess(user)) return next();
+    return res.status(403).json({ error: 'plan_required', message: 'Réservé aux plans Premium et Elite.' });
+  }).catch(() => res.status(500).json({ error: 'Erreur serveur' }));
 }
 
 function isPaiementEnRetard(user) {
@@ -3684,7 +3697,7 @@ app.post('/analyses/:id/feedback', checkAuth, async (req, res) => {
 // ─── ROUTES APPRENTISSAGE IA ────────────────────────────────────────
 // ─── ROUTES POST-MORTEM MANUEL (avec screen du SL touché) ─────
 // Liste les trades perdants en attente d'analyse
-app.get('/postmortem/pending', checkAuth, async (req, res) => {
+app.get('/postmortem/pending', checkAuth, checkPremiumPlan, async (req, res) => {
   try {
     const enAttente = await analysesDb.findAsync({
       userId: req.session.userId,
@@ -3698,7 +3711,7 @@ app.get('/postmortem/pending', checkAuth, async (req, res) => {
 });
 
 // Upload du screen du SL pour analyse approfondie
-app.post('/postmortem/:analysisId', checkAuth, upload.single('screen'), async (req, res) => {
+app.post('/postmortem/:analysisId', checkAuth, checkPremiumPlan, upload.single('screen'), async (req, res) => {
   try {
     const analyse = await analysesDb.findOneAsync({
       _id: req.params.analysisId,
@@ -3885,7 +3898,7 @@ app.post('/notifications/lues', checkAuth, async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/apprentissage/lecons', checkAuth, async (req, res) => {
+app.get('/apprentissage/lecons', checkAuth, checkPremiumPlan, async (req, res) => {
   try {
     const lecons = await leconsDb.findAsync({ userId: req.session.userId });
     lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -3893,14 +3906,14 @@ app.get('/apprentissage/lecons', checkAuth, async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/apprentissage/lecons/:id', checkAuth, async (req, res) => {
+app.delete('/apprentissage/lecons/:id', checkAuth, checkPremiumPlan, async (req, res) => {
   try {
     await leconsDb.removeAsync({ _id: req.params.id, userId: req.session.userId });
     res.json({ success: true });
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/apprentissage/setups-gagnants', checkAuth, async (req, res) => {
+app.get('/apprentissage/setups-gagnants', checkAuth, checkPremiumPlan, async (req, res) => {
   try {
     const setups = await setupsGagnantsDb.findAsync({ userId: req.session.userId });
     setups.sort((a, b) => b.profit - a.profit);
@@ -3908,7 +3921,7 @@ app.get('/apprentissage/setups-gagnants', checkAuth, async (req, res) => {
   } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/apprentissage/setups-gagnants/:id', checkAuth, async (req, res) => {
+app.delete('/apprentissage/setups-gagnants/:id', checkAuth, checkPremiumPlan, async (req, res) => {
   try {
     await setupsGagnantsDb.removeAsync({ _id: req.params.id, userId: req.session.userId });
     res.json({ success: true });
@@ -3977,7 +3990,7 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
       }
       if (isPaiementEnRetard(user)) {
         allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
-        return res.json({ error: 'paiement_en_retard', message: '⚠️ Impayé — Veuillez régler la somme.' });
+        return res.json({ error: 'paiement_en_retard', message: '⚠️ Abonnement expiré — Contacte @bigtazz pour renouveler ton accès.' });
       }
       if (!canAnalyze(user)) {
         allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
@@ -3987,7 +4000,11 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
 
     if (allFiles.length === 0) return res.status(400).json({ error: 'Aucune image reçue' });
 
-    const capital = parseFloat(req.body.capital) || 0;
+    let capital = parseFloat(req.body.capital) || 0;
+    // Fallback : si capital vide (MT5 connecté), utiliser mt5.capital en DB
+    if (capital <= 0 && user.mt5 && user.mt5.capital) {
+      capital = parseFloat(user.mt5.capital) || 0;
+    }
     const content = [];
     const tfNames = { imageH1: 'H1', imageM30: 'M30', imageM15: 'M15', imageM5: 'M5', imageM1: 'M1' };
     const tfOrder = ['imageH1', 'imageM30', 'imageM15', 'imageM5', 'imageM1'];
@@ -4441,16 +4458,23 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       _id: analysisId,
       userId: req.session.userId,
       decision: parsed.decision,
-      entry: parsed.entree,
+      entry: parsed.entree,   // 'entry' pour compatibilité historique
+      entree: parsed.entree,  // 'entree' pour les fonctions internes
       sl: parsed.sl,
-      tp: parsed.tp1,
-      tp2: parsed.tp2,
-      tp3: parsed.tp3,
+      tp: parsed.tp1, tp2: parsed.tp2, tp3: parsed.tp3,
       score: parsed.score,
       instrument: parsed.instrument,
       lots: parsed.lots,
+      slPips: parsed.slPips,
+      risquePct: parsed.risquePct,
+      montantRisque: parsed.montantRisque,
       manipulation: parsed.manipulation,
       crt: parsed.crt,
+      crtKasper: parsed.crtKasper || null,
+      ob: parsed.ob || null,
+      fvg: parsed.fvg || null,
+      entreeLevel: parsed.entreeLevel || null,
+      confluences: parsed.confluences || null,
       rangeHaut: parsed.rangeHaut,
       rangeBas: parsed.rangeBas,
       feedbackResult: null,
@@ -4544,6 +4568,48 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
     clearTimeout(cleanupTimer);
     if (global._analysesEnCours) global._analysesEnCours.delete(req.session.userId);
   }
+});
+
+
+// ─── GET /api/trade/:id — charger un trade depuis un lien email ──────
+app.get('/api/trade/:id', checkAuth, async (req, res) => {
+  try {
+    const analyse = await analysesDb.findOneAsync({ _id: req.params.id });
+    if (!analyse) return res.status(404).json({ error: 'Trade non trouvé' });
+    const viewer = await db.findOneAsync({ _id: req.session.userId });
+    let lotsViewer = null, montantViewer = null;
+    if (viewer && viewer.mt5 && viewer.mt5.capital) {
+      const cap = parseFloat(viewer.mt5.capital) || 0;
+      const entreeN = parseFloat(analyse.entry) || 0;
+      const slN = parseFloat(analyse.sl) || 0;
+      const slDist = entreeN && slN ? Math.abs(entreeN - slN) : 0;
+      if (cap > 0 && slDist > 0) {
+        const sc = parseFloat(analyse.score) || 0;
+        const riskPct = sc >= 8 ? 3 : sc >= 6 ? 2 : 1;
+        const calc = calculerLots(cap, riskPct, slDist, analyse.instrument || 'XAUUSD', slDist);
+        if (calc) {
+          const { facteur } = await getFacteurRisque(viewer._id, cap).catch(() => ({ facteur: 1 }));
+          lotsViewer = Math.max(0.01, Math.round(calc * facteur * 100) / 100);
+          montantViewer = (cap * riskPct / 100 * facteur).toFixed(2);
+        }
+      }
+    }
+    res.json({
+      analysisId: analyse._id,
+      decision: analyse.decision,
+      instrument: analyse.instrument || 'XAUUSD',
+      entree: analyse.entry,
+      sl: analyse.sl,
+      tp1: analyse.tp || analyse.tp1,
+      tp2: analyse.tp2,
+      tp3: analyse.tp3,
+      score: analyse.score,
+      lots: lotsViewer,
+      montantRisque: montantViewer,
+      feedbackResult: analyse.feedbackResult,
+      createdAt: analyse.createdAt
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/admin/users', checkAdmin, async (req, res) => {
@@ -4743,13 +4809,16 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
     }
     let paidUntil = null;
     if (subscribed) {
+      // 7 jours complets garantis → dimanche soir après J+7
       const now = new Date();
-      const nextSunday = new Date(now);
-      const day = now.getDay();
-      const daysUntilSunday = day === 0 ? 7 : 7 - day;
-      nextSunday.setDate(now.getDate() + daysUntilSunday);
-      nextSunday.setHours(23, 59, 59, 999);
+      const plusSeptJours = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const dayApres7 = plusSeptJours.getUTCDay();
+      const daysUntilSunday = dayApres7 === 0 ? 0 : 7 - dayApres7;
+      const nextSunday = new Date(plusSeptJours);
+      nextSunday.setUTCDate(plusSeptJours.getUTCDate() + daysUntilSunday);
+      nextSunday.setUTCHours(23, 59, 59, 999);
       paidUntil = nextSunday.toISOString();
+      console.log('[PAYMENT] paidUntil:', paidUntil);
     }
     await db.updateAsync({ _id: req.params.id }, {
       $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax, analysisCount: 0, paidUntil }
@@ -4899,11 +4968,11 @@ async function saveMT5Credentials(userId, mt5Data) {
 // Réutilise les comptes MetaApi existants (créés par le bot ou par le site)
 // Permet aussi de changer de compte (écrase l'ancienne connexion proprement)
 app.post('/mt5/connect', async (req, res) => {
-  // GATING : seulement Pro/Elite
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configuré côté serveur' });
+  // Vérification plan Premium/Elite
   const _u = await db.findOneAsync({ _id: req.session.userId });
-  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'Connexion MT5 reservee aux plans Pro/Elite. Mets a niveau ton abonnement.', requiresPlan: 'premium' });
-  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
-  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure cote serveur' });
+  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'mt5_plan_required', message: '🔒 Connexion MT5 réservée aux plans Pro et Elite. Contacte @bigtazz pour upgrader.' });
 
   // ─── RESTRICTION PLAN : MT5 réservé aux plans Premium et Elite ──
   // Les plans Free et Starter n'ont pas accès à la connexion MT5
@@ -5109,9 +5178,9 @@ app.post('/mt5/connect', async (req, res) => {
 // ─── POST /mt5/switch : changer de compte MT5 ────────────────────────
 // Undeploy l'ancien compte MetaApi AVANT de switch pour éviter la facturation inutile
 app.post('/mt5/switch', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
   const _u = await db.findOneAsync({ _id: req.session.userId });
-  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'Plan Pro/Elite requis' });
-  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'mt5_plan_required', message: '🔒 Réservé aux plans Pro et Elite.' });
   try {
     // Récupérer l'ancien compte MetaApi et l'undeploy proprement
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -5190,12 +5259,11 @@ app.get('/mt5/status', async (req, res) => {
 // ─── POST /mt5/refresh-capital : refresh capital depuis MT5 ─────────
 // Deploy le compte temporairement pour recuperer le capital actuel
 app.post('/mt5/refresh-capital', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configuré' });
   const _u = await db.findOneAsync({ _id: req.session.userId });
-  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'Plan Pro/Elite requis' });
-  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
-  if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
-
-  const user = await db.findOneAsync({ _id: req.session.userId });
+  if (!hasPremiumAccess(_u)) return res.status(403).json({ error: 'mt5_plan_required', message: '🔒 Réservé aux plans Pro et Elite.' });
+  const user = _u;
   if (!user || !user.mt5 || !user.mt5.metaApiAccountId) {
     return res.status(404).json({ error: 'MT5 non connecte' });
   }
@@ -5225,8 +5293,7 @@ app.post('/mt5/refresh-capital', async (req, res) => {
 });
 
 // ─── POST /mt5/place-order : placer un ordre LIMIT (deploy on-demand) ─
-app.post('/mt5/place-order', async (req, res) => {
-  if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
+app.post('/mt5/place-order', checkPremium, async (req, res) => {
   if (!metaApi) return res.status(500).json({ error: 'MetaApi non configure' });
 
   const { symbol, direction, volume, entryPrice, sl, tp, analysisId, tp1, tp2, tp3, score } = req.body;

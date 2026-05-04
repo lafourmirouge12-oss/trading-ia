@@ -866,7 +866,7 @@
 
   <div class="impaye-banner" id="impayeBanner">
     <div class="impaye-title">⚠ Impayé</div>
-    <div class="impaye-txt">Veuillez régler la somme pour accéder aux analyses.<br>Contactez-nous en privé pour débloquer votre accès.</div>
+    <div class="impaye-txt">Abonnement expiré — Contacte <strong>@bigtazz</strong> pour renouveler ton accès hebdomadaire.</div>
   </div>
 
   <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
@@ -1022,6 +1022,26 @@
           <div class="mt5-info-value" id="mt5LoginDisplay">—</div>
           <div class="mt5-info-sub" id="mt5ServerDisplay">—</div>
         </div>
+      </div>
+    </div>
+
+    <!-- ═══ INSTRUMENT — toujours visible ═══ -->
+    <div class="box" id="instrumentBox" style="margin-bottom:12px;">
+      <div class="box-title">◈ Instrument</div>
+      <div class="cap-row">
+        <span class="cap-sym" style="font-size:14px;">📈</span>
+        <select id="instrumentSelect" style="flex:1;background:rgba(0,245,255,0.04);border:1px solid rgba(0,245,255,0.2);border-radius:2px;padding:11px 14px;color:#fff;font-family:'Orbitron',monospace;font-size:12px;outline:none;">
+          <option value="XAUUSD">XAUUSD — Or</option>
+          <option value="XAGUSD">XAGUSD — Argent</option>
+          <option value="EURUSD">EURUSD</option>
+          <option value="GBPUSD">GBPUSD</option>
+          <option value="USDJPY">USDJPY</option>
+          <option value="USDCHF">USDCHF</option>
+          <option value="GBPJPY">GBPJPY</option>
+          <option value="US100">US100 — Nasdaq</option>
+          <option value="US500">US500 — S&amp;P 500</option>
+          <option value="US30">US30 — Dow Jones</option>
+        </select>
       </div>
     </div>
 
@@ -1205,17 +1225,17 @@
       <div class="tp-card" id="tpCard1" onclick="selectTP(1)">
         <div class="tp-lbl">◈ TP 1</div>
         <div class="tp-val" id="tp1Val">—</div>
-        <div class="tp-rr">RR 1:2</div>
+        <div class="tp-rr" id="tp1RR">RR —</div>
       </div>
       <div class="tp-card" id="tpCard2" onclick="selectTP(2)">
         <div class="tp-lbl">◈ TP 2</div>
         <div class="tp-val" id="tp2Val">—</div>
-        <div class="tp-rr">RR 1:3</div>
+        <div class="tp-rr" id="tp2RR">RR —</div>
       </div>
       <div class="tp-card" id="tpCard3" onclick="selectTP(3)">
         <div class="tp-lbl">◈ TP 3</div>
         <div class="tp-val" id="tp3Val">—</div>
-        <div class="tp-rr">RR 1:4</div>
+        <div class="tp-rr" id="tp3RR">RR —</div>
       </div>
     </div>
 
@@ -1297,7 +1317,7 @@ function startIdleTimer() {
   idleSleepTimer = setTimeout(() => {
     fetch('/api/idle', { method: 'POST' }).catch(() => {});
     console.log('[J4keIA] Aucune activité — API mise en veille');
-  }, 10000); // 10 secondes
+  }, 5 * 60 * 1000); // FIX : 10s → 5min (évite de couper si l'user lit juste la page) // 10 secondes
 }
 
 // Réinitialiser le timer à chaque interaction
@@ -1358,9 +1378,9 @@ function selectTP(num) {
 fetch('/me').then(r=>r.json()).then(u=>{
   if(u.error==='session_conflict'||u.error==='banned'){window.location.href='/login.html';return;}
 
-  // GATING UI : stocker hasPremium en global pour le frontend
+  // GATING UI : calculer isPremium depuis u.plan (hasPremium n'existe pas dans /me)
   window.userPlan = u.plan || 'free';
-  window.hasPremium = !!u.hasPremium;
+  window.hasPremium = (u.plan === 'premium' || u.plan === 'elite' || u.role === 'admin');
 
   if(u.paiementEnRetard){
     document.getElementById('impayeBanner').classList.add('show');
@@ -1389,57 +1409,36 @@ fetch('/me').then(r=>r.json()).then(u=>{
   // ─── GATING : MT5 réservé Pro/Elite ────────────────────────────
   // Si l'utilisateur n'a pas le plan Pro/Elite, on cache la section MT5
   // et on affiche un message d'upgrade à la place
-  if (!u.hasPremium && u.role !== 'admin') {
+  // Gating plans : MT5 + leçons + setups → premium/elite seulement
+  if (!window.hasPremium) {
+    // Cacher la box de connexion MT5 (pas la box capital manuelle)
     const mt5Box = document.getElementById('mt5ConnectBox');
-    const mt5Connected = document.getElementById('mt5ConnectedBox');
     if (mt5Box) mt5Box.style.display = 'none';
-    if (mt5Connected) mt5Connected.style.display = 'none';
-
-    // Afficher un upgrade banner à la place du capital manual
-    const capManualBox = document.getElementById('capitalManualBox');
-    if (capManualBox && !document.getElementById('upgradeBannerMT5')) {
-      const upgradeMsg = document.createElement('div');
-      upgradeMsg.id = 'upgradeBannerMT5';
-      upgradeMsg.style.cssText = 'background:linear-gradient(135deg,rgba(255,215,0,0.08),rgba(255,0,150,0.05));border:1px solid rgba(255,215,0,0.3);border-radius:6px;padding:14px;margin-bottom:12px;';
-      upgradeMsg.innerHTML = '<div style="color:#ffd700;font-size:11px;letter-spacing:2px;margin-bottom:6px;font-weight:700;">⭐ PASSE EN PRO OU ELITE</div>' +
-        '<div style="color:rgba(255,255,255,0.85);font-size:13px;line-height:1.5;">Connecte ton MT5, reçois les alertes setups A+ par mail, profite de l\'IA personnalisée qui apprend de tes trades.</div>';
-      capManualBox.parentNode.insertBefore(upgradeMsg, capManualBox);
-    }
-    // continuer normalement avec l'input capital manuel
-    document.getElementById('capitalManualBox').style.display='block';
-    loadHist();
-    return;
+    // Cacher le lien "Connecte ton MT5" dans le fallback capital
+    const fallbackLink = document.querySelector('#capitalManualBox .mt5-fallback-link');
+    if (fallbackLink) fallbackLink.style.display = 'none';
+    // Cacher les boutons apprentissage (leçons / setups gagnants)
+    const learningBar = document.querySelector('.learning-bar');
+    if (learningBar) learningBar.style.display = 'none';
   }
 
   // ─── Affichage MT5 connecte ou pas ────────────────────────────
   if(u.mt5 && u.mt5.connected){
     mt5IsConnected = true;
     document.getElementById('mt5ConnectBox').style.display='none';
-    // ✅ FIX : garder capitalManualBox visible pour le sélecteur instrument
-    // Cacher seulement l'input capital (MT5 le gère automatiquement)
-    document.getElementById('capitalManualBox').style.display='block';
-    // Cacher l'input capital et le lien connexion MT5 (MT5 gère le capital automatiquement)
-    const capInpEl = document.getElementById('capInput');
-    if (capInpEl) {
-      capInpEl.closest('.cap-row') ? capInpEl.closest('.cap-row').style.display='none' : capInpEl.style.display='none';
-    }
-    const fallbackLink = document.querySelector('#capitalManualBox .mt5-fallback-link');
-    if (fallbackLink) fallbackLink.style.display = 'none';
+    document.getElementById('capitalManualBox').style.display='none';
     document.getElementById('mt5ConnectedBox').style.display='block';
-    document.getElementById('mt5Capital').textContent='$'+(u.mt5.capital||0);
-    document.getElementById('mt5LoginDisplay').textContent=u.mt5.login;
-    document.getElementById('mt5ServerDisplay').textContent=u.mt5.server;
-    const badge=document.getElementById('mt5TypeBadge');
-    if(u.mt5.accountType==='real'){
-      badge.textContent='RÉEL';
-      badge.className='mt5-type-badge real';
-    } else {
-      badge.textContent='DÉMO';
-      badge.className='mt5-type-badge demo';
-    }
-    // Pre-remplir le capital cache pour les analyses
-    if(document.getElementById('capInput')){
-      document.getElementById('capInput').value=u.mt5.capital||'';
+
+    // Pré-remplir le capital caché pour les analyses (value lisible même si display:none)
+    const capEl = document.getElementById('capInput');
+    if(capEl) capEl.value = u.mt5.capital || '';
+    document.getElementById('mt5Capital').textContent = '$' + (u.mt5.capital || 0);
+    document.getElementById('mt5LoginDisplay').textContent = u.mt5.login;
+    document.getElementById('mt5ServerDisplay').textContent = u.mt5.server;
+    const badge = document.getElementById('mt5TypeBadge');
+    if(badge){
+      badge.textContent = u.mt5.accountType === 'real' ? 'RÉEL' : 'DÉMO';
+      badge.className = 'mt5-type-badge ' + (u.mt5.accountType === 'real' ? 'real' : 'demo');
     }
   } else {
     document.getElementById('capitalManualBox').style.display='block';
@@ -1598,8 +1597,14 @@ async function placerOrdre() {
   const entree = parsePrice(a.entree);
   const sl     = parsePrice(a.sl);
   // Utilise le TP choisi par le client
-  const tpKey  = 'tp' + selectedTP;
-  const tp     = parsePrice(a[tpKey]) || parsePrice(a.tp1);
+  const tpKey = 'tp' + selectedTP;
+  let tp = parsePrice(a[tpKey]);
+  if (!tp) {
+    const fallback = parsePrice(a.tp1);
+    if (!fallback) { alert('TP invalide, relance une analyse.'); return; }
+    console.warn('[PLACER] TP' + selectedTP + ' indisponible → fallback TP1');
+    tp = fallback;
+  }
   const lots   = a.lots || 0.01;
   const isBuy  = String(a.decision).toUpperCase().includes('BUY');
 
@@ -1738,7 +1743,10 @@ function fallbackCopy(text) {
 
 async function sendFb(res){
   document.querySelectorAll('.fb-btn').forEach(b=>b.classList.remove('sel'));
-  document.querySelector('.fb-btn.'+res).classList.add('sel');
+  // FIX : 'pending' → classe CSS '.pend' (pas '.pending')
+  const clsMap = { tp: 'tp', sl: 'sl', pending: 'pend' };
+  const btnEl = document.querySelector('.fb-btn.' + (clsMap[res] || res));
+  if (btnEl) btnEl.classList.add('sel');
 
   // Si SL ou TP : afficher un loader pendant que l'IA bosse
   if (res === 'sl' || res === 'tp') {
@@ -1917,7 +1925,16 @@ async function analyze(){
   resetIdleTimer();
 
   const fd=new FormData();
-  fd.append('capital',cap);
+  // FIX : si MT5 connecté et capInput vide, récupérer capital depuis l'affichage
+  let capitalAEnvoyer = cap;
+  if (mt5IsConnected && (!capitalAEnvoyer || parseFloat(capitalAEnvoyer) <= 0)) {
+    const capDisplay = document.getElementById('mt5Capital');
+    if (capDisplay) capitalAEnvoyer = capDisplay.textContent.replace('$','').trim();
+  }
+  fd.append('capital', capitalAEnvoyer || '0');
+  // Envoyer l'instrument sélectionné au serveur
+  const instrEl = document.getElementById('instrumentSelect');
+  fd.append('instrument', instrEl ? instrEl.value : 'XAUUSD');
   const fileH1 = document.getElementById('fileH1')?.files[0];
   const fileM5 = document.getElementById('fileM5')?.files[0];
   if(fileH1)  fd.append('imageH1', fileH1);
@@ -1931,9 +1948,17 @@ async function analyze(){
     const d=await r.json();
 
     if(d.error==='session_conflict'){window.location.href='/login.html';return;}
+    if(r.status===429||d.error==='analysis_in_progress'){
+      alert(d.message||'⏳ Une analyse est déjà en cours. Attends quelques secondes.');
+      btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
+      document.getElementById('loadBar').classList.remove('on');
+      document.getElementById('loadTxt').classList.remove('on');
+      return;
+    }
     if(d.error==='paiement_en_retard'){
       document.getElementById('impayeBanner').classList.add('show');
       document.getElementById('statusTxt').textContent='IMPAYÉ';
+      btn.disabled=false;
       btn.textContent='⚠ Impayé';
       document.getElementById('loadBar').classList.remove('on');
       document.getElementById('loadTxt').classList.remove('on');
@@ -1977,6 +2002,10 @@ async function analyze(){
     if (d.protectionsAlertes) {
       alerts.push({ type: 'danger', icon: '🛡️', title: 'Protections avancées déclenchées', msg: d.protectionsAlertes });
     }
+    if (d.hardBlockAlerte) alerts.push({ type: 'danger', icon: '🚫', title: 'Hard-block ICT', msg: d.hardBlockAlerte });
+    if (d.slDirectionAlerte) alerts.push({ type: 'danger', icon: '⚠️', title: 'SL incohérent corrigé', msg: d.slDirectionAlerte });
+    if (d.scoreGuardAlerte) alerts.push({ type: 'danger', icon: '📉', title: 'Score insuffisant', msg: d.scoreGuardAlerte });
+    if (d.contexteContradictoire) alerts.push({ type: 'danger', icon: '⚡', title: 'Contexte contradictoire', msg: d.conflitRaison || 'Dealing range et structure opposés' });
     alerts.forEach(a => {
       const div = document.createElement('div');
       div.className = 'server-alert ' + a.type;
@@ -2063,6 +2092,17 @@ async function analyze(){
     document.getElementById('tp1Val').textContent=d.tp1||'—';
     document.getElementById('tp2Val').textContent=d.tp2||'—';
     document.getElementById('tp3Val').textContent=d.tp3||'—';
+    // Calcul RR réel dynamique
+    (function(){
+      const eNum=parseFloat(d.entree), sNum=parseFloat(d.sl);
+      const dSL=eNum&&sNum?Math.abs(eNum-sNum):0;
+      ['tp1','tp2','tp3'].forEach(k=>{
+        const tpNum=parseFloat(d[k]);
+        const el=document.getElementById(k+'RR');
+        if(el&&tpNum&&dSL>0) el.textContent='RR 1:'+(Math.abs(tpNum-eNum)/dSL).toFixed(1);
+        else if(el) el.textContent='—';
+      });
+    })();
     document.getElementById('bePrice').textContent=d.entree||'—';
     document.getElementById('smTendance').textContent=d.tendance||'—';
     document.getElementById('smConfl').textContent=d.confluence||'—';
@@ -2121,9 +2161,10 @@ async function analyze(){
   }catch(e){
     document.getElementById('statusTxt').textContent='ERREUR SERVEUR';
     console.error(e);
+    btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
+    document.getElementById('loadBar').classList.remove('on');
+    document.getElementById('loadTxt').classList.remove('on');
   }
-
-  btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
   document.getElementById('loadBar').classList.remove('on');
   document.getElementById('loadTxt').classList.remove('on');
 }
@@ -2428,7 +2469,7 @@ function ouvrirSetupAplus(notifId, data) {
             </button>
           ` : `
             <div style="text-align:center;color:#888;font-size:12px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;">
-              ${!window.hasPremium ? '⭐ Passe en Pro/Elite pour l\\'ordre auto' : 'Connecte ton MT5 pour l\\'ordre auto'}
+              ${!window.hasPremium ? "⭐ Passe en Pro/Elite pour l'ordre auto" : "Connecte ton MT5 pour l'ordre auto"}
             </div>
           `}
           <button onclick="fermerModalAplus()" style="background:transparent;color:#888;padding:10px;border:1px solid #333;border-radius:8px;font-size:12px;cursor:pointer;">
