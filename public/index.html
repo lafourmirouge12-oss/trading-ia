@@ -1016,6 +1016,12 @@
         <div class="mt5-info-block">
           <div class="mt5-info-label">CAPITAL</div>
           <div class="mt5-info-value-big" id="mt5Capital">—</div>
+          <div id="mt5CreditLine" style="display:none;font-size:10px;color:rgba(255,215,0,0.7);font-family:'Orbitron',monospace;letter-spacing:1px;margin-top:2px;">
+            <span style="opacity:0.5;">+ crédit</span> <span id="mt5CreditValue" style="font-weight:600;">—</span>
+          </div>
+          <div id="mt5TotalLine" style="display:none;font-size:9px;color:rgba(255,255,255,0.35);font-family:'Orbitron',monospace;letter-spacing:1px;margin-top:1px;">
+            = <span id="mt5TotalValue">—</span> utilisable
+          </div>
         </div>
         <div class="mt5-info-block">
           <div class="mt5-info-label">COMPTE</div>
@@ -1435,8 +1441,29 @@ fetch('/me').then(r=>r.json()).then(u=>{
       document.getElementById('mt5ConnectedBox').style.display='block';
       // Pré-remplir le capital caché pour les analyses
       const capEl = document.getElementById('capInput');
-      if(capEl) capEl.value = u.mt5.capital || '';
-      document.getElementById('mt5Capital').textContent = '$' + (u.mt5.capital || 0);
+      // Le capital "principal" pour le user = balance (son vrai argent)
+      // Le credit est affiché à part (bonus broker, généralement utilisable)
+      const capBal = (u.mt5.balance !== undefined && u.mt5.balance !== null) ? parseFloat(u.mt5.balance) : parseFloat(u.mt5.capital || 0);
+      const capCred = parseFloat(u.mt5.credit || 0);
+      const capTotal = capBal + capCred;
+
+      if(capEl) capEl.value = capTotal || '';
+
+      // Affichage : capital principal en gros, credit discret en dessous
+      document.getElementById('mt5Capital').textContent = '$' + capBal.toFixed(2);
+
+      const creditLine = document.getElementById('mt5CreditLine');
+      const totalLine = document.getElementById('mt5TotalLine');
+      if (creditLine && capCred > 0) {
+        document.getElementById('mt5CreditValue').textContent = '$' + capCred.toFixed(2);
+        document.getElementById('mt5TotalValue').textContent = '$' + capTotal.toFixed(2);
+        creditLine.style.display = 'block';
+        totalLine.style.display = 'block';
+      } else if (creditLine) {
+        creditLine.style.display = 'none';
+        totalLine.style.display = 'none';
+      }
+
       document.getElementById('mt5LoginDisplay').textContent = u.mt5.login;
       document.getElementById('mt5ServerDisplay').textContent = u.mt5.server;
       const badge = document.getElementById('mt5TypeBadge');
@@ -2578,13 +2605,32 @@ async function placerOrdreAplus(notifId, data) {
     });
     const result = await r.json();
     if (result.success) {
-      btn.textContent = '✅ Ordre placé !';
-      btn.style.background = '#00ff88';
-      setTimeout(() => fermerModalAplus(), 2000);
+      // Si l'entrée a été ajustée, le user doit savoir
+      if (result.entreeAjustee) {
+        btn.textContent = '✅ Ordre placé (entrée ajustée)';
+        btn.style.background = '#ffd700';
+        // Notification claire
+        setTimeout(() => {
+          alert('✅ Ordre placé sur MT5\n\n⚠️ Entrée ajustée :\n' + result.raisonAjustement +
+                '\n\n• Entrée finale : ' + result.entreeFinale +
+                '\n• SL : ' + result.slFinal +
+                (result.tpFinal ? '\n• TP : ' + result.tpFinal : ''));
+          fermerModalAplus();
+        }, 800);
+      } else {
+        btn.textContent = '✅ Ordre placé !';
+        btn.style.background = '#00ff88';
+        setTimeout(() => fermerModalAplus(), 2000);
+      }
     } else {
       btn.disabled = false;
       btn.textContent = '🤖 ORDRE AUTOMATIQUE (lot $' + data.lots + ')';
-      alert('Erreur : ' + (result.error || 'Échec du placement de l\'ordre'));
+      // Cas spécial : entrée trop loin (marché a trop bougé)
+      if (result.error === 'entry_too_far') {
+        alert('⚠️ Marché trop bougé\n\n' + result.message);
+      } else {
+        alert('Erreur : ' + (result.error || 'Échec du placement de l\'ordre'));
+      }
     }
   } catch(err) {
     alert('Erreur : ' + err.message);

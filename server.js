@@ -334,6 +334,8 @@ function hasPremiumAccess(user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
   if (!user.subscribed) return false;
+  // Bug fix : si le paiement est en retard, plus d'accès Premium
+  if (typeof isPaiementEnRetard === 'function' && isPaiementEnRetard(user)) return false;
   // Seuls 'premium' (= pro) et 'elite' ont l'accès complet
   return user.plan === 'premium' || user.plan === 'elite' || user.plan === 'pro';
 }
@@ -3652,6 +3654,9 @@ app.get('/me', checkAuth, async (req, res) => {
       server: user.mt5.server,
       accountType: user.mt5.accountType,
       capital: user.mt5.capital,
+      balance: user.mt5.balance,
+      credit: user.mt5.credit || 0,
+      equity: user.mt5.equity,
       currency: user.mt5.currency
     } : { connected: false }
   });
@@ -5201,11 +5206,19 @@ app.post('/mt5/connect', async (req, res) => {
       console.log('[MT5-CONNECT] WaitSynchronized (timeout 60s)...');
       await connection.waitSynchronized({ timeoutInSeconds: 60 });
       accountInfo = await connection.getAccountInformation();
-      console.log('[MT5-CONNECT] ✅ Capital récupéré: ' + accountInfo.balance + ' ' + accountInfo.currency);
+      console.log('[MT5-CONNECT] ✅ Capital récupéré: balance=' + accountInfo.balance + ' credit=' + (accountInfo.credit || 0) + ' equity=' + (accountInfo.equity || accountInfo.balance) + ' ' + accountInfo.currency);
     } catch(syncErr) {
       console.log('[MT5-CONNECT] Sync failed:', syncErr.message);
       // ON NE TOUCHE PAS AU UNDEPLOY — laisse le watchdog faire son job
       throw new Error('La connexion au broker a démarré mais la sync échoue. Réessaye dans 1 minute.');
+    }
+
+    // ─── CAPITAL EFFECTIF = balance + credit (bonus broker utilisable) ───
+    // Si le user a 0€ balance mais 500€ credit, on utilise 500 pour calculer les lots
+    // sinon le bloc lots ne s'affichera pas et le user bloquera
+    const capitalEffectif = (parseFloat(accountInfo.balance) || 0) + (parseFloat(accountInfo.credit) || 0);
+    if (capitalEffectif <= 0) {
+      console.log('[MT5-CONNECT] ⚠️ Capital effectif = 0 (balance + credit). Le compte ne pourra pas trader.');
     }
 
     // ─── Étape 5 : Sauvegarder les credentials chiffres ────────────
@@ -5215,7 +5228,10 @@ app.post('/mt5/connect', async (req, res) => {
       server,
       accountType: accountType || 'demo',
       metaApiAccountId: account.id,
-      capital: accountInfo.balance,
+      capital: capitalEffectif,           // balance + credit
+      balance: accountInfo.balance,        // garde aussi le détail
+      credit: accountInfo.credit || 0,
+      equity: accountInfo.equity || accountInfo.balance,
       currency: accountInfo.currency
     });
 
@@ -5228,12 +5244,14 @@ app.post('/mt5/connect', async (req, res) => {
 
     res.json({
       success: true,
-      capital: accountInfo.balance,
+      capital: capitalEffectif,
+      balance: accountInfo.balance,
+      credit: accountInfo.credit || 0,
       currency: accountInfo.currency,
       login: accountInfo.login,
       server: accountInfo.server,
       name: accountInfo.name,
-      reused: !!account // true si on a reutilise un compte existant
+      reused: !!account
     });
   } catch (err) {
     console.error('[MT5-CONNECT] Erreur:', err.message);
@@ -5365,12 +5383,26 @@ app.post('/mt5/refresh-capital', async (req, res) => {
     await account.undeploy();
     trackUndeploy(account.id);
 
+    // Capital effectif = balance + credit (bonus broker utilisable)
+    const capitalEffectif = (parseFloat(info.balance) || 0) + (parseFloat(info.credit) || 0);
+
     await db.updateAsync(
       { _id: req.session.userId },
-      { $set: { 'mt5.capital': info.balance, 'mt5.currency': info.currency } }
+      { $set: {
+        'mt5.capital': capitalEffectif,
+        'mt5.balance': info.balance,
+        'mt5.credit': info.credit || 0,
+        'mt5.equity': info.equity || info.balance,
+        'mt5.currency': info.currency
+      } }
     );
 
-    res.json({ capital: info.balance, currency: info.currency });
+    res.json({
+      capital: capitalEffectif,
+      balance: info.balance,
+      credit: info.credit || 0,
+      currency: info.currency
+    });
   } catch (err) {
     console.error('[MT5-REFRESH] Erreur:', err.message);
     res.status(500).json({ error: err.message });
@@ -5497,23 +5529,87 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
     const { resolvedSymbol, currentPrice } = await resolveSymbol(symbol);
     const isBuy = String(direction).toUpperCase().includes('BUY');
 
-    let orderType;
-    if (isBuy) {
-      orderType = parseFloat(entryPrice) < currentPrice ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_BUY_STOP';
-    } else {
-      orderType = parseFloat(entryPrice) > currentPrice ? 'ORDER_TYPE_SELL_LIMIT' : 'ORDER_TYPE_SELL_STOP';
+    // ═══════════════════════════════════════════════════════════════
+    // 🎯 RÉ-AJUSTEMENT INTELLIGENT DE L'ENTRÉE AU MOMENT DU CLIC
+    // ═══════════════════════════════════════════════════════════════
+    // Entre l'analyse et le clic "ordre auto", le marché peut avoir bougé.
+    // Si on place l'ordre tel quel, on risque d'avoir une entrée :
+    //   - DÉJÀ DÉPASSÉE → BUY STOP loin sous le prix = ne sera jamais atteint
+    //   - TROP LOIN → ordre LIMIT à 50$ du prix = on attend pour rien
+    //
+    // Stratégie de ré-ajustement :
+    //   1. Calculer la distance entre entrée IA et prix actuel
+    //   2. Si entrée encore valide (proche, du bon côté) → garder
+    //   3. Si entrée dépassée mais le prix est près d'un niveau clé → MARKET au prix actuel
+    //   4. Si entrée trop loin → ajuster l'entrée au plus proche niveau utile
+    //   5. Toujours conserver la même DISTANCE SL pour préserver le R:R
+    let entreeFinale = parseFloat(entryPrice);
+    let slFinal = parseFloat(sl);
+    let tpFinal = tp ? parseFloat(tp) : null;
+    let entreeAjustee = false;
+    let raisonAjustement = '';
+
+    const distSLOriginal = Math.abs(entreeFinale - slFinal);
+    // Tolérance XAU : 0.1% du prix (~$5 sur 4700) pour LIMIT, 0.05% pour STOP
+    const tolerancePct = (resolvedSymbol.includes('XAU') || resolvedSymbol.includes('GOLD')) ? 0.001 : 0.0005;
+    const tolerance = currentPrice * tolerancePct;
+
+    // Vérifier si l'entrée est encore valide
+    const entreeDepassee = isBuy ? entreeFinale < currentPrice - tolerance : entreeFinale > currentPrice + tolerance;
+    const entreeTropLoin = Math.abs(entreeFinale - currentPrice) > tolerance * 50; // > 5% pour XAU = loin
+
+    if (entreeDepassee) {
+      // L'entrée IA est dépassée → on entre au MARKET au prix actuel
+      // On déplace le SL pour conserver la même distance (donc même R:R)
+      const oldEntree = entreeFinale;
+      entreeFinale = currentPrice;
+      slFinal = isBuy ? currentPrice - distSLOriginal : currentPrice + distSLOriginal;
+      // Recalculer TP en conservant le R:R
+      if (tpFinal) {
+        const distTP = Math.abs(parseFloat(entryPrice) - parseFloat(tp));
+        tpFinal = isBuy ? currentPrice + distTP : currentPrice - distTP;
+      }
+      entreeAjustee = true;
+      raisonAjustement = `Entrée IA ${oldEntree.toFixed(2)} dépassée par le prix actuel ${currentPrice.toFixed(2)} → ré-ajusté au MARKET avec SL/TP recalculés`;
+      console.log('[MT5-ORDER] ' + raisonAjustement);
+    } else if (entreeTropLoin) {
+      // L'entrée IA est trop loin → on annule (sécurité, pas de trade fantôme à 50$ de distance)
+      console.log('[MT5-ORDER] Entrée ' + entreeFinale + ' trop loin du prix actuel ' + currentPrice.toFixed(2) + ' (>5%) → ordre annulé');
+      try { await account.undeploy(); trackUndeploy(account.id); } catch(e) {}
+      return res.status(400).json({
+        error: 'entry_too_far',
+        message: `L'entrée IA ${entreeFinale.toFixed(2)} est trop éloignée du prix actuel ${currentPrice.toFixed(2)} (>5%). Le marché a trop bougé. Refais une analyse.`
+      });
     }
 
-    console.log('[MT5-ORDER] Symbole final: ' + resolvedSymbol + ' | Type: ' + orderType + ' | Prix actuel: ' + currentPrice);
+    // Détermine le type d'ordre final en fonction de l'entrée AJUSTÉE
+    let orderType;
+    if (entreeAjustee && Math.abs(entreeFinale - currentPrice) < tolerance) {
+      // Entrée = prix actuel → MARKET ORDER (instantané)
+      orderType = isBuy ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL';
+    } else if (isBuy) {
+      orderType = entreeFinale < currentPrice ? 'ORDER_TYPE_BUY_LIMIT' : 'ORDER_TYPE_BUY_STOP';
+    } else {
+      orderType = entreeFinale > currentPrice ? 'ORDER_TYPE_SELL_LIMIT' : 'ORDER_TYPE_SELL_STOP';
+    }
 
-    // Placer l'ordre avec le symbole resolu
-    const result = isBuy
-      ? (orderType === 'ORDER_TYPE_BUY_LIMIT'
-          ? await connection.createLimitBuyOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
-          : await connection.createStopBuyOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }))
-      : (orderType === 'ORDER_TYPE_SELL_LIMIT'
-          ? await connection.createLimitSellOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' })
-          : await connection.createStopSellOrder(resolvedSymbol, parseFloat(volume), parseFloat(entryPrice), parseFloat(sl), tp ? parseFloat(tp) : null, { comment: 'AIM' }));
+    console.log('[MT5-ORDER] Symbole final: ' + resolvedSymbol + ' | Type: ' + orderType + ' | Prix actuel: ' + currentPrice + ' | Entrée finale: ' + entreeFinale.toFixed(2) + (entreeAjustee ? ' (AJUSTÉE)' : ''));
+
+    // Placer l'ordre avec le symbole resolu et l'entrée ajustée
+    let result;
+    if (orderType === 'ORDER_TYPE_BUY') {
+      result = await connection.createMarketBuyOrder(resolvedSymbol, parseFloat(volume), slFinal, tpFinal, { comment: 'AIM' });
+    } else if (orderType === 'ORDER_TYPE_SELL') {
+      result = await connection.createMarketSellOrder(resolvedSymbol, parseFloat(volume), slFinal, tpFinal, { comment: 'AIM' });
+    } else if (orderType === 'ORDER_TYPE_BUY_LIMIT') {
+      result = await connection.createLimitBuyOrder(resolvedSymbol, parseFloat(volume), entreeFinale, slFinal, tpFinal, { comment: 'AIM' });
+    } else if (orderType === 'ORDER_TYPE_BUY_STOP') {
+      result = await connection.createStopBuyOrder(resolvedSymbol, parseFloat(volume), entreeFinale, slFinal, tpFinal, { comment: 'AIM' });
+    } else if (orderType === 'ORDER_TYPE_SELL_LIMIT') {
+      result = await connection.createLimitSellOrder(resolvedSymbol, parseFloat(volume), entreeFinale, slFinal, tpFinal, { comment: 'AIM' });
+    } else if (orderType === 'ORDER_TYPE_SELL_STOP') {
+      result = await connection.createStopSellOrder(resolvedSymbol, parseFloat(volume), entreeFinale, slFinal, tpFinal, { comment: 'AIM' });
+    }
 
     console.log('[MT5-ORDER] Ordre place ! ID:', result.orderId);
 
@@ -5525,7 +5621,14 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
       success: true,
       orderId: result.orderId,
       orderType,
-      message: 'Ordre place sur ton MT5 ✓'
+      entreeAjustee,
+      raisonAjustement,
+      entreeFinale: entreeFinale.toFixed(2),
+      slFinal: slFinal.toFixed(2),
+      tpFinal: tpFinal ? tpFinal.toFixed(2) : null,
+      message: entreeAjustee
+        ? 'Ordre place ✓ — Entrée ajustée au prix actuel (' + currentPrice.toFixed(2) + ')'
+        : 'Ordre place sur ton MT5 ✓'
     });
   } catch (err) {
     console.error('[MT5-ORDER] Erreur:', err.message);
