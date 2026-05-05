@@ -792,6 +792,92 @@ function calculerATR(candles, period = 14) {
   return sum / period;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 📐 FIBONACCI AUTOMATIQUE — calcul des niveaux clés sur le swing en cours
+// ═══════════════════════════════════════════════════════════════════
+// Détecte le DERNIER swing high et le DERNIER swing low majeurs, puis :
+//   1. Détermine le sens (UP si lastHigh + récent que lastLow, DOWN sinon)
+//   2. Calcule les niveaux 0/23.6/38.2/50/61.8/78.6/100 + extensions 127.2/161.8
+//   3. Marque la zone OTE (Optimal Trade Entry = 61.8% à 78.6%) — la plus
+//      utilisée par les ICT traders pour rentrer sur retracement.
+//
+// FILTRES anti-faux Fibo :
+//   - Amplitude min 5× ATR (sinon swing trop petit = noise)
+//   - Min 3 bougies entre swings (anti-pseudo-swing)
+//   - Max 50 bougies depuis le dernier swing (sinon obsolète)
+//
+// Retourne null si aucun swing valide.
+
+function calculerFibonacci(candles, lookback = 5) {
+  if (!candles || candles.length < 30) return null;
+  const swings = detecterSwings(candles, lookback);
+  if (!swings.highs.length || !swings.lows.length) return null;
+
+  const lastHigh = swings.highs[swings.highs.length - 1];
+  const lastLow  = swings.lows[swings.lows.length - 1];
+
+  // FILTRE 1 : amplitude min 5× ATR
+  const atr = calculerATR(candles, 14);
+  const amplitude = Math.abs(lastHigh.price - lastLow.price);
+  if (atr > 0 && amplitude < atr * 5) return null;
+
+  // FILTRE 2 : min 3 bougies entre les 2 swings
+  if (Math.abs(lastHigh.index - lastLow.index) < 3) return null;
+
+  // FILTRE 3 : swing pas trop ancien
+  const dernierIndex = candles.length - 1;
+  const swingPlusRecent = Math.max(lastHigh.index, lastLow.index);
+  if (dernierIndex - swingPlusRecent > 50) return null;
+
+  // Sens : si lastHigh + récent que lastLow → swing UP (bas → haut)
+  const sens = lastHigh.index > lastLow.index ? 'UP' : 'DOWN';
+  const debut = sens === 'UP' ? lastLow.price : lastHigh.price;
+  const fin   = sens === 'UP' ? lastHigh.price : lastLow.price;
+  const range = fin - debut;
+
+  const niveaux = {
+    '0': debut,
+    '23.6': debut + range * 0.236,
+    '38.2': debut + range * 0.382,
+    '50': debut + range * 0.5,
+    '61.8': debut + range * 0.618,
+    '78.6': debut + range * 0.786,
+    '100': fin,
+    '127.2': debut + range * 1.272,
+    '161.8': debut + range * 1.618
+  };
+  for (const k of Object.keys(niveaux)) niveaux[k] = +niveaux[k].toFixed(2);
+
+  // Zone OTE : 61.8% — 78.6%
+  const oteZone = {
+    debut: niveaux['61.8'],
+    fin: niveaux['78.6'],
+    type: sens === 'UP' ? 'BUY' : 'SELL'
+  };
+
+  const prixActuel = candles[candles.length - 1].close;
+  let pctRetrace = null;
+  if (range !== 0) pctRetrace = +(((prixActuel - debut) / range) * 100).toFixed(1);
+
+  // Détecter si prix dans OTE
+  const dansOTE = sens === 'UP'
+    ? (prixActuel >= oteZone.fin && prixActuel <= oteZone.debut)
+    : (prixActuel >= oteZone.debut && prixActuel <= oteZone.fin);
+
+  return {
+    sens,
+    swingHigh: +lastHigh.price.toFixed(2),
+    swingLow: +lastLow.price.toFixed(2),
+    amplitude: +amplitude.toFixed(2),
+    niveaux,
+    oteZone,
+    prixActuel: +prixActuel.toFixed(2),
+    pctRetrace,
+    dansOTE,
+    bougiesDepuisSwing: dernierIndex - swingPlusRecent
+  };
+}
+
 // ─── 1. DEALING RANGE + PREMIUM/DISCOUNT ────────────────────────────
 // Le dealing range = du dernier swing high majeur au dernier swing low majeur
 // Equilibrium = milieu (50%). Au-dessus = premium (zone SELL), en-dessous = discount (zone BUY)
@@ -1180,6 +1266,9 @@ async function analyseComplete(candlesM15, candlesH1, candlesM5) {
   const dol          = getDrawOnLiquidity(candlesM15, structureM15, asianRange, liquidite);
   const killZone     = getKillZone();
   const atr          = calculerATR(candlesM15, 14);
+  // ─── FIBONACCI : sur le dernier swing (M15 + H1 pour confluence) ───
+  const fibonacci    = calculerFibonacci(candlesM15, 5);
+  const fibonacciH1  = candlesH1 ? calculerFibonacci(candlesH1, 5) : null;
 
   return {
     structureM15,
@@ -1190,6 +1279,8 @@ async function analyseComplete(candlesM15, candlesH1, candlesM5) {
     drawOnLiquidity: dol,
     killZone,
     atr,
+    fibonacci,
+    fibonacciH1,
     bufferSL: Math.max(atr * 0.3, 3) // buffer SL dynamique : 30% ATR, min 3$ sur XAU
   };
 }
@@ -1298,6 +1389,29 @@ function formatPourPrompt(analyse) {
     txt += `  → Si tu veux quand même trader, exige un setup A+ avec confluence très forte. Sinon NE PAS TRADER.\n`;
   }
 
+  // ═══ FIBONACCI sur le swing en cours (M15) ═══
+  if (analyse.fibonacci) {
+    const fib = analyse.fibonacci;
+    txt += `\n📐 FIBONACCI M15 (swing ${fib.sens}) :\n`;
+    txt += `  - Swing high: ${fib.swingHigh} | Swing low: ${fib.swingLow} | Amplitude: ${fib.amplitude}\n`;
+    txt += `  - Niveaux clés : 38.2%=${fib.niveaux['38.2']} | 50%=${fib.niveaux['50']} | 61.8%=${fib.niveaux['61.8']} | 78.6%=${fib.niveaux['78.6']}\n`;
+    txt += `  - Extensions : 127.2%=${fib.niveaux['127.2']} | 161.8%=${fib.niveaux['161.8']}\n`;
+    txt += `  - Prix actuel: ${fib.prixActuel} (retracement ${fib.pctRetrace}%)\n`;
+    if (fib.dansOTE) {
+      txt += `  - 🎯 PRIX DANS LA ZONE OTE (Optimal Trade Entry 61.8%-78.6%) → setup ${fib.oteZone.type} prioritaire\n`;
+    } else if (fib.pctRetrace !== null && fib.pctRetrace < 38.2 && fib.sens === 'UP') {
+      txt += `  - ⚠️ Prix peu retracé (< 38.2%) → attendre un retracement plus profond avant d'entrer en BUY\n`;
+    } else if (fib.pctRetrace !== null && fib.pctRetrace > 78.6 && fib.sens === 'UP') {
+      txt += `  - ⚠️ Prix retracé > 78.6% → swing potentiellement invalidé, prudence\n`;
+    }
+    txt += `  - 💡 USAGE : place tes TPs sur extensions (127.2% / 161.8%) ou sur swing high/low (100%)\n`;
+  }
+
+  // FIBO H1 (confluence forte si dans OTE H1)
+  if (analyse.fibonacciH1 && analyse.fibonacciH1.dansOTE) {
+    txt += `\n🔥 CONFLUENCE FIBO H1 : prix dans OTE H1 (${analyse.fibonacciH1.niveaux['61.8']} - ${analyse.fibonacciH1.niveaux['78.6']}) → ${analyse.fibonacciH1.oteZone.type} très haute probabilité\n`;
+  }
+
   txt += '═══════════════════════════════════════════════════════════════\n';
   return txt;
 }
@@ -1399,13 +1513,41 @@ async function gererTpPartiels3Tier({
         // une position ouverte à gérer → on évite un deploy inutile.
         if (!userIdsActifs.has(user._id)) continue;
 
+        // ─── FIX FUITE METAAPI : ne deploy QUE si quelque chose à gérer ─
+        // Avant de deploy le compte (= cher), on vérifie 2 conditions :
+        //   1. Y a-t-il un tracking actif en DB locale (= position déjà notée)
+        //   2. OU y a-t-il une analyse < 7 jours avec orderPlaced=true et pas
+        //      encore close (apprentissageStatut != 'TRAITE')
+        // Si NI l'un NI l'autre → skip (pas de position à gérer)
+        const trackingsActifs = await positionsTrackingDb.findAsync({
+          userId: user._id,
+          tp3Done: { $ne: true }
+        });
+
+        const il_y_a_7j = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const ordresPlaces = await analysesDb.findAsync({
+          userId: user._id,
+          decision: { $in: ['BUY', 'SELL'] },
+          orderPlaced: true,
+          createdAt: { $gte: il_y_a_7j },
+          // Pas encore traité par l'apprentissage (= pas encore clos)
+          apprentissageStatut: { $ne: 'TRAITE' }
+        });
+
+        const aQuelqueChoseAGerer = (trackingsActifs && trackingsActifs.length > 0) ||
+                                    (ordresPlaces && ordresPlaces.length > 0);
+
+        if (!aQuelqueChoseAGerer) {
+          // Aucun ordre placé via notre système qui ne soit pas déjà clos
+          // → ZERO deploy nécessaire. Économie massive.
+          continue;
+        }
+
         account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
 
         // ─── FIX : Auto-deploy temporaire si UNDEPLOYED ─────────────
         // Le wrapper TP DOIT pouvoir tourner même si le compte est undeployed,
         // sinon on rate les TP partiels après le timeout du watchdog.
-        // On vérifie d'abord s'il y a au moins 1 position via cache léger,
-        // puis on deploy seulement si nécessaire.
         if (account.state !== 'DEPLOYED') {
           // Auto-deploy temporaire pour traiter les TP partiels
           try {
@@ -1908,7 +2050,7 @@ ${consecutiveLosses >= 2 ? `⚠️ ALERTE : ${consecutiveLosses} pertes consécu
 // 🔗 OBJETS DE COMPATIBILITÉ (pour ne pas avoir à changer le code appelant)
 // ═══════════════════════════════════════════════════════════════════
 const ict = {
-  detecterSwings, calculerATR, getDealingRange, detecterStructure,
+  detecterSwings, calculerATR, calculerFibonacci, getDealingRange, detecterStructure,
   detecterLiquidite, getAsianRange, getDrawOnLiquidity, detecterSweepRécent,
   validerOB, getKillZone, scoreSetup, analyseComplete, formatPourPrompt
 };
@@ -2768,8 +2910,12 @@ async function getBlocOBFVG(userId, symbole) {
 
     if (!candlesM15.length && !candlesM5.length) return '';
 
-    // ─── ANALYSE ICT COMPLÈTE (DOL, P/D, MSS, kill zone, ATR) ─────
+    // ─── ANALYSE ICT COMPLÈTE (DOL, P/D, MSS, kill zone, ATR, FIBO) ─
     const analyseICT = await ict.analyseComplete(candlesM15, candlesH1, candlesM5);
+
+    // Cache global : utilisé par /analyze pour récupérer Fibo + détecter conflits
+    if (!global._ictCache) global._ictCache = {};
+    global._ictCache[userId] = { analyse: analyseICT, time: Date.now() };
 
     // ─── OB/FVG existant + validation qualité ─────────────────────
     const obM15 = detecterOrderBlocks(candlesM15);
@@ -3066,6 +3212,151 @@ Réponds UNIQUEMENT en JSON valide :
 // ═══════════════════════════════════════════════════════════════════
 // 🔔 NOTIFICATIONS (in-app)
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// 🧠 PATTERN D'ERREURS PERSONNALISÉ (Pro/Elite uniquement)
+// ═══════════════════════════════════════════════════════════════════
+// Analyse les 30 derniers trades clos d'un user pour identifier ses
+// patterns d'erreur récurrents. Injecté dans le prompt pour que l'IA
+// évite de reproduire les mêmes setups foireux.
+//
+// Filtres anti-bruit :
+//   - Min 5 trades clos pour activer l'analyse
+//   - Min 3 occurrences par pattern pour le retenir
+//   - Cache 30 min pour éviter de recalculer à chaque analyse
+//
+// Patterns identifiés :
+//   - Sessions perdantes (Asian/London/NY)
+//   - Decision déséquilibrée (BUY vs SELL)
+//   - Zones perdantes (PREMIUM/DISCOUNT)
+
+const _patternErreursCache = new Map();
+const PATTERN_CACHE_TTL_MS = 30 * 60 * 1000;
+
+async function getPatternErreursPersonnalise(userId, user) {
+  if (!hasPremiumAccess(user)) return null;
+
+  const cached = _patternErreursCache.get(userId);
+  if (cached && (Date.now() - cached.time) < PATTERN_CACHE_TTL_MS) {
+    return cached.patterns;
+  }
+
+  try {
+    // Récupérer les analyses avec résultat (TP, SL, ou tradeProfit)
+    const tradesClots = await analysesDb.findAsync({
+      userId,
+      $or: [
+        { feedbackResult: { $in: ['tp', 'sl'] } },
+        { tradeProfit: { $exists: true } }
+      ]
+    });
+
+    if (!tradesClots || tradesClots.length < 5) return null;
+
+    const tradesRecents = tradesClots
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 30);
+
+    let totalGagnes = 0, totalPerdus = 0;
+    const parSession = {
+      ASIAN: { tp:0, sl:0 },
+      LONDON: { tp:0, sl:0 },
+      NY: { tp:0, sl:0 },
+      AUTRE: { tp:0, sl:0 }
+    };
+    const parDecision = { BUY: { tp:0, sl:0 }, SELL: { tp:0, sl:0 } };
+    const parZone = {
+      DISCOUNT: { tp:0, sl:0 },
+      PREMIUM: { tp:0, sl:0 },
+      EQUILIBRIUM: { tp:0, sl:0 }
+    };
+
+    for (const t of tradesRecents) {
+      const isWin = (t.feedbackResult === 'tp') || (typeof t.tradeProfit === 'number' && t.tradeProfit > 0);
+      const isLoss = (t.feedbackResult === 'sl') || (typeof t.tradeProfit === 'number' && t.tradeProfit < 0);
+      if (!isWin && !isLoss) continue;
+
+      if (isWin) totalGagnes++; else totalPerdus++;
+
+      const heure = new Date(t.createdAt).getUTCHours();
+      let session = 'AUTRE';
+      if (heure >= 0 && heure < 7) session = 'ASIAN';
+      else if (heure >= 7 && heure < 13) session = 'LONDON';
+      else if (heure >= 13 && heure < 21) session = 'NY';
+      parSession[session][isWin ? 'tp' : 'sl']++;
+
+      const dec = (t.decision || '').toUpperCase();
+      if (parDecision[dec]) parDecision[dec][isWin ? 'tp' : 'sl']++;
+
+      const zone = (t.premiumDiscount || '').toUpperCase();
+      if (parZone[zone]) parZone[zone][isWin ? 'tp' : 'sl']++;
+    }
+
+    const totalAnalyses = totalGagnes + totalPerdus;
+    if (totalAnalyses < 5) return null;
+    const winRateGlobal = Math.round(totalGagnes / totalAnalyses * 100);
+
+    const erreurs = [];
+    const succes = [];
+
+    // Sessions
+    for (const [sess, data] of Object.entries(parSession)) {
+      const total = data.tp + data.sl;
+      if (total < 3) continue;
+      const wr = Math.round(data.tp / total * 100);
+      if (wr < 30 && data.sl >= 2) {
+        erreurs.push(`Session ${sess} : ${data.sl} pertes / ${total} (${wr}% WR) — éviter`);
+      } else if (wr >= 65 && data.tp >= 2) {
+        succes.push(`Session ${sess} : ${wr}% WR (${data.tp}/${total}) — privilégier`);
+      }
+    }
+
+    // BUY vs SELL
+    for (const dec of ['BUY', 'SELL']) {
+      const d = parDecision[dec];
+      const total = d.tp + d.sl;
+      if (total < 4) continue;
+      const wr = Math.round(d.tp / total * 100);
+      if (wr < 30) erreurs.push(`${dec} : ${wr}% WR sur ${total} trades — déséquilibre`);
+      else if (wr >= 65) succes.push(`${dec} : ${wr}% WR sur ${total} trades — fort`);
+    }
+
+    // Zones
+    for (const [zone, data] of Object.entries(parZone)) {
+      const total = data.tp + data.sl;
+      if (total < 3) continue;
+      const wr = Math.round(data.tp / total * 100);
+      if (wr < 30 && data.sl >= 2) {
+        erreurs.push(`Zone ${zone} : ${data.sl} pertes / ${total} (${wr}% WR)`);
+      }
+    }
+
+    if (erreurs.length === 0 && succes.length === 0) {
+      const patterns = `📊 HISTORIQUE TRADER : ${totalAnalyses} trades clos, ${winRateGlobal}% win rate. Pas de pattern marquant.`;
+      _patternErreursCache.set(userId, { patterns, time: Date.now() });
+      return patterns;
+    }
+
+    let txt = `📊 HISTORIQUE TRADER (${totalAnalyses} trades, ${winRateGlobal}% WR) :\n`;
+    if (erreurs.length > 0) {
+      txt += `⚠️ PATTERNS À ÉVITER :\n`;
+      erreurs.slice(0, 4).forEach(e => txt += `  • ${e}\n`);
+    }
+    if (succes.length > 0) {
+      txt += `✅ PATTERNS GAGNANTS :\n`;
+      succes.slice(0, 3).forEach(s => txt += `  • ${s}\n`);
+    }
+    txt += `→ Tiens compte de ces patterns. Si tu proposes un trade qui correspond à un pattern d'erreur, justifie ou annule.`;
+
+    if (txt.length > 800) txt = txt.substring(0, 797) + '...';
+
+    _patternErreursCache.set(userId, { patterns: txt, time: Date.now() });
+    return txt;
+  } catch(e) {
+    console.log('[PATTERN-ERREURS]', e.message);
+    return null;
+  }
+}
+
 async function creerNotification(userId, type, titre, message, data = {}) {
   try {
     await notificationsDb.insertAsync({
@@ -3286,9 +3577,15 @@ async function surveillerTradesEtApprendre() {
   if (!metaApi) return;
   try {
     const dateLimit = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    // ─── FIX FUITE METAAPI : ne checker QUE les analyses avec orderPlaced ───
+    // Avant : on checkait TOUTES les analyses BUY/SELL → 99% n'étaient même
+    // pas tradées par le user → 336 deploys inutiles par analyse en 7 jours.
+    // Maintenant : on ne check QUE les analyses où l'ordre a vraiment été
+    // placé (orderPlaced: true). Économie massive.
     const analysesAVerifier = await analysesDb.findAsync({
       createdAt: { $gte: dateLimit },
       decision: { $in: ['BUY', 'SELL'] },
+      orderPlaced: true,
       apprentissageStatut: { $ne: 'TRAITE' }
     });
     if (!analysesAVerifier.length) return;
@@ -3308,6 +3605,19 @@ async function surveillerTradesEtApprendre() {
 
         // GATING : apprentissage IA uniquement Pro/Elite (free/starter exclu)
         if (!hasPremiumAccess(user)) continue;
+
+        // ─── FIX FUITE METAAPI : skip si TOUTES les analyses sont < 4h ────
+        // Avant 4h, c'est trop tôt pour qu'un TP/SL se soit formé sur le marché.
+        // Donc inutile de deploy le compte → on attend le prochain tick (30 min).
+        // Si zéro analyse > 4h → pas de deploy.
+        const il_y_a_4h = Date.now() - 4 * 60 * 60 * 1000;
+        const analysesAssezVieilles = parUser[userId].filter(a => {
+          return new Date(a.createdAt).getTime() < il_y_a_4h;
+        });
+        if (analysesAssezVieilles.length === 0) {
+          // Toutes les analyses de ce user sont trop récentes → skip
+          continue;
+        }
 
         apprentissageAccount = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
 
@@ -4115,6 +4425,14 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     // 🏆 Setups gagnants précédents (patterns à reproduire)
     const blocSetupsGagnants = await getBlocSetupsGagnants(req.session.userId, req.body.instrument || 'XAUUSD');
 
+    // 🧠 PATTERN D'ERREURS PERSONNALISÉ (Pro/Elite uniquement)
+    let blocPatternErreurs = '';
+    try {
+      const userPourPattern = await db.findOneAsync({ _id: req.session.userId });
+      const pattern = await getPatternErreursPersonnalise(req.session.userId, userPourPattern);
+      if (pattern) blocPatternErreurs = '\n═══ PATTERN PERSONNEL ═══\n' + pattern + '\n';
+    } catch(e) { /* silent : pas Pro/Elite ou pas assez de data */ }
+
     // 🔍 OB/FVG détectés algorithmiquement (data objective)
     const blocOBFVG = await getBlocOBFVG(req.session.userId, req.body.instrument || 'XAUUSD');
 
@@ -4199,7 +4517,7 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
       type: 'text',
       text: `Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.instrument || 'XAUUSD'}.${capital ? ` Capital: $${capital}.` : ''}
 
-${blocLecons}${blocSetupsGagnants}${blocOBFVG}${blocIndicateurs}
+${blocLecons}${blocSetupsGagnants}${blocPatternErreurs}${blocOBFVG}${blocIndicateurs}
 
 CONTEXTE : ${sessionWarning}
 SESSION : ${sessionActive}
@@ -4313,10 +4631,22 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "instrument": "${req.body.instrument || 'XAUUSD'}",
   "risquePct": ${capital ? '<1 si score<6, 2 si score 6-7, 3 si score>=8>' : 'null'},
   "montantRisque": ${capital ? `<${capital} × risquePct / 100>` : 'null'},
-  "capital": ${capital || 0}
+  "capital": ${capital || 0},
+
+  "raisonsPour": ["<3 raisons OBLIGATOIRES pour ce trade — courtes, max 100 char chacune>"],
+  "raisonsContre": ["<3 raisons OBLIGATOIRES contre ce trade — sois honnête, c'est un test critique. Si tu n'en trouves pas 3, tu n'as pas assez réfléchi>"],
+  "scenarioOptimiste": "<si tout va bien, où va le prix ? niveau cible + probabilité estimée en %>",
+  "scenarioRealiste": "<scénario le plus probable — TP1 + retrace ou full SL ?>",
+  "scenarioPessimiste": "<si ça foire, comment ? probabilité estimée en %>",
+  "validiteMinutes": <durée en minutes après laquelle ce setup expire (typique 15-60 min)>,
+  "raisonCourte": "<résumé en 1 phrase de l'essence du setup, max 100 caractères>"
 }
 
-⚠️ Le champ "rsiUtilise" est OBLIGATOIRE — il prouve que tu as bien lu les indicateurs.`
+⚠️ CHAMPS OBLIGATOIRES À NE JAMAIS OUBLIER :
+- "rsiUtilise" : prouve que tu as lu les indicateurs
+- "raisonsPour" et "raisonsContre" : 3 points chacun, sois HONNÊTE sur les risques
+- "scenarioPessimiste" : si la probabilité pessimiste > 40%, tu DOIS mettre decision = "NE PAS TRADER"
+- "validiteMinutes" : combien de temps ce setup reste valide`
     });
 
     const response = await client.messages.create({
@@ -4452,6 +4782,36 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 6/10 pour trader';
     }
 
+    // ─── GARDE SCÉNARIO PESSIMISTE (B3 — anti-overconfidence) ──────
+    // Si l'IA elle-même estime > 40% de probabilité pessimiste, on annule
+    if (parsed.decision !== 'NE PAS TRADER' && parsed.scenarioPessimiste) {
+      const matchPct = String(parsed.scenarioPessimiste).match(/(\d+(?:\.\d+)?)\s*%/);
+      if (matchPct) {
+        const pctPess = parseFloat(matchPct[1]);
+        if (pctPess > 40) {
+          console.log('[SCENARIO-GUARD] Pessimiste ' + pctPess + '% > 40% → trade annulé');
+          parsed.decision = 'NE PAS TRADER';
+          parsed.scenarioGuardAlerte = 'Tu as estimé ' + pctPess + '% de risque pessimiste (> 40%). Trade annulé par cohérence.';
+        }
+      }
+    }
+
+    // ─── GARDE RAISONS-CONTRE (B2 — self-critique forced) ──────────
+    // Si l'IA n'a pas fourni au moins 2 raisons-contre valides, score réduit
+    if (parsed.decision !== 'NE PAS TRADER' && Array.isArray(parsed.raisonsContre)) {
+      const raisonsValides = parsed.raisonsContre.filter(r => r && String(r).trim().length > 10);
+      if (raisonsValides.length < 2) {
+        const oldScore = parsed.score;
+        parsed.score = Math.max((parsed.score || 7) - 2, 5);
+        if (parsed.score < 6) {
+          parsed.decision = 'NE PAS TRADER';
+          parsed.raisonsContreAlerte = 'Self-critique insuffisante (' + raisonsValides.length + '/3 raisons-contre). Score réduit de ' + oldScore + ' à ' + parsed.score + ' → annulé.';
+        } else {
+          parsed.raisonsContreAlerte = 'Self-critique insuffisante (' + raisonsValides.length + '/3). Score réduit à ' + parsed.score;
+        }
+      }
+    }
+
     // ─── VALIDATION SL/TP = NOMBRES PURS ───────────────────────
     // Même protection que pour entree : SL/TP doivent être des nombres
     if (parsed.decision !== 'NE PAS TRADER') {
@@ -4470,6 +4830,99 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
           parsed[champ] = parseFloat(num.toFixed(2));
         }
       }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 🛡️ E1 — SANITY CHECK NIVEAUX (cohérence géométrique BUY/SELL)
+    // ═════════════════════════════════════════════════════════════
+    // BUY  : entrée < TP1 < TP2 < TP3  ET  SL < entrée
+    // SELL : entrée > TP1 > TP2 > TP3  ET  SL > entrée
+    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
+      const isBuy = parsed.decision === 'BUY';
+      const e = parseFloat(parsed.entree);
+      const t1 = parseFloat(parsed.tp1);
+      const t2 = parseFloat(parsed.tp2);
+      const t3 = parseFloat(parsed.tp3);
+
+      const erreurs = [];
+      if (e && t1) {
+        if (isBuy && t1 <= e) erreurs.push('TP1 (' + t1 + ') doit être > entrée (' + e + ') pour BUY');
+        if (!isBuy && t1 >= e) erreurs.push('TP1 (' + t1 + ') doit être < entrée (' + e + ') pour SELL');
+      }
+      if (e && t2 && t1) {
+        if (isBuy && t2 < t1) erreurs.push('TP2 (' + t2 + ') doit être >= TP1');
+        if (!isBuy && t2 > t1) erreurs.push('TP2 (' + t2 + ') doit être <= TP1');
+      }
+      if (t3 && t2) {
+        if (isBuy && t3 < t2) erreurs.push('TP3 (' + t3 + ') doit être >= TP2');
+        if (!isBuy && t3 > t2) erreurs.push('TP3 (' + t3 + ') doit être <= TP2');
+      }
+      if (erreurs.length > 0) {
+        console.log('[E1-SANITY-CHECK] ' + erreurs.join(' | '));
+        parsed.decision = 'NE PAS TRADER';
+        parsed.sanityCheckAlerte = 'Niveaux incohérents : ' + erreurs.join(' | ');
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 🛡️ E2 — DÉTECTION HALLUCINATIONS IA (entrée trop loin)
+    // ═════════════════════════════════════════════════════════════
+    // LIMIT max 2.5% du prix actuel | MARKET max 0.5% | max 10× ATR M15
+    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
+      try {
+        const symbole = (parsed.instrument || 'XAUUSD').toUpperCase();
+        const mdData = await fetchAllMarketData(req.session.userId, symbole);
+        if (mdData && mdData.prixActuel && parsed.entree) {
+          const prixActuel = mdData.prixActuel;
+          const entreeNum = parseFloat(parsed.entree);
+          const distance = Math.abs(entreeNum - prixActuel);
+          const distancePct = (distance / prixActuel) * 100;
+          const atrM15 = ict.calculerATR(mdData.candlesM15, 14);
+          const distanceATR = atrM15 > 0 ? distance / atrM15 : 0;
+
+          const isLimit = (parsed.entreeType || '').toUpperCase().includes('LIMIT');
+          const limiteMaxPct = isLimit ? 2.5 : 0.5;
+          const limiteMaxATR = 10;
+
+          if (distancePct > limiteMaxPct || distanceATR > limiteMaxATR) {
+            console.log('[E2-HALLUCINATION] entrée=' + entreeNum + ' prix=' + prixActuel + ' distance=' + distancePct.toFixed(2) + '% → annulé');
+            parsed.decision = 'NE PAS TRADER';
+            parsed.hallucinationAlerte = 'Entrée ' + entreeNum + ' trop éloignée du prix actuel ' + prixActuel.toFixed(2) + ' (' + distancePct.toFixed(2) + '% / ' + distanceATR.toFixed(1) + 'x ATR) — niveau probablement halluciné';
+          }
+        }
+      } catch(e) { /* skip silent */ }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 🛡️ E3 — ANTI-FLIP-FLOP (BUY → SELL en < 30 min suspect)
+    // ═════════════════════════════════════════════════════════════
+    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
+      try {
+        const symbole = parsed.instrument || 'XAUUSD';
+        const trenteminAvant = new Date(Date.now() - 30 * 60 * 1000);
+        const dernieres = await analysesDb.findAsync({
+          userId: req.session.userId,
+          instrument: symbole,
+          decision: { $in: ['BUY', 'SELL'] },
+          createdAt: { $gte: trenteminAvant }
+        });
+        dernieres.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const derniereAnalyse = dernieres[0];
+
+        if (derniereAnalyse && derniereAnalyse.decision !== parsed.decision) {
+          const structureMaintenant = parsed.structureEvent || 'NONE';
+          const isBuyNow = parsed.decision === 'BUY';
+          const mssAligne = (isBuyNow && structureMaintenant === 'MSS_BULLISH') ||
+                           (!isBuyNow && structureMaintenant === 'MSS_BEARISH');
+
+          if (!mssAligne) {
+            const minutesEcoulees = Math.round((Date.now() - new Date(derniereAnalyse.createdAt)) / 60000);
+            console.log('[E3-FLIP-FLOP] ' + derniereAnalyse.decision + ' il y a ' + minutesEcoulees + ' min → ' + parsed.decision + ' suspect, annulé');
+            parsed.decision = 'NE PAS TRADER';
+            parsed.flipFlopAlerte = 'Tu as proposé ' + derniereAnalyse.decision + ' il y a ' + minutesEcoulees + ' min, et tu retournes maintenant pour ' + (isBuyNow ? 'BUY' : 'SELL') + ' sans MSS aligné. Flip-flop suspect — annulé.';
+          }
+        }
+      } catch(e) { /* silent */ }
     }
 
     // ═════════════════════════════════════════════════════════════
@@ -4647,6 +5100,17 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
         } catch(e) { console.log('[NOTIF-APLUS] Erreur:', e.message); }
       })();
     }
+
+    // Attacher Fibonacci à parsed pour que le frontend l'affiche
+    try {
+      if (global._ictCache && global._ictCache[req.session.userId]) {
+        const ictData = global._ictCache[req.session.userId].analyse;
+        if (ictData) {
+          if (ictData.fibonacci) parsed.fibonacci = ictData.fibonacci;
+          if (ictData.fibonacciH1) parsed.fibonacciH1 = ictData.fibonacciH1;
+        }
+      }
+    } catch(e) {}
 
     res.json({ ...parsed, analysesLeft, analysisId });
 
@@ -5461,6 +5925,10 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
         score: score || analyseSource.score || 8,
         lots: parseFloat(volume),
         createdAt: new Date(),
+        // FIX FUITE METAAPI : marquer orderPlaced=true pour que le wrapper TP
+        // sache qu'il y a un ordre à surveiller (sinon il skip le user et
+        // les TP partiels ne se déclenchent jamais)
+        orderPlaced: true,
         sourceFromAplusBroadcast: true,
         sourceAnalysisId: analysisId
       };
@@ -5483,9 +5951,19 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
         score: score || 7,
         lots: parseFloat(volume),
         createdAt: new Date(),
+        // FIX FUITE METAAPI : marqueur pour le wrapper TP
+        orderPlaced: true,
         sourceFromManualOrder: true
       };
       await analysesDb.insertAsync(analyseCopiee);
+    } else if (analysisId && analyseSource && analyseSource.userId === req.session.userId) {
+      // L'analyse appartient déjà au user → marquer orderPlaced=true sur elle directement
+      try {
+        await analysesDb.updateAsync(
+          { _id: analysisId },
+          { $set: { orderPlaced: true, placedAt: new Date().toISOString() } }
+        );
+      } catch(e) {}
     }
   } catch(copyErr) {
     console.log('[MT5-ORDER] Erreur copie analyse:', copyErr.message);
