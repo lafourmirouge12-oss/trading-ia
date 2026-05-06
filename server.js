@@ -3100,7 +3100,10 @@ async function getBlocOBFVG(userId, symbole) {
 
     // Cache global : utilisé par /analyze pour récupérer Fibo + détecter conflits
     if (!global._ictCache) global._ictCache = {};
-    global._ictCache[userId] = { analyse: analyseICT, time: Date.now() };
+    // Stocker aussi le RSI M15 réel pour les hard-blocks post-IA
+    const _rsiM15PourCache = calculerRSI(candlesM15, 14);
+    const _rsiH1PourCache  = calculerRSI(candlesH1 || [], 14);
+    global._ictCache[userId] = { analyse: analyseICT, time: Date.now(), rsiM15: _rsiM15PourCache, rsiH1: _rsiH1PourCache };
 
     // ─── OB/FVG existant + validation qualité ─────────────────────
     const obM15 = detecterOrderBlocks(candlesM15);
@@ -4682,7 +4685,15 @@ Tu reçois aussi des données objectives calculées sur les vraies bougies MetaA
 - OB/FVG algorithmiques (ci-dessus dans 🔍 NIVEAUX TECHNIQUES)
 - Tes leçons passées et setups gagnants
 
-⚠️ UTILISE CES DONNÉES, ne fais pas semblant. Si le bloc INDICATEURS te montre RSI ${'<'} 25 → c'est de la survente extrême, ne propose PAS de SELL. Si RSI > 75 → ne propose PAS de BUY. Si le prix est très loin sous MA50 → mouvement épuisé, prudence.
+⚠️ RÈGLES RSI STRICTES (serveur les vérifiera après toi) :
+- RSI M15 > 75 → NE PAS TRADER en BUY (surachat, momentum baissier imminent)
+- RSI M15 < 25 → NE PAS TRADER en SELL (survente, rebond probable)
+- RSI M15 > 70 ET BUY → score max 6/10 (condition dégradée)
+- RSI M15 < 30 ET SELL → score max 6/10 (condition dégradée)
+- RSI H1 > 70 ET BUY → score réduit de 1 point (momentum H1 épuisé)
+- RSI H1 < 30 ET SELL → score réduit de 1 point (momentum H1 épuisé)
+- RSI D1 > 75 ET BUY → signale-le dans raisonsContre même si tu trades
+Si le prix est très loin sous/sur MA50 → mouvement épuisé, sois prudent.
 
 ${blocReglesV2}
 ${crtKasperActif ? `🎯 CRT KASPER KARL (M15 + M1 fournis) — méthode principale
@@ -4975,8 +4986,17 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
           parsed.structureEvent !== 'MSS_BEARISH' && parsed.structureEvent !== 'BOS_BEARISH') {
         hardBlocks.push('SELL en zone DISCOUNT sans MSS bearish — vente en bas du range');
       }
-      // BLOCK 3 : RSI M15 extrême incohérent avec direction
-      const rsiM15 = parseFloat(parsed.rsi || parsed.rsiM15 || 0);
+      // BLOCK 3 : RSI M15 extrême — lit le RSI RÉEL depuis le cache MetaAPI
+      // FIX : l'IA ne retourne jamais rsiM15 dans son JSON → le bloc était mort
+      let rsiM15 = 0;
+      try {
+        const cacheIct = global._ictCache && global._ictCache[req.session.userId];
+        if (cacheIct && cacheIct.rsiM15 != null) {
+          rsiM15 = parseFloat(cacheIct.rsiM15);
+        } else {
+          rsiM15 = parseFloat(parsed.rsi || parsed.rsiM15 || 0);
+        }
+      } catch(_rsi) { rsiM15 = 0; }
       if (rsiM15 > 0) {
         if (isBuy && rsiM15 > 78) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' > 78 (surachat extrême) avec BUY');
         if (!isBuy && rsiM15 < 22) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 22 (survente extrême) avec SELL');
@@ -4986,6 +5006,37 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
         console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé : ' + hardBlocks.join(' | '));
         parsed.decision = 'NE PAS TRADER';
         parsed.hardBlockAlerte = 'Trade annulé par hard-block serveur : ' + hardBlocks.join(' | ');
+      }
+    }
+
+    // ─── COHÉRENCE TENDANCE D1 IA vs DÉCISION ────────────────────
+    // L'IA retourne tendanceD1 dans son JSON — on vérifie qu'elle ne
+    // propose pas un trade contraire à ce qu'elle a elle-même identifié.
+    // Ex : tendanceD1=BEARISH mais decision=BUY → score réduit ou annulation.
+    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
+      const d1IA = (parsed.tendanceD1 || '').toUpperCase();
+      const isBuyD1 = parsed.decision === 'BUY';
+      const d1ContreSignal = (isBuyD1 && d1IA === 'BEARISH') || (!isBuyD1 && d1IA === 'BULLISH');
+      if (d1ContreSignal) {
+        // Vérifier si MSS D1 récent dans les champs IA (override possible)
+        const structEvt = (parsed.structureEvent || '').toUpperCase();
+        const mssD1Aligne = (isBuyD1 && structEvt === 'MSS_BULLISH') || (!isBuyD1 && structEvt === 'MSS_BEARISH');
+        if (!mssD1Aligne) {
+          const scoreActuel = parseFloat(parsed.score) || 0;
+          if (scoreActuel >= 9) {
+            // Score très élevé = setup fort, juste réduire
+            parsed.score = Math.min(parsed.score, 7);
+            parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
+              '⚠️ Trade contre tendance D1 ' + d1IA + ' (IA le confirme elle-même) — score réduit à ' + parsed.score;
+          } else {
+            // Score moyen : annulation
+            parsed.decision = 'NE PAS TRADER';
+            parsed.score = Math.min(parsed.score || 5, 5);
+            parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
+              '🚫 ' + (isBuyD1 ? 'BUY' : 'SELL') + ' contre tendance D1 ' + d1IA + ' identifiée par l\'IA elle-même — annulé';
+          }
+          console.log('[D1-COHERENCE] ' + (isBuyD1 ? 'BUY' : 'SELL') + ' vs D1=' + d1IA + ' score=' + scoreActuel + ' → ' + parsed.decision);
+        }
       }
     }
 
@@ -5578,6 +5629,10 @@ async function saveMT5Credentials(userId, mt5Data) {
         accountType: mt5Data.accountType || 'demo',
         metaApiAccountId: mt5Data.metaApiAccountId,
         capital: mt5Data.capital || null,
+        // FIX : sauvegarder balance et credit séparément pour le widget frontend
+        balance: mt5Data.balance != null ? mt5Data.balance : mt5Data.capital || null,
+        credit: mt5Data.credit || 0,
+        equity: mt5Data.equity || mt5Data.capital || null,
         currency: mt5Data.currency || 'USD',
         connectedAt: new Date().toISOString()
       }
@@ -5902,17 +5957,28 @@ app.post('/mt5/refresh-capital', async (req, res) => {
     return res.status(404).json({ error: 'MT5 non connecte' });
   }
 
+  let _refreshAccount = null;
+  let _refreshDeployedHere = false;
   try {
-    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    await account.deploy();
-    trackDeploy(account.id, user.mt5.login);
-    await account.waitConnected();
-    const connection = account.getRPCConnection();
+    _refreshAccount = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+    // FIX : vérifier l'état avant deploy — évite l'erreur 'already deployed'
+    if (_refreshAccount.state === 'UNDEPLOYED') {
+      await _refreshAccount.deploy();
+      trackDeploy(_refreshAccount.id, user.mt5.login);
+      _refreshDeployedHere = true;
+      await _refreshAccount.waitConnected();
+    }
+    const connection = _refreshAccount.getRPCConnection();
     await connection.connect();
     await connection.waitSynchronized();
     const info = await connection.getAccountInformation();
-    await account.undeploy();
-    trackUndeploy(account.id);
+
+    // FIX : undeploy seulement si c'est nous qui avons deployé
+    if (_refreshDeployedHere) {
+      await _refreshAccount.undeploy();
+      trackUndeploy(_refreshAccount.id);
+      _refreshDeployedHere = false;
+    }
 
     // Capital effectif = balance + credit (bonus broker utilisable)
     const capitalEffectif = (parseFloat(info.balance) || 0) + (parseFloat(info.credit) || 0);
@@ -5935,6 +6001,10 @@ app.post('/mt5/refresh-capital', async (req, res) => {
       currency: info.currency
     });
   } catch (err) {
+    // FIX : undeploy même en cas d'erreur pour éviter les fuites MetaAPI
+    if (_refreshDeployedHere && _refreshAccount) {
+      try { await _refreshAccount.undeploy(); trackUndeploy(_refreshAccount.id); } catch(e) {}
+    }
     console.error('[MT5-REFRESH] Erreur:', err.message);
     res.status(500).json({ error: err.message });
   }
@@ -6043,9 +6113,14 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
     console.log('[MT5-ORDER] Place ' + direction + ' ' + symbol + ' ' + volume + ' lots @ ' + entryPrice);
 
     account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    await account.deploy();
-    trackDeploy(account.id, user.mt5.login);
-    await account.waitConnected();
+    // FIX : ne deploy que si nécessaire — évite l'erreur 'already deployed'
+    if (account.state === 'UNDEPLOYED') {
+      await account.deploy();
+      trackDeploy(account.id, user.mt5.login);
+      await account.waitConnected();
+    } else {
+      trackDeploy(account.id, user.mt5.login); // tracker le compte même s'il était déjà deployed
+    }
 
     const connection = account.getRPCConnection();
     await connection.connect();
