@@ -1267,6 +1267,48 @@
       <div class="sm-row"><span class="sm-key">Confluences</span><span id="smConf">—</span></div>
     </div>
 
+    <!-- ═══ RAISONS POUR/CONTRE (self-critique IA) ═══ -->
+    <div id="raisonsBox" style="display:none;background:rgba(0,10,30,0.6);border:1px solid rgba(0,245,255,0.15);border-radius:6px;padding:14px;margin-bottom:12px;">
+      <div style="font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(0,245,255,0.6);text-transform:uppercase;margin-bottom:10px;">◈ Raisonnement IA</div>
+      <div id="raisonsPourBlock" style="margin-bottom:10px;">
+        <div style="color:#00ff88;font-size:10px;font-weight:700;letter-spacing:1px;margin-bottom:4px;">✅ POUR CE TRADE</div>
+        <ul id="raisonsPourList" style="list-style:none;padding:0;margin:0;color:#bbb;font-size:12px;line-height:1.5;"></ul>
+      </div>
+      <div id="raisonsContreBlock">
+        <div style="color:#ff8866;font-size:10px;font-weight:700;letter-spacing:1px;margin-bottom:4px;">⚠️ RISQUES IDENTIFIÉS</div>
+        <ul id="raisonsContreList" style="list-style:none;padding:0;margin:0;color:#bbb;font-size:12px;line-height:1.5;"></ul>
+      </div>
+    </div>
+
+    <!-- ═══ SCÉNARIOS (3 issues possibles) ═══ -->
+    <div id="scenariosBox" style="display:none;background:rgba(0,10,30,0.6);border:1px solid rgba(255,215,0,0.15);border-radius:6px;padding:14px;margin-bottom:12px;">
+      <div style="font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(255,215,0,0.6);text-transform:uppercase;margin-bottom:10px;">◈ Scénarios possibles</div>
+      <div style="display:grid;gap:8px;">
+        <div><span style="color:#00ff88;font-size:11px;font-weight:700;">🟢 Optimiste :</span> <span id="scenOpt" style="color:#bbb;font-size:12px;"></span></div>
+        <div><span style="color:#ffd700;font-size:11px;font-weight:700;">🟡 Réaliste :</span> <span id="scenReal" style="color:#bbb;font-size:12px;"></span></div>
+        <div><span style="color:#ff8866;font-size:11px;font-weight:700;">🔴 Pessimiste :</span> <span id="scenPess" style="color:#bbb;font-size:12px;"></span></div>
+      </div>
+      <div id="validitéBox" style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:#888;display:none;">
+        ⏱️ Validité : <span id="validiteMin" style="color:#ffd700;">—</span>
+      </div>
+    </div>
+
+    <!-- ═══ FIBONACCI ═══ -->
+    <div id="fiboBox" style="display:none;background:rgba(0,10,30,0.6);border:1px solid rgba(180,100,255,0.2);border-radius:6px;padding:14px;margin-bottom:12px;">
+      <div style="font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:rgba(180,100,255,0.7);text-transform:uppercase;margin-bottom:10px;">◈ Fibonacci (swing en cours)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+        <div>Sens : <span id="fiboSens" style="color:#fff;font-weight:700;">—</span></div>
+        <div>Retracement : <span id="fiboPct" style="color:#fff;font-weight:700;">—</span></div>
+        <div>61.8% : <span id="fibo618" style="color:#b464ff;">—</span></div>
+        <div>78.6% : <span id="fibo786" style="color:#b464ff;">—</span></div>
+        <div>Ext 127.2% : <span id="fibo1272" style="color:#00ff88;">—</span></div>
+        <div>Ext 161.8% : <span id="fibo1618" style="color:#00ff88;">—</span></div>
+      </div>
+      <div id="fiboOTE" style="display:none;margin-top:10px;padding:8px;background:rgba(180,100,255,0.1);border-radius:4px;text-align:center;color:#b464ff;font-size:11px;font-weight:700;">
+        🎯 PRIX DANS LA ZONE OTE — entrée optimale
+      </div>
+    </div>
+
     <div class="cap-res" id="capRes" style="display:none">
       <div class="cap-res-title" id="capResLbl">◈ Gestion du capital</div>
       <div class="cap-main">
@@ -2048,6 +2090,12 @@ async function analyze(){
     if (d.entreeInvalideAlerte) alerts.push({ type: 'danger', icon: '🔢', title: 'Entrée non numérique', msg: d.entreeInvalideAlerte });
     if (d.numInvalideAlerte) alerts.push({ type: 'danger', icon: '🔢', title: 'SL/TP non numérique', msg: d.numInvalideAlerte });
     if (d.contexteContradictoire) alerts.push({ type: 'danger', icon: '⚡', title: 'Contexte contradictoire', msg: d.conflitRaison || 'Dealing range et structure opposés' });
+    // ─── Garde-fous IA avancés (E1/E2/E3 + scénario + raisons-contre) ───
+    if (d.sanityCheckAlerte) alerts.push({ type: 'danger', icon: '📐', title: 'Niveaux incohérents', msg: d.sanityCheckAlerte });
+    if (d.hallucinationAlerte) alerts.push({ type: 'danger', icon: '👻', title: 'Niveau halluciné', msg: d.hallucinationAlerte });
+    if (d.flipFlopAlerte) alerts.push({ type: 'danger', icon: '🔀', title: 'Flip-flop suspect', msg: d.flipFlopAlerte });
+    if (d.scenarioGuardAlerte) alerts.push({ type: 'danger', icon: '🎲', title: 'Scénario pessimiste élevé', msg: d.scenarioGuardAlerte });
+    if (d.raisonsContreAlerte) alerts.push({ type: 'info', icon: '🤔', title: 'Self-critique IA', msg: d.raisonsContreAlerte });
     alerts.forEach(a => {
       const div = document.createElement('div');
       div.className = 'server-alert ' + a.type;
@@ -2171,6 +2219,63 @@ async function analyze(){
     document.getElementById('smFVG').textContent=d.fvg||'—';
     document.getElementById('smLiq').textContent=d.liquidite||'—';
     document.getElementById('smConf').textContent=d.confluences||'—';
+
+    // ─── REMPLIR RAISONS POUR/CONTRE ──────────────────────────
+    const raisonsBox = document.getElementById('raisonsBox');
+    const lstPour = document.getElementById('raisonsPourList');
+    const lstContre = document.getElementById('raisonsContreList');
+    if (raisonsBox && lstPour && lstContre) {
+      lstPour.innerHTML = '';
+      lstContre.innerHTML = '';
+      const pour = Array.isArray(d.raisonsPour) ? d.raisonsPour : [];
+      const contre = Array.isArray(d.raisonsContre) ? d.raisonsContre : [];
+      if (pour.length || contre.length) {
+        pour.forEach(r => { if (r && String(r).trim()) lstPour.innerHTML += `<li style="padding:3px 0;">• ${String(r).substring(0, 200)}</li>`; });
+        contre.forEach(r => { if (r && String(r).trim()) lstContre.innerHTML += `<li style="padding:3px 0;">• ${String(r).substring(0, 200)}</li>`; });
+        raisonsBox.style.display = 'block';
+      } else {
+        raisonsBox.style.display = 'none';
+      }
+    }
+
+    // ─── REMPLIR SCÉNARIOS ────────────────────────────────────
+    const scenBox = document.getElementById('scenariosBox');
+    if (scenBox) {
+      const opt = d.scenarioOptimiste || '';
+      const real = d.scenarioRealiste || '';
+      const pess = d.scenarioPessimiste || '';
+      if (opt || real || pess) {
+        document.getElementById('scenOpt').textContent = opt || '—';
+        document.getElementById('scenReal').textContent = real || '—';
+        document.getElementById('scenPess').textContent = pess || '—';
+        scenBox.style.display = 'block';
+        const valBox = document.getElementById('validitéBox');
+        if (d.validiteMinutes && d.validiteMinutes > 0) {
+          document.getElementById('validiteMin').textContent = d.validiteMinutes + ' min';
+          valBox.style.display = 'block';
+        } else {
+          valBox.style.display = 'none';
+        }
+      } else {
+        scenBox.style.display = 'none';
+      }
+    }
+
+    // ─── REMPLIR FIBONACCI ────────────────────────────────────
+    const fiboBox = document.getElementById('fiboBox');
+    if (fiboBox && d.fibonacci && d.fibonacci.niveaux) {
+      const fib = d.fibonacci;
+      document.getElementById('fiboSens').textContent = fib.sens || '—';
+      document.getElementById('fiboPct').textContent = (fib.pctRetrace !== null ? fib.pctRetrace + '%' : '—');
+      document.getElementById('fibo618').textContent = fib.niveaux['61.8'] || '—';
+      document.getElementById('fibo786').textContent = fib.niveaux['78.6'] || '—';
+      document.getElementById('fibo1272').textContent = fib.niveaux['127.2'] || '—';
+      document.getElementById('fibo1618').textContent = fib.niveaux['161.8'] || '—';
+      document.getElementById('fiboOTE').style.display = fib.dansOTE ? 'block' : 'none';
+      fiboBox.style.display = 'block';
+    } else if (fiboBox) {
+      fiboBox.style.display = 'none';
+    }
 
     const capRes=document.getElementById('capRes');
     if(d.capital>0&&d.montantRisque){
