@@ -4728,7 +4728,6 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
   "session": "${sessionActive}",
-  "sessionImpact": "<comment la session influence ce signal>",
   "confiance": "XX%",
   "score": <0 à 10>,
   "tendance": "<M30>",
@@ -4756,13 +4755,8 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "structureEvent": "<MSS_BULLISH | MSS_BEARISH | BOS_BULLISH | BOS_BEARISH | NONE>",
   "structureLevel": "<niveau cassé si event ou null>",
   "obQuality": "<HIGH | MEDIUM | LOW | NONE>",
-  "sweepDetected": "<description sweep récent ou 'AUCUN'>",
-  "slUnit": "<dollars | pips — UNITÉ EXACTE du SL en valeur absolue, ne pas mélanger>",
-  "slDistance": "<distance SL en valeur absolue dans l'unité ci-dessus>",
-  "killZoneActive": "<${killZone.name}>",
-  "scoreContext": "<X/7 — DOL+P/D+MSS+H1>",
-  "scorePattern": "<X/6 — CRT+OB+FVG+sweep>",
-  "scoreTiming": "<X/2 — kill zone>",
+  "sweepDetected": "<sweep récent ou AUCUN>",
+  "scoreDetail": "<résumé scoring court>",
   "crt": "OUI" ou "NON" ou "NEUTRE",
   "crtDetail": "<explication>",
   ${crtKasperActif ? `"crtKasper": "DETECTE_BULLISH" ou "DETECTE_BEARISH" ou "NON_DETECTE",
@@ -4784,25 +4778,19 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "montantRisque": ${capital ? `<${capital} × risquePct / 100>` : 'null'},
   "capital": ${capital || 0},
 
-  "raisonsPour": ["<3 raisons OBLIGATOIRES pour ce trade — courtes, max 100 char chacune>"],
-  "raisonsContre": ["<3 raisons OBLIGATOIRES contre ce trade — sois honnête, c'est un test critique. Si tu ne trouves pas 3 raisons contre, tu n'as pas assez réfléchi>"],
-  "scenarioOptimiste": "<si tout va bien, où va le prix ? niveau cible + probabilité estimée en %>",
-  "scenarioRealiste": "<scénario le plus probable — TP1 + retrace ou full SL ?>",
-  "scenarioPessimiste": "<si ça foire, comment ? probabilité estimée en %>",
-  "validiteMinutes": <durée en minutes après laquelle ce setup expire (typique 15-60 min)>,
-  "raisonCourte": "<résumé en 1 phrase de l'essence du setup, max 100 caractères>"
+  "raisonsPour": ["<raison 1>", "<raison 2>", "<raison 3>"],
+  "raisonsContre": ["<risque 1>", "<risque 2>", "<risque 3>"],
+  "raisonCourte": "<résumé setup 1 phrase>"
 }
 
 ⚠️ CHAMPS OBLIGATOIRES :
-- "rsiUtilise" : prouve que tu as lu les indicateurs
-- "raisonsPour" et "raisonsContre" : 3 points chacun, sois HONNÊTE sur les risques
-- "scenarioPessimiste" : si la probabilité pessimiste > 40%, tu DOIS mettre decision = "NE PAS TRADER"
-- "validiteMinutes" : combien de temps ce setup reste valide`
+- "rsiUtilise" : reprends les valeurs RSI des indicateurs
+- "raisonsPour" et "raisonsContre" : exactement 3 items chacun`
     });
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2500,
+      max_tokens: 4000,
       system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
@@ -4854,9 +4842,27 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
         }
       }
     } catch(e) {
-      console.error('[PARSING ERREUR]', e.message);
-      console.error('[PARSING RAW]', response.content?.[0]?.text?.substring(0, 500));
-      return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
+      // Strategie 5 : JSON tronqué (max_tokens atteint) → fermer les accolades manquantes
+      try {
+        let truncated = (typeof clean !== 'undefined' ? clean : rawText).trimEnd();
+        truncated = truncated.replace(/,\s*$/, ''); // supprimer virgule finale
+        let openBraces = 0, openBrackets = 0;
+        for (const ch of truncated) {
+          if (ch === '{') openBraces++;
+          else if (ch === '}') openBraces--;
+          else if (ch === '[') openBrackets++;
+          else if (ch === ']') openBrackets--;
+        }
+        for (let i = 0; i < openBrackets; i++) truncated += ']';
+        for (let i = 0; i < openBraces; i++) truncated += '}';
+        truncated = truncated.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+        parsed = JSON.parse(truncated);
+        console.warn('[PARSING] JSON tronque repare (' + openBraces + ' accolades)');
+      } catch(e5) {
+        console.error('[PARSING ERREUR]', e.message);
+        console.error('[PARSING RAW]', response.content?.[0]?.text?.substring(0, 500));
+        return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
+      }
     }
 
     // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR (R:R adaptatif selon score) ─
