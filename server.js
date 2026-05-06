@@ -4728,6 +4728,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
   "session": "${sessionActive}",
+  "sessionImpact": "<comment la session influence ce signal>",
   "confiance": "XX%",
   "score": <0 à 10>,
   "tendance": "<M30>",
@@ -4755,8 +4756,13 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "structureEvent": "<MSS_BULLISH | MSS_BEARISH | BOS_BULLISH | BOS_BEARISH | NONE>",
   "structureLevel": "<niveau cassé si event ou null>",
   "obQuality": "<HIGH | MEDIUM | LOW | NONE>",
-  "sweepDetected": "<sweep récent ou AUCUN>",
-  "scoreDetail": "<résumé scoring court>",
+  "sweepDetected": "<description sweep récent ou 'AUCUN'>",
+  "slUnit": "<dollars | pips — UNITÉ EXACTE du SL en valeur absolue, ne pas mélanger>",
+  "slDistance": "<distance SL en valeur absolue dans l'unité ci-dessus>",
+  "killZoneActive": "<${killZone.name}>",
+  "scoreContext": "<X/7 — DOL+P/D+MSS+H1>",
+  "scorePattern": "<X/6 — CRT+OB+FVG+sweep>",
+  "scoreTiming": "<X/2 — kill zone>",
   "crt": "OUI" ou "NON" ou "NEUTRE",
   "crtDetail": "<explication>",
   ${crtKasperActif ? `"crtKasper": "DETECTE_BULLISH" ou "DETECTE_BEARISH" ou "NON_DETECTE",
@@ -4778,19 +4784,22 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
   "montantRisque": ${capital ? `<${capital} × risquePct / 100>` : 'null'},
   "capital": ${capital || 0},
 
-  "raisonsPour": ["<raison 1>", "<raison 2>", "<raison 3>"],
-  "raisonsContre": ["<risque 1>", "<risque 2>", "<risque 3>"],
-  "raisonCourte": "<résumé setup 1 phrase>"
+  "raisonsPour": ["<2-3 raisons pour ce trade — courtes, max 100 char chacune>"],
+  "raisonsContre": ["<1-3 risques pour ce trade — sois honnête mais ce n'est pas obligatoire d'en trouver 3>"],
+  "scenarioOptimiste": "<si tout va bien, où va le prix ? niveau cible>",
+  "scenarioRealiste": "<scénario le plus probable>",
+  "scenarioPessimiste": "<si ça foire, comment ?>",
+  "validiteMinutes": <durée en minutes après laquelle ce setup expire (typique 15-60 min)>,
+  "raisonCourte": "<résumé en 1 phrase de l'essence du setup, max 100 caractères>"
 }
 
-⚠️ CHAMPS OBLIGATOIRES :
-- "rsiUtilise" : reprends les valeurs RSI des indicateurs
-- "raisonsPour" et "raisonsContre" : exactement 3 items chacun`
+⚠️ Le champ "rsiUtilise" est OBLIGATOIRE — il prouve que tu as bien lu les indicateurs.
+Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont informatifs pour aider le trader à comprendre.`
     });
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      max_tokens: 2500,
       system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
@@ -4842,27 +4851,9 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
         }
       }
     } catch(e) {
-      // Strategie 5 : JSON tronqué (max_tokens atteint) → fermer les accolades manquantes
-      try {
-        let truncated = (typeof clean !== 'undefined' ? clean : rawText).trimEnd();
-        truncated = truncated.replace(/,\s*$/, ''); // supprimer virgule finale
-        let openBraces = 0, openBrackets = 0;
-        for (const ch of truncated) {
-          if (ch === '{') openBraces++;
-          else if (ch === '}') openBraces--;
-          else if (ch === '[') openBrackets++;
-          else if (ch === ']') openBrackets--;
-        }
-        for (let i = 0; i < openBrackets; i++) truncated += ']';
-        for (let i = 0; i < openBraces; i++) truncated += '}';
-        truncated = truncated.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
-        parsed = JSON.parse(truncated);
-        console.warn('[PARSING] JSON tronque repare (' + openBraces + ' accolades)');
-      } catch(e5) {
-        console.error('[PARSING ERREUR]', e.message);
-        console.error('[PARSING RAW]', response.content?.[0]?.text?.substring(0, 500));
-        return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
-      }
+      console.error('[PARSING ERREUR]', e.message);
+      console.error('[PARSING RAW]', response.content?.[0]?.text?.substring(0, 500));
+      return res.status(500).json({ error: 'Erreur parsing IA: ' + e.message });
     }
 
     // ─── FORCER RR ET DIRECTION CÔTÉ SERVEUR (R:R adaptatif selon score) ─
@@ -4906,6 +4897,11 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       }
     }
 
+    // ═══ MODE DEBUG : sauvegarder l'état initial AVANT les garde-fous ═══
+    // Permet de comparer ce que l'IA a vraiment dit vs ce que les filtres ont produit
+    parsed.decisionInitiale = parsed.decision;
+    parsed.scoreInitial = parsed.score;
+
     // ─── VALIDATION ENTREE = NOMBRE PUR (sinon trade annulé) ────
     // Bug constaté : l'IA mettait parfois "4558-4562 (retest FVG ...)" dans entree
     // au lieu d'un nombre. Résultat : SL distance fausse, MT5 confus.
@@ -4939,36 +4935,6 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
       parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 6/10 pour trader';
     }
 
-    // ─── GARDE SCÉNARIO PESSIMISTE (anti-overconfidence IA) ─────────
-    // Si l'IA elle-même estime > 40% pessimiste, on annule pour cohérence
-    if (parsed.decision !== 'NE PAS TRADER' && parsed.scenarioPessimiste) {
-      const matchPct = String(parsed.scenarioPessimiste).match(/(\d+(?:\.\d+)?)\s*%/);
-      if (matchPct) {
-        const pctPess = parseFloat(matchPct[1]);
-        if (pctPess > 40) {
-          console.log('[SCENARIO-GUARD] Pessimiste ' + pctPess + '% > 40% → trade annulé');
-          parsed.decision = 'NE PAS TRADER';
-          parsed.scenarioGuardAlerte = 'Tu as estimé ' + pctPess + '% de risque pessimiste (> 40%). Trade annulé par cohérence.';
-        }
-      }
-    }
-
-    // ─── GARDE RAISONS-CONTRE (self-critique forced) ───────────────
-    // Si l'IA n'a pas fourni au moins 2 raisons-contre valides, score réduit
-    if (parsed.decision !== 'NE PAS TRADER' && Array.isArray(parsed.raisonsContre)) {
-      const raisonsValides = parsed.raisonsContre.filter(r => r && String(r).trim().length > 10);
-      if (raisonsValides.length < 2) {
-        const oldScore = parsed.score;
-        parsed.score = Math.max((parsed.score || 7) - 2, 5);
-        if (parsed.score < 6) {
-          parsed.decision = 'NE PAS TRADER';
-          parsed.raisonsContreAlerte = 'Self-critique insuffisante (' + raisonsValides.length + '/3 raisons-contre). Score réduit de ' + oldScore + ' à ' + parsed.score + ' → annulé.';
-        } else {
-          parsed.raisonsContreAlerte = 'Self-critique insuffisante (' + raisonsValides.length + '/3). Score réduit à ' + parsed.score;
-        }
-      }
-    }
-
     // ─── VALIDATION SL/TP = NOMBRES PURS ───────────────────────
     // Même protection que pour entree : SL/TP doivent être des nombres
     if (parsed.decision !== 'NE PAS TRADER') {
@@ -4987,99 +4953,6 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
           parsed[champ] = parseFloat(num.toFixed(2));
         }
       }
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 🛡️ E1 — SANITY CHECK NIVEAUX (cohérence géométrique BUY/SELL)
-    // ═════════════════════════════════════════════════════════════
-    // BUY  : entrée < TP1 < TP2 < TP3  ET  SL < entrée
-    // SELL : entrée > TP1 > TP2 > TP3  ET  SL > entrée
-    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
-      const isBuy = parsed.decision === 'BUY';
-      const e = parseFloat(parsed.entree);
-      const t1 = parseFloat(parsed.tp1);
-      const t2 = parseFloat(parsed.tp2);
-      const t3 = parseFloat(parsed.tp3);
-
-      const erreurs = [];
-      if (e && t1) {
-        if (isBuy && t1 <= e) erreurs.push('TP1 (' + t1 + ') doit être > entrée (' + e + ') pour BUY');
-        if (!isBuy && t1 >= e) erreurs.push('TP1 (' + t1 + ') doit être < entrée (' + e + ') pour SELL');
-      }
-      if (e && t2 && t1) {
-        if (isBuy && t2 < t1) erreurs.push('TP2 (' + t2 + ') doit être >= TP1');
-        if (!isBuy && t2 > t1) erreurs.push('TP2 (' + t2 + ') doit être <= TP1');
-      }
-      if (t3 && t2) {
-        if (isBuy && t3 < t2) erreurs.push('TP3 (' + t3 + ') doit être >= TP2');
-        if (!isBuy && t3 > t2) erreurs.push('TP3 (' + t3 + ') doit être <= TP2');
-      }
-      if (erreurs.length > 0) {
-        console.log('[E1-SANITY-CHECK] ' + erreurs.join(' | '));
-        parsed.decision = 'NE PAS TRADER';
-        parsed.sanityCheckAlerte = 'Niveaux incohérents : ' + erreurs.join(' | ');
-      }
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 🛡️ E2 — DÉTECTION HALLUCINATIONS IA (entrée trop loin)
-    // ═════════════════════════════════════════════════════════════
-    // LIMIT max 2.5% du prix actuel | MARKET max 0.5% | max 10× ATR M15
-    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
-      try {
-        const symbole = (parsed.instrument || 'XAUUSD').toUpperCase();
-        const mdData = await fetchAllMarketData(req.session.userId, symbole);
-        if (mdData && mdData.prixActuel && parsed.entree) {
-          const prixActuel = mdData.prixActuel;
-          const entreeNum = parseFloat(parsed.entree);
-          const distance = Math.abs(entreeNum - prixActuel);
-          const distancePct = (distance / prixActuel) * 100;
-          const atrM15 = ict.calculerATR(mdData.candlesM15, 14);
-          const distanceATR = atrM15 > 0 ? distance / atrM15 : 0;
-
-          const isLimit = (parsed.entreeType || '').toUpperCase().includes('LIMIT');
-          const limiteMaxPct = isLimit ? 2.5 : 0.5;
-          const limiteMaxATR = 10;
-
-          if (distancePct > limiteMaxPct || distanceATR > limiteMaxATR) {
-            console.log('[E2-HALLUCINATION] entrée=' + entreeNum + ' prix=' + prixActuel + ' distance=' + distancePct.toFixed(2) + '% → annulé');
-            parsed.decision = 'NE PAS TRADER';
-            parsed.hallucinationAlerte = 'Entrée ' + entreeNum + ' trop éloignée du prix actuel ' + prixActuel.toFixed(2) + ' (' + distancePct.toFixed(2) + '% / ' + distanceATR.toFixed(1) + 'x ATR) — niveau probablement halluciné';
-          }
-        }
-      } catch(e) { /* skip silent */ }
-    }
-
-    // ═════════════════════════════════════════════════════════════
-    // 🛡️ E3 — ANTI-FLIP-FLOP (BUY → SELL en < 30 min suspect)
-    // ═════════════════════════════════════════════════════════════
-    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
-      try {
-        const symbole = parsed.instrument || 'XAUUSD';
-        const trenteminAvant = new Date(Date.now() - 30 * 60 * 1000);
-        const dernieres = await analysesDb.findAsync({
-          userId: req.session.userId,
-          instrument: symbole,
-          decision: { $in: ['BUY', 'SELL'] },
-          createdAt: { $gte: trenteminAvant }
-        });
-        dernieres.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        const derniereAnalyse = dernieres[0];
-
-        if (derniereAnalyse && derniereAnalyse.decision !== parsed.decision) {
-          const structureMaintenant = parsed.structureEvent || 'NONE';
-          const isBuyNow = parsed.decision === 'BUY';
-          const mssAligne = (isBuyNow && structureMaintenant === 'MSS_BULLISH') ||
-                           (!isBuyNow && structureMaintenant === 'MSS_BEARISH');
-
-          if (!mssAligne) {
-            const minutesEcoulees = Math.round((Date.now() - new Date(derniereAnalyse.createdAt)) / 60000);
-            console.log('[E3-FLIP-FLOP] ' + derniereAnalyse.decision + ' il y a ' + minutesEcoulees + ' min → ' + parsed.decision + ' suspect, annulé');
-            parsed.decision = 'NE PAS TRADER';
-            parsed.flipFlopAlerte = 'Tu as proposé ' + derniereAnalyse.decision + ' il y a ' + minutesEcoulees + ' min, et tu retournes maintenant pour ' + (isBuyNow ? 'BUY' : 'SELL') + ' sans MSS aligné. Flip-flop suspect — annulé.';
-          }
-        }
-      } catch(e) { /* silent */ }
     }
 
     // ═════════════════════════════════════════════════════════════
@@ -5268,6 +5141,43 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
         }
       }
     } catch(e) {}
+
+    // ═══ MODE DEBUG : tracer TOUS les filtres déclenchés ═══════
+    // Permet d'identifier précisément quel filtre annule un trade.
+    // Le frontend affiche ces infos pour debug.
+    parsed.debugFilters = {
+      scoreInitial: parsed.scoreInitial !== undefined ? parsed.scoreInitial : parsed.score,
+      scoreFinal: parsed.score,
+      decisionInitiale: parsed.decisionInitiale || parsed.decision,
+      decisionFinale: parsed.decision,
+      filtresDeclenches: []
+    };
+    // Lister les alertes détectables sur parsed (qui ont annulé ou modifié le trade)
+    const alertesPossibles = [
+      { champ: 'piegeRangeAlerte', icon: '🚫', label: 'Piège range Asian' },
+      { champ: 'momentumAlerte', icon: '⚡', label: 'Momentum contraire' },
+      { champ: 'reajustAlerte', icon: '🎯', label: 'Réajustement entrée' },
+      { champ: 'protectionsAlertes', icon: '🛡️', label: 'Protections avancées' },
+      { champ: 'hardBlockAlerte', icon: '🚫', label: 'Hard-block ICT' },
+      { champ: 'slDirectionAlerte', icon: '⚠️', label: 'SL direction corrigée' },
+      { champ: 'scoreGuardAlerte', icon: '📉', label: 'Score < 6' },
+      { champ: 'entreeInvalideAlerte', icon: '🔢', label: 'Entrée non numérique' },
+      { champ: 'numInvalideAlerte', icon: '🔢', label: 'SL/TP non numérique' }
+    ];
+    alertesPossibles.forEach(a => {
+      if (parsed[a.champ]) {
+        parsed.debugFilters.filtresDeclenches.push({
+          icon: a.icon,
+          label: a.label,
+          message: parsed[a.champ]
+        });
+      }
+    });
+    // Logger côté serveur pour les logs Render
+    if (parsed.debugFilters.filtresDeclenches.length > 0) {
+      console.log('[DEBUG-FILTERS] Score: ' + parsed.score + ' | Décision: ' + parsed.decision + ' | Filtres: ' +
+        parsed.debugFilters.filtresDeclenches.map(f => f.icon + ' ' + f.label).join(' | '));
+    }
 
     res.json({ ...parsed, analysesLeft, analysisId });
 
