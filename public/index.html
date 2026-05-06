@@ -2379,6 +2379,7 @@ async function analyze(){
       lastAnalysis = null;
     }
 
+    btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
     loadHist();
     setTimeout(()=>document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'}),200);
 
@@ -2755,7 +2756,7 @@ async function ouvrirSetupDepuisURL() {
 // Appel au chargement de la page après que /me ait déterminé hasPremium
 setTimeout(ouvrirSetupDepuisURL, 1500);
 
-async function placerOrdreAplus(notifId, data) {
+async function placerOrdreAplus(notifId, data, event) {
   if (!confirm('Placer un ordre ' + data.decision + ' ' + data.instrument + ' sur ton MT5 ?\n\nLot : ' + data.lots + '\nEntrée : ' + data.entree + '\nSL : ' + data.sl + '\nTP : ' + (data.tp1 || data.tp2 || data.tp3))) return;
 
   try {
