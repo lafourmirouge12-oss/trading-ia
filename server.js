@@ -269,14 +269,61 @@ function decryptStr(payload) {
 }
 
 // ═══ RESOLUTION SYMBOLES UNIFIEE (priorite selon serveur broker) ═══
+// ═══ TABLE MAPPING SYMBOLES MULTI-BROKER ═══
+// Certains brokers utilisent des noms ALTERNATIFS pour le même actif :
+//   - VT Markets : XAUUSD-STD, EURUSD-STD, NAS100, US30
+//   - Vantage    : XAUUSD, EURUSD, NAS100, DJ30
+//   - IC Markets : XAUUSD, EURUSD, NAS100.cash, US30.cash
+//   - Exness     : XAUUSDm (micro), EURUSDm, USTECm
+// Si le symbole de base ne marche pas, on essaie ces alternatives.
+const SYMBOL_ALIASES = {
+  'XAUUSD': ['XAUUSD', 'GOLD', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD'],
+  'XAGUSD': ['XAGUSD', 'SILVER', 'XAG', 'SILVER.cash', 'XAGUSDm', 'XAG/USD'],
+  'EURUSD': ['EURUSD', 'EUR/USD', 'EURUSDm'],
+  'GBPUSD': ['GBPUSD', 'GBP/USD', 'GBPUSDm'],
+  'USDJPY': ['USDJPY', 'USD/JPY', 'USDJPYm'],
+  'AUDUSD': ['AUDUSD', 'AUD/USD', 'AUDUSDm'],
+  'NZDUSD': ['NZDUSD', 'NZD/USD', 'NZDUSDm'],
+  'USDCHF': ['USDCHF', 'USD/CHF', 'USDCHFm'],
+  'USDCAD': ['USDCAD', 'USD/CAD', 'USDCADm'],
+  'EURJPY': ['EURJPY', 'EUR/JPY', 'EURJPYm'],
+  'GBPJPY': ['GBPJPY', 'GBP/JPY', 'GBPJPYm'],
+  'EURGBP': ['EURGBP', 'EUR/GBP', 'EURGBPm'],
+  'NAS100': ['NAS100', 'USTEC', 'US100', 'NDX100', 'NAS100.cash', 'USTECm', 'USNAS100'],
+  'US30':   ['US30', 'DJ30', 'WS30', 'DJ.cash', 'US30.cash', 'DJI30', 'USWS30'],
+  'US500':  ['US500', 'SPX500', 'SP500', 'SPX', 'US500.cash', 'USSPX500'],
+  'GER40':  ['GER40', 'DAX40', 'DE40', 'GER30', 'DAX.cash', 'DEU40'],
+  'UK100':  ['UK100', 'FTSE100', 'FTSE', 'UK100.cash'],
+  'JPN225': ['JPN225', 'NIKKEI', 'NI225', 'JP225', 'JPN225.cash'],
+  'BTCUSD': ['BTCUSD', 'BTC', 'BITCOIN', 'BTC/USD', 'BTCUSDm', 'BTCUSD.std'],
+  'ETHUSD': ['ETHUSD', 'ETH', 'ETHEREUM', 'ETH/USD', 'ETHUSDm'],
+  'USOIL':  ['USOIL', 'WTI', 'CRUDE', 'CL', 'USOIL.cash', 'OILWTI'],
+  'UKOIL':  ['UKOIL', 'BRENT', 'BRT', 'UKOIL.cash', 'OILBRENT']
+};
+
+// Retourne tous les noms candidats pour un symbole demandé
+function getSymbolCandidates(baseSymbol) {
+  const sym = (baseSymbol || '').toUpperCase();
+  // Trouver le groupe d'alias auquel appartient ce symbole
+  for (const [canonical, aliases] of Object.entries(SYMBOL_ALIASES)) {
+    if (aliases.some(a => a.toUpperCase() === sym)) {
+      return [...new Set([sym, ...aliases.map(a => a.toUpperCase())])]; // unique
+    }
+  }
+  // Pas dans la table → on garde le nom original
+  return [sym];
+}
+
 async function resolveSymbolForUser(connection, baseSymbol, serverName) {
   const sym = (baseSymbol || '').toUpperCase();
   const sn = (serverName || '').toUpperCase();
   let suffixes;
-  if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-  else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro'];
-  else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+  if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+
+  // 1. Essayer le symbole demandé avec ses suffixes serveur
   for (const sfx of suffixes) {
     try {
       const candidate = sym + sfx;
@@ -286,6 +333,24 @@ async function resolveSymbolForUser(connection, baseSymbol, serverName) {
       }
     } catch(e) {}
   }
+
+  // 2. Si rien trouvé, essayer les alias multi-broker (ex: GOLD au lieu de XAUUSD)
+  const candidates = getSymbolCandidates(sym);
+  for (const cand of candidates) {
+    if (cand === sym) continue; // déjà testé
+    for (const sfx of suffixes) {
+      try {
+        const fullCandidate = cand + sfx;
+        const tick = await connection.getSymbolPrice(fullCandidate);
+        if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
+          console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + fullCandidate);
+          return { symbol: fullCandidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
+        }
+      } catch(e) {}
+    }
+  }
+
+  console.log('[SYMBOL-RESOLVE] Aucun match pour ' + sym + ' sur serveur ' + sn);
   return null;
 }
 
@@ -425,12 +490,20 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
-const analysesDb = new Datastore({ filename: path.join(__dirname, 'analyses.db'), autoload: true });
-const leconsDb = new Datastore({ filename: path.join(__dirname, 'lecons.db'), autoload: true });
-const setupsGagnantsDb = new Datastore({ filename: path.join(__dirname, 'setups-gagnants.db'), autoload: true });
-const positionsTrackingDb = new Datastore({ filename: path.join(__dirname, 'positions-tracking.db'), autoload: true });
-const notificationsDb = new Datastore({ filename: path.join(__dirname, 'notifications.db'), autoload: true });
+// ═══ DOSSIER DE DONNÉES PERSISTANT (DBs survivent aux redéploys Render) ═══
+// Si Render a un disk monté sur /data → on l'utilise (utilisateurs ne disparaissent plus).
+// Sinon fallback sur le dossier projet (pour dev local).
+// IMPORTANT : sur Render, va dans Disks → Add Disk → mount path /data → 1 GB gratuit
+const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : __dirname);
+try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {}
+console.log('[DB] Stockage persistant : ' + DATA_DIR);
+
+const db = new Datastore({ filename: path.join(DATA_DIR, 'users.db'), autoload: true });
+const analysesDb = new Datastore({ filename: path.join(DATA_DIR, 'analyses.db'), autoload: true });
+const leconsDb = new Datastore({ filename: path.join(DATA_DIR, 'lecons.db'), autoload: true });
+const setupsGagnantsDb = new Datastore({ filename: path.join(DATA_DIR, 'setups-gagnants.db'), autoload: true });
+const positionsTrackingDb = new Datastore({ filename: path.join(DATA_DIR, 'positions-tracking.db'), autoload: true });
+const notificationsDb = new Datastore({ filename: path.join(DATA_DIR, 'notifications.db'), autoload: true });
 const activeSessions = {};
 
 app.use(express.urlencoded({ extended: true }));
@@ -1666,10 +1739,15 @@ function formatPourPrompt(analyse) {
 // Setup A (score 7-8) : confiance moyenne, on sécurise plus tôt → 50/30/20
 // Setup B (score 6) : limite, on sort vite → 70/30/0
 function getDistribution(score) {
+  // Distribution OPTIMISÉE :
+  // - Setup A+ (9-10) : 40/30/30 — RR 1:2 / 1:4 / 1:8 (jackpot avec 30% en runner)
+  // - Setup A (7-8) : 50/50 — comme demandé, sécurité maximale (tp1 et tp2 = chacun 50%)
+  // - Setup B (rare avec score min 7) : 100% à TP1
+  // Avec la sécurité TP partiel : SL → BE après TP1 (chaque trade sécurisé)
   if (score >= 9)      return { tp1: 0.40, tp2: 0.30, tp3: 0.30, mode: 'A_PLUS' };
-  if (score >= 7)      return { tp1: 0.50, tp2: 0.30, tp3: 0.20, mode: 'A' };
+  if (score >= 7)      return { tp1: 0.50, tp2: 0.50, tp3: 0,    mode: 'A' }; // 50% TP1 + 50% TP2 (demande Leon)
   if (score >= 6)      return { tp1: 0.70, tp2: 0.30, tp3: 0,    mode: 'B' };
-  return                      { tp1: 1.00, tp2: 0,    tp3: 0,    mode: 'C' }; // tout ferme à TP1
+  return                      { tp1: 1.00, tp2: 0,    tp3: 0,    mode: 'C' };
 }
 
 // ─── BUFFER BE DYNAMIQUE ────────────────────────────────────────────
@@ -5742,7 +5820,7 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
 });
 
 // ═══ CONFIG PRIX DES PACKS (modifiable via admin) ═══
-const PRIX_FILE = path.join(__dirname, 'prix-packs.json');
+const PRIX_FILE = path.join(DATA_DIR, 'prix-packs.json');
 const PRIX_DEFAUT = {
   starter: { prix: 25, devise: 'EUR', periode: 'semaine', analyses: 30, label: 'Starter' },
   pro: { prix: 100, devise: 'EUR', periode: 'semaine', analyses: 150, label: 'Pro' },
@@ -5763,7 +5841,7 @@ function sauverPrix(prix) {
 }
 // ═══ DB DES ERREURS SERVEUR (capturées automatiquement) ═══
 // FIX : utiliser @seald-io/nedb comme toutes les autres DBs (évite crash si nedb-promises absent)
-const errorsDb = new Datastore({ filename: path.join(__dirname, 'errors.db'), autoload: true });
+const errorsDb = new Datastore({ filename: path.join(DATA_DIR, 'errors.db'), autoload: true });
 
 // Capture des erreurs Node non-catchées + console.error
 const _origConsoleError = console.error.bind(console);
