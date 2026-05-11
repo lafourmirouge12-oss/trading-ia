@@ -5941,12 +5941,19 @@ app.post('/api/error-report', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Servir les pages dédiées /admin/doctor.html et /admin/logs.html
+// Servir les pages dédiées Admindoctor.html et Adminlogs.html (noms uploadés)
+app.get('/Admindoctor.html', checkAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'Admindoctor.html'));
+});
+app.get('/Adminlogs.html', checkAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'Adminlogs.html'));
+});
+// Alias pour compatibilité
 app.get('/admin/doctor.html', checkAdmin, (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin-doctor.html'));
+  res.sendFile(path.join(__dirname, 'Admindoctor.html'));
 });
 app.get('/admin/logs.html', checkAdmin, (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin-logs.html'));
+  res.sendFile(path.join(__dirname, 'Adminlogs.html'));
 });
 
 // ═══ AI DOCTOR — Chat IA d'aide au debug ═══
