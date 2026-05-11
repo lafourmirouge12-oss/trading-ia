@@ -268,6 +268,146 @@ function decryptStr(payload) {
   }
 }
 
+// ═══ RESOLUTION SYMBOLES UNIFIEE (priorite selon serveur broker) ═══
+async function resolveSymbolForUser(connection, baseSymbol, serverName) {
+  const sym = (baseSymbol || '').toUpperCase();
+  const sn = (serverName || '').toUpperCase();
+  let suffixes;
+  if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+  else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro'];
+  else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
+  for (const sfx of suffixes) {
+    try {
+      const candidate = sym + sfx;
+      const tick = await connection.getSymbolPrice(candidate);
+      if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
+        return { symbol: candidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
+      }
+    } catch(e) {}
+  }
+  return null;
+}
+
+// ═══ ANALYSE VOLUME (tick volume MetaApi) ═══
+function detecterVolumeSpike(candles, ratio = 2.0, lookback = 20) {
+  if (!candles || candles.length < lookback + 1) return null;
+  const recent = candles.slice(-lookback - 1, -1);
+  const last = candles[candles.length - 1];
+  if (!last.tickVolume && !last.volume) return null;
+  const lastVol = last.tickVolume || last.volume || 0;
+  if (lastVol === 0) return null;
+  const avgVol = recent.reduce((s, c) => s + (c.tickVolume || c.volume || 0), 0) / recent.length;
+  if (avgVol === 0) return null;
+  const ratioActuel = lastVol / avgVol;
+  return { spike: ratioActuel >= ratio, ratio: +ratioActuel.toFixed(2), lastVol, avgVol: +avgVol.toFixed(0) };
+}
+
+function calculerPOC(candles, nBins = 20) {
+  if (!candles || candles.length < 10) return null;
+  let minP = Infinity, maxP = -Infinity;
+  for (const c of candles) {
+    if (c.low < minP) minP = c.low;
+    if (c.high > maxP) maxP = c.high;
+  }
+  if (maxP === minP) return null;
+  const binSize = (maxP - minP) / nBins;
+  const bins = new Array(nBins).fill(0);
+  for (const c of candles) {
+    const vol = c.tickVolume || c.volume || 1;
+    const startBin = Math.max(0, Math.floor((c.low - minP) / binSize));
+    const endBin = Math.min(nBins - 1, Math.floor((c.high - minP) / binSize));
+    const nBinsTouches = Math.max(1, endBin - startBin + 1);
+    const volParBin = vol / nBinsTouches;
+    for (let i = startBin; i <= endBin; i++) bins[i] += volParBin;
+  }
+  let maxBinIdx = 0, maxBinVol = 0;
+  for (let i = 0; i < nBins; i++) {
+    if (bins[i] > maxBinVol) { maxBinVol = bins[i]; maxBinIdx = i; }
+  }
+  const poc = minP + (maxBinIdx + 0.5) * binSize;
+  return { poc: +poc.toFixed(2), range: { min: +minP.toFixed(2), max: +maxP.toFixed(2) } };
+}
+
+function detecterDivergenceVolume(candles, lookback = 10) {
+  if (!candles || candles.length < lookback + 5) return null;
+  const recent = candles.slice(-lookback);
+  const moitie = Math.floor(lookback / 2);
+  const p1 = recent.slice(0, moitie);
+  const p2 = recent.slice(moitie);
+  const max1 = Math.max(...p1.map(c => c.high));
+  const max2 = Math.max(...p2.map(c => c.high));
+  const min1 = Math.min(...p1.map(c => c.low));
+  const min2 = Math.min(...p2.map(c => c.low));
+  const vol1 = p1.reduce((s, c) => s + (c.tickVolume || c.volume || 0), 0) / p1.length;
+  const vol2 = p2.reduce((s, c) => s + (c.tickVolume || c.volume || 0), 0) / p2.length;
+  if (vol1 === 0 || vol2 === 0) return null;
+  if (max2 > max1 && vol2 < vol1 * 0.85) return { type: 'BEARISH_DIVERGENCE', message: 'Essoufflement haussier' };
+  if (min2 < min1 && vol2 < vol1 * 0.85) return { type: 'BULLISH_DIVERGENCE', message: 'Essoufflement baissier' };
+  return { type: 'NONE' };
+}
+
+// ═══ CALCUL TPs INTELLIGENTS BASES SUR NIVEAUX MARCHE REELS ═══
+function calculerTPsIntelligents(direction, entree, sl, analyseICT, pocData) {
+  if (!entree || !sl) return null;
+  const isBuy = direction === 'BUY';
+  const distSL = Math.abs(entree - sl);
+  if (distSL <= 0) return null;
+  const candidats = [];
+  const addCandidat = (prix, source) => {
+    if (!prix || isNaN(prix) || prix <= 0) return;
+    const distance = Math.abs(prix - entree);
+    if (isBuy && prix <= entree) return;
+    if (!isBuy && prix >= entree) return;
+    if (distance < distSL * 0.8) return;
+    const rr = distance / distSL;
+    candidats.push({ prix: +prix.toFixed(5), source, rr: +rr.toFixed(2), distance });
+  };
+  if (analyseICT && analyseICT.fibonacci && analyseICT.fibonacci.niveaux) {
+    addCandidat(analyseICT.fibonacci.niveaux['127.2'], 'Fibo 127.2%');
+    addCandidat(analyseICT.fibonacci.niveaux['161.8'], 'Fibo 161.8%');
+  }
+  if (analyseICT && analyseICT.fibonacciH1 && analyseICT.fibonacciH1.niveaux) {
+    addCandidat(analyseICT.fibonacciH1.niveaux['127.2'], 'Fibo H1 127.2%');
+    addCandidat(analyseICT.fibonacciH1.niveaux['161.8'], 'Fibo H1 161.8%');
+  }
+  if (analyseICT && analyseICT.drawOnLiquidity && analyseICT.drawOnLiquidity.toutes) {
+    analyseICT.drawOnLiquidity.toutes.forEach(c => {
+      if ((isBuy && c.side === 'BULLISH') || (!isBuy && c.side === 'BEARISH')) addCandidat(c.price, 'DOL ' + c.type);
+    });
+  }
+  if (analyseICT && analyseICT.asianRange) {
+    if (isBuy) addCandidat(analyseICT.asianRange.high, 'Asian High');
+    else addCandidat(analyseICT.asianRange.low, 'Asian Low');
+  }
+  if (analyseICT && analyseICT.dealingRange) {
+    if (isBuy) addCandidat(analyseICT.dealingRange.high, 'Dealing Range High');
+    else addCandidat(analyseICT.dealingRange.low, 'Dealing Range Low');
+  }
+  if (pocData && pocData.poc) addCandidat(pocData.poc, 'POC');
+  if (analyseICT && analyseICT.liquidite) {
+    if (isBuy && analyseICT.liquidite.equalHighs) analyseICT.liquidite.equalHighs.forEach(e => addCandidat(e.price, 'Equal Highs'));
+    if (!isBuy && analyseICT.liquidite.equalLows) analyseICT.liquidite.equalLows.forEach(e => addCandidat(e.price, 'Equal Lows'));
+  }
+  if (candidats.length === 0) return null;
+  candidats.sort((a, b) => a.distance - b.distance);
+  const dedupes = [];
+  for (const c of candidats) {
+    const trouve = dedupes.find(d => Math.abs(d.prix - c.prix) < distSL * 0.3);
+    if (!trouve) dedupes.push(c);
+  }
+  let tp1 = dedupes.find(c => c.rr >= 1.0 && c.rr <= 3.0) || dedupes[0];
+  let tp2 = dedupes.find(c => c !== tp1 && c.rr > (tp1?.rr || 1.5) && c.rr >= 2.5 && c.rr <= 5.5);
+  const srcMaj = ['DOL', 'Asian', 'Fibo H1 161', 'Fibo 161', 'Dealing Range'];
+  let tp3 = dedupes.find(c => c !== tp1 && c !== tp2 && c.rr >= 4.0 && srcMaj.some(s => c.source.includes(s)));
+  if (!tp3) tp3 = dedupes.find(c => c !== tp1 && c !== tp2 && c.rr > (tp2?.rr || 3));
+  return {
+    tp1: tp1?.prix, tp1Source: tp1?.source, tp1RR: tp1?.rr,
+    tp2: tp2?.prix, tp2Source: tp2?.source, tp2RR: tp2?.rr,
+    tp3: tp3?.prix, tp3Source: tp3?.source, tp3RR: tp3?.rr
+  };
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 const upload = multer({ dest: 'uploads/' });
@@ -946,10 +1086,10 @@ function calculerFibonacci(candles, lookback = 5) {
   let pctRetrace = null;
   if (range !== 0) pctRetrace = +(((prixActuel - debut) / range) * 100).toFixed(1);
 
-  // Détecter si prix dans OTE
-  const dansOTE = sens === 'UP'
-    ? (prixActuel >= oteZone.fin && prixActuel <= oteZone.debut)
-    : (prixActuel >= oteZone.debut && prixActuel <= oteZone.fin);
+  // Détecter si prix dans OTE — fix bug : normaliser min/max (en SELL la zone s'inverse)
+  const oteMin = Math.min(oteZone.debut, oteZone.fin);
+  const oteMax = Math.max(oteZone.debut, oteZone.fin);
+  const dansOTE = prixActuel >= oteMin && prixActuel <= oteMax;
 
   return {
     sens,
@@ -2203,22 +2343,10 @@ async function fetchAllMarketData(userId, symbole) {
     await connection.connect();
     await connection.waitSynchronized();
 
-    // ─── Résolution du symbole avec suffixes ─────────────────────
-    const sym = (symbole || 'XAUUSD').toUpperCase();
-    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-    let symbolResolu = null;
-    let testCandles = [];
-    for (const sfx of suffixes) {
-      try {
-        const symFull = sym + sfx;
-        testCandles = await connection.getHistoricalCandles(symFull, '15m', undefined, 5) || [];
-        if (testCandles.length) {
-          symbolResolu = symFull;
-          break;
-        }
-      } catch(e) {}
-    }
-    if (!symbolResolu) return null;
+    // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
+    const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
+    if (!resolved) { console.log('[FETCH-MARKET] Symbole introuvable:', symbole); return null; }
+    const symbolResolu = resolved.symbol;
 
     // ─── Récupération PARALLÈLE de tous les TF (1 seul deploy, 6 appels en parallèle) ─
     // D1 ajouté : filtre de tendance journalière pour bloquer les trades contre tendance
@@ -2810,19 +2938,15 @@ async function verifierProtectionsAvancees(parsed, userId) {
           );
 
           if (mssD1Aligne) {
-            // MSS D1 récent → retournement journalier possible, score réduit seulement
             scoreReduit = true;
             alertes.push(`⚠️ Tendance D1 contre ${parsed.decision} (${tD1.trend} ${tD1.confidence}/5) MAIS MSS_${isBuy ? 'BULLISH' : 'BEARISH'} D1 détecté → retournement possible, score réduit`);
-          } else if (tD1.confidence === 5) {
-            // Unanimité totale 5/5 = tendance journalière extrêmement forte → annulation
-            // Ex : XAU en crash total, ou bull run vertical absolu. Très rare.
+          } else if (tD1.confidence >= 4) {
+            // 4/5 ou 5/5 = annulation (équilibré pour WR 60%)
             tradeAnnule = true;
-            alertes.push(`🚫 CONTRE-TENDANCE D1 UNANIME : D1=${tD1.trend} (5/5 méthodes) vs ${parsed.decision} — flux institutionnel journalier total contre toi, annulé`);
-          } else if (tD1.confidence >= 3) {
-            // Confidence 3/5 ou 4/5 → score réduit seulement
-            // Un trade intraday ICT (Silver Bullet SELL en D1 bullish) reste valide
+            alertes.push(`🚫 CONTRE-TENDANCE D1 FORTE : D1=${tD1.trend} (${tD1.confidence}/5) vs ${parsed.decision} — annulé`);
+          } else if (tD1.confidence === 3) {
             scoreReduit = true;
-            alertes.push(`⚠️ Tendance D1 ${tD1.trend} (${tD1.confidence}/5) contre ${parsed.decision} — contexte journalier défavorable, score réduit`);
+            alertes.push(`⚠️ Tendance D1 ${tD1.trend} (3/5) contre ${parsed.decision} — score réduit`);
           }
           // confidence <= 2 → silencieux (D1 trop incertain)
         }
@@ -2886,15 +3010,9 @@ async function getPrixActuel(userId, symbole) {
     await connection.connect();
     await connection.waitSynchronized();
 
-    // Tester les variantes de symbole (broker peut avoir XAUUSD-VIP, etc.)
-    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-    let prix = null;
-    for (const sfx of suffixes) {
-      try {
-        const tick = await connection.getSymbolPrice(symbole + sfx);
-        if (tick && tick.bid) { prix = (tick.bid + tick.ask) / 2; break; }
-      } catch(e) {}
-    }
+    // Résolution unifiée selon serveur
+    const resolved = await resolveSymbolForUser(connection, symbole, user.mt5.server);
+    const prix = resolved ? resolved.mid : null;
 
     if (deployedHere) {
       try { await account.undeploy(); trackUndeploy(account.id); } catch(e) {}
@@ -2916,9 +3034,11 @@ async function reajusterEntreeSiNecessaire(parsed, userId) {
   if (!parsed.entree || !parsed.sl) return parsed;
 
   const symbole = (parsed.instrument || 'XAUUSD').toUpperCase();
-  const prixActuel = await getPrixActuel(userId, symbole);
+  // OPTI : utiliser le cache marketData au lieu de redéployer le compte MetaApi
+  const marketData = await fetchAllMarketData(userId, symbole);
+  const prixActuel = marketData?.prixActuel;
   if (!prixActuel) {
-    console.log('[REAJUST] Prix actuel indisponible, on garde l\'entrée IA');
+    console.log('[REAJUST] Prix actuel indisponible (cache), on garde l\'entrée IA');
     return parsed;
   }
 
@@ -3165,18 +3285,33 @@ async function getBlocOBFVG(userId, symbole) {
 async function enregistrerSetupGagnant(analyse) {
   if (typeof analyse.tradeProfit !== 'number' || analyse.tradeProfit <= 0) return;
   if (analyse.setupGagnantEnregistre) return;
-
-  // GATING : seuls les Pro/Elite contribuent à l'apprentissage
-  // (sinon on remplit la DB avec des trades de free qui ne sont pas pertinents)
   try {
     const userOwner = await db.findOneAsync({ _id: analyse.userId });
     if (!hasPremiumAccess(userOwner)) return;
   } catch(e) { return; }
 
   try {
-    // Calculer le ratio R atteint
+    // FILTRE QUALITE : exiger profit >= 1R pour considérer comme setup gagnant
+    // Sinon les trades à +0.5R polluent la base d'apprentissage
     const slDist = analyse.slPips || 0;
     const profit = analyse.tradeProfit;
+    if (analyse.entree && analyse.sl) {
+      const eN = parseFloat(analyse.entree);
+      const sN = parseFloat(analyse.sl);
+      const lots = parseFloat(analyse.lots) || 0.10;
+      const dist = Math.abs(eN - sN);
+      let mult = 1;
+      const inst = (analyse.instrument || 'XAUUSD').toUpperCase();
+      if (inst.includes('XAU')) mult = 100;
+      else if (inst.includes('JPY')) mult = 1000;
+      else if (inst.match(/EUR|GBP|AUD|NZD|CHF|CAD/)) mult = 100000;
+      const risqueDol = dist * lots * mult;
+      const ratioR = risqueDol > 0 ? profit / risqueDol : 0;
+      if (ratioR < 1.0) {
+        console.log('[SETUP-GAGNANT] Skip — ' + profit.toFixed(2) + '\$ < 1R (' + risqueDol.toFixed(2) + '\$)');
+        return;
+      }
+    }
     const tp1Dist = analyse.tp1Pips || slDist * 2;
     // Approx: si profit > 2× la perte que SL aurait causée → setup gagnant solide
     // On garde les setups qui ont fait > 2R en termes de prix (TP1 atteint au minimum)
@@ -3291,12 +3426,9 @@ async function genererPostMortemAuto(analyse, userId) {
     const debut = new Date(tempsCloture.getTime() - 30 * 5 * 60 * 1000); // 2h30 avant
 
     let candles = [];
-    const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-    for (const sfx of suffixes) {
-      try {
-        candles = await connection.getHistoricalCandles(symbole + sfx, '5m', debut, 30) || [];
-        if (candles.length) break;
-      } catch(e) {}
+    const resolvedPM = await resolveSymbolForUser(connection, symbole, user.mt5.server);
+    if (resolvedPM) {
+      try { candles = await connection.getHistoricalCandles(resolvedPM.symbol, '5m', debut, 30) || []; } catch(e) {}
     }
     if (!candles.length) return null;
 
@@ -4668,7 +4800,50 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
 
     content.push({
       type: 'text',
-      text: `Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.instrument || 'XAUUSD'}.${capital ? ` Capital: $${capital}.` : ''}
+      text: `═══ MÉTHODE OBLIGATOIRE — SÉLECTION INTELLIGENTE DU MEILLEUR SETUP ═══
+Tu testes MENTALEMENT plusieurs concepts ICT/SMC et tu retournes UNIQUEMENT LE MEILLEUR (score le + élevé).
+
+CONCEPTS À ÉVALUER (donne un score 0-10 à chacun) :
+ 1. CRT_KASPER — range asiat + faux breakout + close opposé (meilleur début Londres)
+ 2. OTE_FIBO — prix dans 61.8-78.6% retracement + tendance alignée (meilleur en tendance)
+ 3. AMD — Accumulation→Manipulation→Distribution (meilleur Londres/NY)
+ 4. SWEEP_REVERSAL — sweep liquidité récent + bougie réversal
+ 5. SILVER_BULLET — 10h-11h NY uniquement (fenêtre stricte)
+ 6. VOLUME_SPIKE — volume 2x+ moyenne sur cassure (confirme breakouts)
+ 7. POC_RETEST — prix retest le Point of Control (meilleur en range)
+ 8. ORDER_BLOCK_H1 — OB qualité HIGH non mitigé (meilleur sur retracement)
+
+→ Choisis le concept au score le + élevé et fais TON trade dessus
+→ Si AUCUN concept n'a score >= 7 → "NE PAS TRADER" obligatoire
+→ Renseigne "conceptUtilise" et "conceptsTestes" dans le JSON
+→ Pour le scoring final tu utilises le score du concept gagnant
+
+═══ FORMAT PRIX OBLIGATOIRE PAR INSTRUMENT ═══
+- XAUUSD/Gold : 2 décimales (ex 4710.50)
+- EURUSD, GBPUSD, AUDUSD, NZDUSD : 5 décimales (ex 1.08456)
+- USDJPY, EURJPY, GBPJPY : 3 décimales (ex 154.235)
+- XAGUSD : 3 décimales | BTCUSD : 1 décimale | ETHUSD : 2 décimales
+- NAS100, US30, GER40 : 1 décimale | US500 : 2 décimales
+
+DISTANCE SL MINIMUM par instrument (trade rejeté serveur si non respecté) :
+- XAUUSD : 1.5\$ min (CRT Kasper M1) ou 3\$ (autres méthodes)
+- EURUSD/GBPUSD/AUDUSD/NZDUSD : 0.0010 (10 pips)
+- USDJPY/JPY : 0.10 (10 pips)
+- BTC : 150\$ | ETH : 10\$ | NAS100/US30 : 20 points
+
+VALIDATION TP/SL OBLIGATOIRE :
+- TP1, TP2, TP3 STRICTEMENT différents de l'entrée
+- Distance TP-entrée >= 0.8x distance SL (sinon trade rejeté)
+- Pour BUY : TP1 < TP2 < TP3 et tous au-dessus de l'entrée
+- Pour SELL : TP1 > TP2 > TP3 et tous en-dessous de l'entrée
+
+═══ TP INTELLIGENTS — basés sur les NIVEAUX MARCHÉ réels ═══
+TES TP ne sont PAS aléatoires. Tu les places sur les VRAIS niveaux :
+- TP1 = niveau proche (FVG opposée / OB intermédiaire / swing M5) → RR 1:1.5 à 1:2.5
+- TP2 = niveau structurel (Fibo 127.2% / equal H-L) → RR 1:3 à 1:5
+- TP3 = niveau MAJEUR (DOL / Asian range opposé / Fibo 161.8%) → RR 1:5 à 1:10
+
+Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.instrument || 'XAUUSD'}.${capital ? ` Capital: $${capital}.` : ''}
 
 ${blocLecons}${blocSetupsGagnants}${blocPatternErreurs}${blocOBFVG}${blocIndicateurs}
 
@@ -4738,6 +4913,16 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
+  "conceptUtilise": "<CRT_KASPER | OTE_FIBO | AMD | SWEEP_REVERSAL | SILVER_BULLET | VOLUME_SPIKE | POC_RETEST | ORDER_BLOCK_H1 | NONE>",
+  "conceptsTestes": [
+    {"nom":"<concept1>","score":<0-10>,"applicable":true,"raison":"<1 phrase>"},
+    {"nom":"<concept2>","score":<0-10>,"applicable":true,"raison":"<1 phrase>"},
+    {"nom":"<concept3>","score":<0-10>,"applicable":false,"raison":"<pourquoi pas applicable>"}
+  ],
+  "tp1Source": "<source: 'FVG opposée' / 'Swing M5' / 'Fibo 127.2%' / 'Equal Highs' etc.>",
+  "tp2Source": "<source niveau structurel>",
+  "tp3Source": "<source niveau majeur: 'DOL Asian High' / 'Fibo 161.8%' etc.>",
+  "volumeConfirmation": "<OUI/NON — y a-t-il un volume spike confirmant la direction ?>",
   "session": "${sessionActive}",
   "sessionImpact": "<comment la session influence ce signal>",
   "confiance": "XX%",
@@ -4889,22 +5074,54 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
       if (entree && sl && parsed.decision !== 'NE PAS TRADER') {
         const dist = Math.abs(entree - sl);
         const slCorrige = isBuy ? entree - dist : entree + dist;
-        // R:R adaptatifs : setup A+ = TP plus ambitieux, setup B = plus défensif
         const score = parseFloat(parsed.score) || 7;
-        const rr1 = score >= 9 ? 1.5 : (score >= 7 ? 1.5 : 1.0);
-        const rr2 = score >= 9 ? 2.5 : (score >= 7 ? 2.0 : 2.0);
-        const rr3 = score >= 9 ? 4.0 : (score >= 7 ? 3.0 : 3.0);
-        const tp1 = isBuy ? entree + dist * rr1 : entree - dist * rr1;
-        const tp2 = isBuy ? entree + dist * rr2 : entree - dist * rr2;
-        const tp3 = isBuy ? entree + dist * rr3 : entree - dist * rr3;
-        parsed.sl = slCorrige.toFixed(2);
-        parsed.tp1 = tp1.toFixed(2);
-        parsed.tp2 = tp2.toFixed(2);
-        parsed.tp3 = tp3.toFixed(2);
-        parsed.slPips = Math.round(dist * 10) / 10;
-        parsed.tp1Pips = Math.round(dist * rr1 * 10) / 10;
-        parsed.tp2Pips = Math.round(dist * rr2 * 10) / 10;
-        parsed.tp3Pips = Math.round(dist * rr3 * 10) / 10;
+        const inst = (parsed.instrument || 'XAU').toUpperCase();
+        const decimales = inst.match(/JPY/) ? 3 : (inst.match(/EUR|GBP|AUD|NZD|CHF|CAD/) && !inst.match(/JPY/) ? 5 : 2);
+        parsed.sl = +slCorrige.toFixed(decimales);
+
+        // Tenter TPs intelligents basés sur niveaux marché réels
+        let tpsIntel = null;
+        try {
+          const ictCache = global._ictCache && global._ictCache[req.session.userId];
+          const analyseICT = ictCache?.analyse || null;
+          let pocData = null;
+          try {
+            const md = await fetchAllMarketData(req.session.userId, inst);
+            if (md && md.candlesM15) pocData = calculerPOC(md.candlesM15, 20);
+          } catch(e) {}
+          tpsIntel = calculerTPsIntelligents(parsed.decision, entree, slCorrige, analyseICT, pocData);
+        } catch(e) { console.log('[TP-INTEL]', e.message); }
+
+        if (tpsIntel && tpsIntel.tp1 && tpsIntel.tp2 && tpsIntel.tp3) {
+          // Niveaux marché trouvés
+          parsed.tp1 = tpsIntel.tp1; parsed.tp2 = tpsIntel.tp2; parsed.tp3 = tpsIntel.tp3;
+          parsed.tp1Source = tpsIntel.tp1Source; parsed.tp2Source = tpsIntel.tp2Source; parsed.tp3Source = tpsIntel.tp3Source;
+          parsed.tp1RR = tpsIntel.tp1RR; parsed.tp2RR = tpsIntel.tp2RR; parsed.tp3RR = tpsIntel.tp3RR;
+          parsed.slPips = Math.round(dist * 100) / 100;
+          parsed.tp1Pips = Math.round(Math.abs(tpsIntel.tp1 - entree) * 100) / 100;
+          parsed.tp2Pips = Math.round(Math.abs(tpsIntel.tp2 - entree) * 100) / 100;
+          parsed.tp3Pips = Math.round(Math.abs(tpsIntel.tp3 - entree) * 100) / 100;
+          parsed.tpsCalcule = 'INTELLIGENT';
+          console.log('[TP-INTEL] ' + tpsIntel.tp1Source + ' R' + tpsIntel.tp1RR + ' | ' + tpsIntel.tp2Source + ' R' + tpsIntel.tp2RR + ' | ' + tpsIntel.tp3Source + ' R' + tpsIntel.tp3RR);
+        } else {
+          // Fallback RR adaptatifs ATTRACTIFS
+          let rr1, rr2, rr3;
+          if (score >= 9) { rr1 = 2.0; rr2 = 4.0; rr3 = 8.0; }
+          else if (score >= 7) { rr1 = 1.5; rr2 = 3.0; rr3 = 5.0; }
+          else { rr1 = 1.0; rr2 = 2.0; rr3 = 3.0; }
+          const tp1 = isBuy ? entree + dist * rr1 : entree - dist * rr1;
+          const tp2 = isBuy ? entree + dist * rr2 : entree - dist * rr2;
+          const tp3 = isBuy ? entree + dist * rr3 : entree - dist * rr3;
+          parsed.tp1 = +tp1.toFixed(decimales);
+          parsed.tp2 = +tp2.toFixed(decimales);
+          parsed.tp3 = +tp3.toFixed(decimales);
+          parsed.tp1RR = rr1; parsed.tp2RR = rr2; parsed.tp3RR = rr3;
+          parsed.slPips = Math.round(dist * 100) / 100;
+          parsed.tp1Pips = Math.round(dist * rr1 * 100) / 100;
+          parsed.tp2Pips = Math.round(dist * rr2 * 100) / 100;
+          parsed.tp3Pips = Math.round(dist * rr3 * 100) / 100;
+          parsed.tpsCalcule = 'FALLBACK_RR';
+        }
       }
     }
 
@@ -4933,17 +5150,22 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
         parsed.entreeInvalideAlerte = 'Entree non numerique fournie par IA : "' + entreeStr.substring(0, 80) + '" — trade annulé pour sécurité';
         parsed.entree = null;
       } else {
-        // Normaliser : remplacer la string par le nombre arrondi à 2 décimales
-        parsed.entree = parseFloat(entreeNum.toFixed(2));
+        // Normaliser : décimales selon instrument
+        // FIX : toFixed(2) cassait EURUSD (1.08456 → 1.08), on garde la précision de l'IA
+        const _instNorm = (parsed.instrument || 'XAU').toUpperCase();
+        const _dec = _instNorm.match(/JPY/) ? 3 :
+                     (_instNorm.match(/EUR|GBP|AUD|NZD|CHF|CAD/) ? 5 :
+                     (_instNorm.match(/XAU|XAG|OIL|WTI/) ? 2 : 2));
+        parsed.entree = parseFloat(entreeNum.toFixed(_dec));
       }
     }
 
-    // ─── GARDE SCORE MINIMUM CÔTÉ SERVEUR ──────────────────────
-    // Même si l'IA rate la règle, on force le refus si score < 6
-    if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < 6) {
-      console.log('[SCORE-GUARD] Score ' + parsed.score + ' < 6 → NE PAS TRADER forcé côté serveur');
+    // ─── GARDE SCORE MINIMUM 7 (objectif WR 60%) ──────────────────
+    // Score < 7 = pas assez de confluence → trade refusé
+    if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < 7) {
+      console.log('[SCORE-GUARD] Score ' + parsed.score + ' < 7 → NE PAS TRADER (objectif WR 60%)');
       parsed.decision = 'NE PAS TRADER';
-      parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 6/10 pour trader';
+      parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 7/10 pour viser WR 60%';
     }
 
     // ─── VALIDATION SL/TP = NOMBRES PURS ───────────────────────
@@ -4961,7 +5183,12 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
           parsed.numInvalideAlerte = champ + ' = "' + str.substring(0, 60) + '" non numérique';
           break;
         } else {
-          parsed[champ] = parseFloat(num.toFixed(2));
+          // FIX : décimales selon instrument (EURUSD a besoin de 5 décimales)
+          const _instSL = (parsed.instrument || 'XAU').toUpperCase();
+          const _decSL = _instSL.match(/JPY/) ? 3 :
+                         (_instSL.match(/EUR|GBP|AUD|NZD|CHF|CAD/) ? 5 :
+                         (_instSL.match(/XAU|XAG|OIL|WTI/) ? 2 : 2));
+          parsed[champ] = parseFloat(num.toFixed(_decSL));
         }
       }
     }
@@ -5076,16 +5303,75 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
       }
     }
 
+    // Fallback tendances toujours définies (évite undefined frontend)
+    parsed.tendanceServerD1 = parsed.tendanceServerD1 || parsed.tendanceD1 || 'INDISPONIBLE';
+    parsed.tendanceServerH1 = parsed.tendanceServerH1 || parsed.tendanceH1 || 'INDISPONIBLE';
+    parsed.tendanceServerM30 = parsed.tendanceServerM30 || parsed.tendance || 'INDISPONIBLE';
+    parsed.tendanceConfidenceD1 = parsed.tendanceConfidenceD1 || 0;
+    parsed.tendanceConfidenceH1 = parsed.tendanceConfidenceH1 || 0;
+    parsed.tendanceConfidenceM30 = parsed.tendanceConfidenceM30 || 0;
+
+    // Validation TP/SL stricte (anti-bug "TP = entrée" sur EURUSD/JPY)
+    if (parsed.decision !== 'NE PAS TRADER' && parsed.entree && parsed.sl) {
+      const ent = parseFloat(parsed.entree);
+      const slN = parseFloat(parsed.sl);
+      const distSL = Math.abs(ent - slN);
+      const isBuyF = parsed.decision === 'BUY';
+      const inst = (parsed.instrument || '').toUpperCase();
+      let distSLMin;
+      if (inst.includes('XAU')) distSLMin = 1.5;
+      else if (inst.includes('JPY')) distSLMin = 0.10;
+      else if (inst.includes('BTC')) distSLMin = 100;
+      else if (inst.includes('ETH')) distSLMin = 8;
+      else if (inst.match(/EUR|GBP|AUD|NZD|CHF|CAD/) && !inst.includes('JPY')) distSLMin = 0.0010;
+      else if (inst.match(/NAS|US30|SPX|US100|US500|GER40|DAX/)) distSLMin = 15;
+      else distSLMin = 0;
+      if (distSLMin > 0 && distSL < distSLMin) {
+        console.log('[VALIDATION-SL] Distance SL ' + distSL + ' < min ' + distSLMin + ' pour ' + inst);
+        parsed.decision = 'NE PAS TRADER';
+        parsed.slDistAlerte = 'SL trop serré (' + distSL.toFixed(5) + ' < ' + distSLMin + ' pour ' + inst + ')';
+      }
+      if (parsed.decision !== 'NE PAS TRADER') {
+        const tps = ['tp1', 'tp2', 'tp3'].map(k => parsed[k] ? parseFloat(parsed[k]) : null);
+        for (let i = 0; i < tps.length; i++) {
+          if (tps[i] === null || isNaN(tps[i])) continue;
+          if (Math.abs(tps[i] - ent) < distSL * 0.8) {
+            parsed.decision = 'NE PAS TRADER';
+            parsed.tpDistAlerte = 'TP' + (i+1) + ' trop proche entrée (RR < 0.8)';
+            break;
+          }
+          if (isBuyF && tps[i] <= ent) { parsed.decision = 'NE PAS TRADER'; parsed.tpDistAlerte = 'TP' + (i+1) + ' sous entrée pour BUY'; break; }
+          if (!isBuyF && tps[i] >= ent) { parsed.decision = 'NE PAS TRADER'; parsed.tpDistAlerte = 'TP' + (i+1) + ' au-dessus entrée pour SELL'; break; }
+        }
+        // Vérifier ordre TPs
+        const tpsValides = tps.filter(t => t !== null && !isNaN(t));
+        if (tpsValides.length >= 2 && parsed.decision !== 'NE PAS TRADER') {
+          for (let i = 1; i < tpsValides.length; i++) {
+            const ordre = isBuyF ? tpsValides[i] > tpsValides[i-1] : tpsValides[i] < tpsValides[i-1];
+            if (!ordre) { parsed.decision = 'NE PAS TRADER'; parsed.tpOrdreAlerte = 'TPs mauvais ordre'; break; }
+          }
+        }
+      }
+    }
+
     const analysisId = uuidv4();
 
     await analysesDb.insertAsync({
       _id: analysisId,
       userId: req.session.userId,
       decision: parsed.decision,
-      entry: parsed.entree,   // 'entry' pour compatibilité historique
-      entree: parsed.entree,  // 'entree' pour les fonctions internes
+      entry: parsed.entree,
+      entree: parsed.entree,
       sl: parsed.sl,
-      tp: parsed.tp1, tp2: parsed.tp2, tp3: parsed.tp3,
+      tp: parsed.tp1, tp1: parsed.tp1, tp2: parsed.tp2, tp3: parsed.tp3,
+      tp1Source: parsed.tp1Source || null,
+      tp2Source: parsed.tp2Source || null,
+      tp3Source: parsed.tp3Source || null,
+      tp1RR: parsed.tp1RR || null,
+      tp2RR: parsed.tp2RR || null,
+      tp3RR: parsed.tp3RR || null,
+      conceptUtilise: parsed.conceptUtilise || null,
+      conceptsTestes: parsed.conceptsTestes || null,
       score: parsed.score,
       instrument: parsed.instrument,
       lots: parsed.lots,
@@ -5455,6 +5741,222 @@ app.get('/admin/stats', checkAdmin, async (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
+// ═══ CONFIG PRIX DES PACKS (modifiable via admin) ═══
+const PRIX_FILE = path.join(__dirname, 'prix-packs.json');
+const PRIX_DEFAUT = {
+  starter: { prix: 25, devise: 'EUR', periode: 'semaine', analyses: 30, label: 'Starter' },
+  pro: { prix: 100, devise: 'EUR', periode: 'semaine', analyses: 150, label: 'Pro' },
+  elite: { prix: 75, devise: 'EUR', periode: 'semaine', analyses: 999999, label: 'Elite' }
+};
+function chargerPrix() {
+  try {
+    if (fs.existsSync(PRIX_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PRIX_FILE, 'utf-8'));
+      return { ...PRIX_DEFAUT, ...data };
+    }
+  } catch(e) {}
+  return PRIX_DEFAUT;
+}
+function sauverPrix(prix) {
+  try { fs.writeFileSync(PRIX_FILE, JSON.stringify(prix, null, 2)); return true; }
+  catch(e) { return false; }
+}
+// ═══ DB DES ERREURS SERVEUR (capturées automatiquement) ═══
+// FIX : utiliser @seald-io/nedb comme toutes les autres DBs (évite crash si nedb-promises absent)
+const errorsDb = new Datastore({ filename: path.join(__dirname, 'errors.db'), autoload: true });
+
+// Capture des erreurs Node non-catchées + console.error
+const _origConsoleError = console.error.bind(console);
+console.error = function(...args) {
+  _origConsoleError(...args);
+  try {
+    const msg = args.map(a => {
+      if (a instanceof Error) return a.stack || a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    errorsDb.insertAsync({
+      _id: uuidv4(),
+      type: 'console_error',
+      message: msg.slice(0, 8000),
+      timestamp: new Date(),
+      resolved: false
+    }).catch(() => {});
+  } catch(e) {}
+};
+
+process.on('uncaughtException', (err) => {
+  _origConsoleError('[UNCAUGHT]', err);
+  errorsDb.insertAsync({
+    _id: uuidv4(),
+    type: 'uncaught_exception',
+    message: (err.stack || err.message || String(err)).slice(0, 8000),
+    timestamp: new Date(),
+    resolved: false
+  }).catch(() => {});
+});
+
+process.on('unhandledRejection', (reason) => {
+  _origConsoleError('[UNHANDLED-REJECTION]', reason);
+  errorsDb.insertAsync({
+    _id: uuidv4(),
+    type: 'unhandled_rejection',
+    message: (reason && reason.stack ? reason.stack : String(reason)).slice(0, 8000),
+    timestamp: new Date(),
+    resolved: false
+  }).catch(() => {});
+});
+
+// Route : récupérer la liste des erreurs récentes (paginé)
+app.get('/admin/errors', checkAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const onlyUnresolved = req.query.unresolved === '1';
+    const query = onlyUnresolved ? { resolved: false } : {};
+    const errors = await errorsDb.find(query).sort({ timestamp: -1 }).limit(limit);
+    res.json({ errors, total: errors.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Route : marquer une erreur comme résolue
+app.post('/admin/errors/:id/resolve', checkAdmin, async (req, res) => {
+  try {
+    await errorsDb.updateAsync({ _id: req.params.id }, { $set: { resolved: true, resolvedAt: new Date() } });
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Route : supprimer une erreur
+app.delete('/admin/errors/:id', checkAdmin, async (req, res) => {
+  try {
+    await errorsDb.removeAsync({ _id: req.params.id }, {});
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Route : effacer toutes les erreurs résolues
+app.post('/admin/errors/clear-resolved', checkAdmin, async (req, res) => {
+  try {
+    const result = await errorsDb.removeAsync({ resolved: true }, { multi: true });
+    res.json({ success: true, deleted: result });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Route : reporter une erreur depuis le frontend
+app.post('/api/error-report', async (req, res) => {
+  try {
+    const { message, stack, url, line, col } = req.body;
+    if (!message) return res.status(400).json({ error: 'message requis' });
+    await errorsDb.insertAsync({
+      _id: uuidv4(),
+      type: 'frontend_error',
+      message: String(message).slice(0, 2000),
+      stack: String(stack || '').slice(0, 4000),
+      url: String(url || '').slice(0, 500),
+      line: line || null,
+      col: col || null,
+      userId: req.session?.userId || null,
+      timestamp: new Date(),
+      resolved: false
+    });
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Servir les pages dédiées /admin/doctor.html et /admin/logs.html
+app.get('/admin/doctor.html', checkAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-doctor.html'));
+});
+app.get('/admin/logs.html', checkAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-logs.html'));
+});
+
+// ═══ AI DOCTOR — Chat IA d'aide au debug ═══
+// Le user colle un log/erreur dans le chat admin, l'IA répond avec le code corrigé
+app.post('/admin/ai-doctor', checkAdmin, async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Message requis' });
+    }
+    if (message.length > 8000) {
+      return res.status(400).json({ error: 'Message trop long (max 8000 caractères)' });
+    }
+
+    // Construire l'historique des messages pour Claude
+    const messages = [];
+    if (Array.isArray(history)) {
+      // Garder max 10 derniers échanges pour économiser tokens
+      const recentHistory = history.slice(-20);
+      for (const h of recentHistory) {
+        if (h.role && h.content && (h.role === 'user' || h.role === 'assistant')) {
+          messages.push({ role: h.role, content: String(h.content).slice(0, 4000) });
+        }
+      }
+    }
+    messages.push({ role: 'user', content: message });
+
+    const systemPrompt = `Tu es l'AI Doctor de la plateforme J4keIA / AI-Mazza — un assistant expert en debug pour Leon (le développeur).
+
+Contexte technique du projet :
+- Backend : Node.js + Express + NeDB (DBs locales) + MetaApi (trading MT5) + Anthropic Claude API
+- Frontend : HTML/CSS/JS vanilla, design néon cyan/gold "Orbitron"
+- Déployé sur Render (filesystem éphémère sauf /db si configuré)
+- Stack : sessions express-session, multer pour uploads images, sharp pour PNG, nodemailer pour OTP
+
+Ton rôle :
+- Tu reçois des logs d'erreurs, des extraits de code buggés, ou des descriptions de bugs
+- Tu analyses le problème
+- Tu fournis LE CODE CORRIGÉ prêt à copier-coller
+- Tu expliques BRIÈVEMENT le bug et la solution
+
+Format de réponse :
+1. 🔍 **Diagnostic** : 1-2 phrases sur la cause
+2. 🛠️ **Solution** : le code corrigé dans un bloc \`\`\`javascript ou \`\`\`html
+3. ⚠️ **Risques** (si pertinent) : ce qu'il faut vérifier après la modif
+
+Sois CONCIS et DIRECT. Pas de blabla inutile. Code en premier, explication courte ensuite.
+Si le bug n'est pas clair, demande UNE info précise avant de proposer.`;
+
+    const Anthropic = require('@anthropic-ai/sdk').default || require('@anthropic-ai/sdk').Anthropic || require('@anthropic-ai/sdk');
+    const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+    const response = await anthropicClient.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 3000,
+      system: systemPrompt,
+      messages: messages
+    });
+
+    const reply = response.content && response.content[0] ? response.content[0].text : 'Pas de réponse';
+    res.json({ success: true, reply });
+  } catch(e) {
+    console.error('[AI-DOCTOR] Erreur:', e.message);
+    res.status(500).json({ error: 'Erreur IA: ' + e.message });
+  }
+});
+
+app.get('/admin/prix-packs', checkAdmin, (req, res) => { res.json(chargerPrix()); });
+app.get('/api/prix-packs', (req, res) => { res.json(chargerPrix()); });
+app.post('/admin/prix-packs', checkAdmin, (req, res) => {
+  try {
+    const { starter, pro, elite } = req.body;
+    if (!starter || !pro || !elite) return res.status(400).json({ error: 'Tous les packs requis' });
+    for (const [k, v] of Object.entries({ starter, pro, elite })) {
+      if (typeof v.prix !== 'number' || v.prix < 0 || v.prix > 99999) {
+        return res.status(400).json({ error: 'Prix invalide pour ' + k });
+      }
+    }
+    const nv = {
+      starter: { ...PRIX_DEFAUT.starter, ...starter },
+      pro: { ...PRIX_DEFAUT.pro, ...pro },
+      elite: { ...PRIX_DEFAUT.elite, ...elite }
+    };
+    if (sauverPrix(nv)) res.json({ success: true, prix: nv });
+    else res.status(500).json({ error: 'Sauvegarde échouée' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/admin/alerte-email', checkAdmin, async (req, res) => {
   try {
     const { decision, instrument, entree, sl, tp1, tp2, tp3, score, raison, lots } = req.body;
@@ -5473,10 +5975,15 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
     if (!user) return res.json({ error: 'Introuvable' });
     const subscribed = status === 'paid';
     let analysisMax = 2;
+    let normalizedPlan = plan;
     if (subscribed) {
+      // FIX BUG : "pro" était traité comme "starter" (fallback). Maintenant "pro" = 150 analyses.
       if (plan === 'starter') analysisMax = 30;
-      else if (plan === 'premium') analysisMax = 150;
-      else if (plan === 'elite') analysisMax = 300;
+      else if (plan === 'pro' || plan === 'premium') {
+        analysisMax = 150;
+        normalizedPlan = 'pro';
+      }
+      else if (plan === 'elite') analysisMax = 999999; // illimité
       else analysisMax = 30;
     }
     let paidUntil = null;
@@ -5493,7 +6000,7 @@ app.post('/admin/payment/:id', checkAdmin, async (req, res) => {
       console.log('[PAYMENT] paidUntil:', paidUntil);
     }
     await db.updateAsync({ _id: req.params.id }, {
-      $set: { paymentStatus: status, plan: subscribed ? plan : 'free', paymentNote: note || '', subscribed, analysisMax, analysisCount: 0, paidUntil }
+      $set: { paymentStatus: status, plan: subscribed ? normalizedPlan : 'free', paymentNote: note || '', subscribed, analysisMax, analysisCount: 0, paidUntil }
     }, {});
     res.json({ success: true, paidUntil, analysisMax });
   } catch(e) { res.json({ error: e.message }); }
@@ -6126,28 +6633,12 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
     await connection.connect();
     await connection.waitSynchronized();
 
-    // ─── RESOLUTION DU SYMBOLE BROKER ────────────────────────────────
-    // VTMarkets (et d'autres brokers) utilisent des suffixes sur les symboles
-    // ex: XAUUSD → XAUUSD-VIP ou XAUUSD-STD selon le type de compte
-    // On teste le symbole brut d'abord, puis les variantes courantes
-    const resolveSymbol = async (baseSymbol) => {
-      const suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro'];
-      for (const suffix of suffixes) {
-        const candidate = baseSymbol + suffix;
-        try {
-          const tick = await connection.getSymbolPrice(candidate);
-          if (tick && tick.bid) {
-            console.log('[MT5-ORDER] Symbole resolu: ' + candidate + ' (bid=' + tick.bid + ')');
-            return { resolvedSymbol: candidate, currentPrice: tick.bid };
-          }
-        } catch(e) {
-          // Ce suffixe n'existe pas sur ce broker, on essaie le suivant
-        }
-      }
-      throw new Error('Symbole ' + baseSymbol + ' introuvable sur ce compte broker. Verifie le nom exact dans ton MT5.');
-    };
-
-    const { resolvedSymbol, currentPrice } = await resolveSymbol(symbol);
+    // Résolution unifiée selon serveur (priorité STD/VIP/ECN)
+    const resolvedOrder = await resolveSymbolForUser(connection, symbol, user.mt5.server);
+    if (!resolvedOrder) throw new Error('Symbole ' + symbol + ' introuvable sur ce broker (serveur ' + user.mt5.server + ').');
+    const resolvedSymbol = resolvedOrder.symbol;
+    const currentPrice = resolvedOrder.mid;
+    console.log('[MT5-ORDER] Symbole resolu: ' + resolvedSymbol + ' (mid=' + currentPrice + ')');
     const isBuy = String(direction).toUpperCase().includes('BUY');
 
     // ═══════════════════════════════════════════════════════════════
@@ -6234,9 +6725,13 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
 
     console.log('[MT5-ORDER] Ordre place ! ID:', result.orderId);
 
-    // UNDEPLOY immediatement pour economiser
     await account.undeploy();
     trackUndeploy(account.id);
+
+    // Déclencher wrapper TP 30s après pour rattraper les exécutions rapides
+    setTimeout(() => {
+      gererTpPartielsWrapper().catch(e => console.log('[TP-IMMEDIAT]', e.message));
+    }, 30 * 1000);
 
     res.json({
       success: true,
@@ -6296,16 +6791,6 @@ app.use((err, req, res, next) => {
     error: 'Erreur serveur',
     message: process.env.NODE_ENV === 'production' ? 'Quelque chose a foiré, réessaie' : err.message
   });
-});
-
-// Catch les erreurs async non catchées (qui crasheraient le process)
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[UNHANDLED-REJECTION]', reason);
-});
-process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT-EXCEPTION]', err.message);
-  console.error(err.stack);
-  // Ne pas exit, laisser le serveur tourner
 });
 
 app.listen(port, () => {

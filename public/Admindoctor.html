@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🩺 AI Doctor — J4keIA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    :root{--bg:#000814;--panel:rgba(0,15,40,0.92);--cyan:#00f5ff;--gold:#ffd700;--green:#00ff88;--red:#ff3060;--orange:#ff8c00;}
+    body{font-family:'Rajdhani','SF Pro Display',sans-serif;background:var(--bg);color:#fff;min-height:100vh;}
+    body::before{content:'';position:fixed;inset:0;background:radial-gradient(circle at 20% 30%, rgba(0,255,136,0.06), transparent 50%), radial-gradient(circle at 80% 70%, rgba(0,245,255,0.05), transparent 60%);pointer-events:none;}
+    .nav{position:fixed;top:0;left:0;right:0;background:rgba(0,8,20,0.95);backdrop-filter:blur(20px);border-bottom:1px solid rgba(0,255,136,0.15);padding:14px 20px;display:flex;justify-content:space-between;align-items:center;z-index:100;}
+    .nav-logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;letter-spacing:3px;background:linear-gradient(135deg,var(--cyan),var(--green));-webkit-background-clip:text;background-clip:text;color:transparent;}
+    .nav-badge{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:var(--green);border:1px solid rgba(0,255,136,0.3);padding:4px 10px;}
+    .nav-actions{display:flex;gap:8px;}
+    .nav-btn{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;text-decoration:none;text-transform:uppercase;padding:7px 12px;border:1px solid;transition:all 0.3s;cursor:pointer;background:transparent;}
+    .nav-btn.admin{color:rgba(0,245,255,0.7);border-color:rgba(0,245,255,0.2);}
+    .nav-btn.admin:hover{color:var(--cyan);border-color:var(--cyan);}
+    .nav-btn.logs{color:rgba(255,140,0,0.8);border-color:rgba(255,140,0,0.3);}
+    .nav-btn.logs:hover{color:var(--orange);border-color:var(--orange);}
+    .nav-btn.logout{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.2);}
+    .nav-btn.logout:hover{color:var(--red);border-color:var(--red);}
+
+    .container{padding:90px 16px 30px;max-width:1100px;margin:0 auto;}
+    .header{margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+    .title{font-family:'Orbitron',monospace;font-size:22px;font-weight:900;letter-spacing:3px;color:var(--green);}
+    .subtitle{font-size:11px;color:rgba(0,255,136,0.6);font-family:'Orbitron',monospace;letter-spacing:2px;margin-top:4px;text-transform:uppercase;}
+
+    .chat-container{background:linear-gradient(135deg,rgba(0,255,136,0.04),rgba(0,245,255,0.03));border:1px solid rgba(0,255,136,0.25);border-radius:6px;padding:18px;}
+    .messages{background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.15);border-radius:4px;padding:14px;min-height:400px;max-height:60vh;overflow-y:auto;margin-bottom:14px;font-family:'Courier New',monospace;font-size:13px;color:#ddd;line-height:1.6;}
+    .messages::-webkit-scrollbar{width:8px;}
+    .messages::-webkit-scrollbar-track{background:rgba(0,0,0,0.2);}
+    .messages::-webkit-scrollbar-thumb{background:rgba(0,255,136,0.3);border-radius:4px;}
+    .placeholder{color:rgba(0,255,136,0.5);font-style:italic;font-family:'Rajdhani',sans-serif;font-size:14px;}
+    .placeholder strong{color:rgba(0,255,136,0.8);}
+
+    .message{margin-bottom:14px;padding:10px 12px;border-left:3px solid;border-radius:3px;}
+    .message.user{border-left-color:var(--cyan);background:rgba(0,245,255,0.04);}
+    .message.assistant{border-left-color:var(--green);background:rgba(0,255,136,0.04);}
+    .message-label{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;margin-bottom:6px;}
+    .message.user .message-label{color:var(--cyan);}
+    .message.assistant .message-label{color:var(--green);}
+    .message pre{background:rgba(0,0,0,0.6);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:10px;margin:6px 0;overflow-x:auto;color:#a5f3a5;font-size:12px;line-height:1.4;}
+    .message code{background:rgba(0,255,136,0.1);padding:1px 5px;border-radius:2px;color:#a5f3a5;}
+
+    .input-area{display:flex;flex-direction:column;gap:10px;}
+    textarea{width:100%;min-height:100px;background:rgba(0,0,0,0.4);border:1px solid rgba(0,255,136,0.2);border-radius:4px;padding:10px 12px;color:#fff;font-family:'Courier New',monospace;font-size:13px;outline:none;resize:vertical;}
+    textarea:focus{border-color:rgba(0,255,136,0.5);}
+    .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .btn{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:10px 24px;border-radius:3px;cursor:pointer;font-weight:700;border:1px solid;transition:all 0.2s;background:transparent;}
+    .btn-send{background:rgba(0,255,136,0.15);border-color:rgba(0,255,136,0.8);color:rgba(0,255,136,1);}
+    .btn-send:hover{background:rgba(0,255,136,0.25);}
+    .btn-send:disabled{opacity:0.5;cursor:not-allowed;}
+    .btn-reset{background:transparent;border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);font-size:9px;padding:7px 12px;}
+    .btn-reset:hover{border-color:rgba(255,48,96,0.4);color:var(--red);}
+    .status{font-size:10px;color:rgba(255,255,255,0.4);font-family:'Orbitron',monospace;letter-spacing:1px;}
+
+    @media (max-width: 700px) {
+      .container{padding:80px 10px 20px;}
+      .title{font-size:18px;}
+      .nav{padding:10px 14px;}
+      .nav-actions{gap:5px;}
+      .nav-btn{padding:6px 8px;font-size:7px;}
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div class="nav-logo">🩺 AI DOCTOR</div>
+    <div class="nav-badge">DEBUG</div>
+  </div>
+  <div class="nav-actions">
+    <a href="/admin" class="nav-btn admin">← Admin</a>
+    <a href="/admin/logs.html" class="nav-btn logs">🐛 Logs</a>
+    <a href="/logout" class="nav-btn logout">Déco</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="header">
+    <div>
+      <div class="title">🩺 AI Doctor</div>
+      <div class="subtitle">Colle un bug · L'IA te donne le code corrigé</div>
+    </div>
+    <button class="btn btn-reset" onclick="resetChat()">🔄 Nouvelle conversation</button>
+  </div>
+
+  <div class="chat-container">
+    <div class="messages" id="messages">
+      <div class="placeholder">
+        💡 <strong>Exemples de bugs à coller :</strong><br><br>
+        • <code>TypeError: Cannot read property 'bid' of null à server.js:6342</code><br>
+        • "Le bouton place-order ne répond pas quand je clique"<br>
+        • "Erreur 500 sur /mt5/place-order, voici le log: ..."<br>
+        • "Le RR ne s'affiche pas correctement dans index.html"<br><br>
+        💡 <strong>L'IA répond avec :</strong> Diagnostic + Code corrigé + Risques
+      </div>
+    </div>
+
+    <div class="input-area">
+      <textarea id="input" placeholder="Colle ton log, ton erreur ou décris ton bug ici...&#10;&#10;Astuce : Ctrl+Enter pour envoyer"></textarea>
+      <div class="actions">
+        <button class="btn btn-send" id="sendBtn" onclick="envoyer()">🩺 Envoyer au Doctor</button>
+        <div class="status" id="status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let history = [];
+
+// Pré-remplir depuis ?prefill=... (envoyé depuis page logs)
+window.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const pf = params.get('prefill');
+  if (pf) {
+    try {
+      const decoded = decodeURIComponent(atob(pf));
+      document.getElementById('input').value = decoded;
+      document.getElementById('input').focus();
+      // Auto-envoi si demandé
+      if (params.get('autosend') === '1') {
+        setTimeout(() => envoyer(), 300);
+      }
+    } catch(e) {
+      document.getElementById('input').value = pf;
+    }
+  }
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function appendMessage(role, content) {
+  const messages = document.getElementById('messages');
+  const placeholder = messages.querySelector('.placeholder');
+  if (placeholder) placeholder.remove();
+
+  let esc = escapeHtml(content);
+  // ```...``` → <pre>
+  esc = esc.replace(/```(\w*)\n?([\s\S]*?)```/g, function(_, lang, code) {
+    return '<pre>' + code.replace(/^\n+|\n+$/g, '') + '</pre>';
+  });
+  // **gras** → <strong>
+  esc = esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // `inline` → <code>
+  esc = esc.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // \n hors <pre>
+  esc = esc.replace(/\n(?![^<]*<\/pre>)/g, '<br>');
+
+  const div = document.createElement('div');
+  div.className = 'message ' + role;
+  div.innerHTML = '<div class="message-label">' + (role === 'user' ? '👤 TOI' : '🩺 AI DOCTOR') + '</div><div>' + esc + '</div>';
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function envoyer() {
+  const input = document.getElementById('input');
+  const btn = document.getElementById('sendBtn');
+  const status = document.getElementById('status');
+  const msg = input.value.trim();
+  if (!msg) {
+    status.textContent = '⚠️ Tape un message';
+    setTimeout(() => status.textContent = '', 3000);
+    return;
+  }
+
+  appendMessage('user', msg);
+  history.push({ role: 'user', content: msg });
+  input.value = '';
+  btn.disabled = true;
+  btn.textContent = '⏳ Le Doctor réfléchit...';
+  status.textContent = '⏳ Envoi à Claude...';
+  status.style.color = 'rgba(0,255,136,0.7)';
+
+  try {
+    const r = await fetch('/admin/ai-doctor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, history: history.slice(0, -1) })
+    });
+    const d = await r.json();
+    if (d.success && d.reply) {
+      appendMessage('assistant', d.reply);
+      history.push({ role: 'assistant', content: d.reply });
+      status.textContent = '✓ Réponse reçue';
+      setTimeout(() => status.textContent = '', 3000);
+    } else {
+      status.textContent = '❌ ' + (d.error || 'Erreur inconnue');
+      status.style.color = '#ff3060';
+    }
+  } catch(e) {
+    status.textContent = '❌ Réseau: ' + e.message;
+    status.style.color = '#ff3060';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🩺 Envoyer au Doctor';
+  }
+}
+
+function resetChat() {
+  if (history.length === 0) return;
+  if (!confirm('Effacer la conversation ?')) return;
+  history = [];
+  document.getElementById('messages').innerHTML = '<div class="placeholder">💡 Nouvelle conversation. Colle ton bug ou ton log...</div>';
+}
+
+document.getElementById('input').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    envoyer();
+  }
+});
+
+// Capturer les erreurs JS de cette page elle-même → backend
+window.addEventListener('error', e => {
+  fetch('/api/error-report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: e.message, stack: e.error?.stack || '', url: e.filename || 'doctor.html', line: e.lineno, col: e.colno
+    })
+  }).catch(() => {});
+});
+</script>
+
+</body>
+</html>

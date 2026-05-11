@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🐛 Logs & Bugs — J4keIA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    :root{--bg:#000814;--panel:rgba(0,15,40,0.92);--cyan:#00f5ff;--gold:#ffd700;--green:#00ff88;--red:#ff3060;--orange:#ff8c00;}
+    body{font-family:'Rajdhani','SF Pro Display',sans-serif;background:var(--bg);color:#fff;min-height:100vh;}
+    body::before{content:'';position:fixed;inset:0;background:radial-gradient(circle at 80% 30%, rgba(255,140,0,0.05), transparent 50%), radial-gradient(circle at 20% 70%, rgba(255,48,96,0.04), transparent 60%);pointer-events:none;}
+
+    .nav{position:fixed;top:0;left:0;right:0;background:rgba(0,8,20,0.95);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,140,0,0.15);padding:14px 20px;display:flex;justify-content:space-between;align-items:center;z-index:100;}
+    .nav-logo{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;letter-spacing:3px;background:linear-gradient(135deg,var(--orange),var(--red));-webkit-background-clip:text;background-clip:text;color:transparent;}
+    .nav-badge{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:3px;color:var(--orange);border:1px solid rgba(255,140,0,0.3);padding:4px 10px;}
+    .nav-actions{display:flex;gap:8px;}
+    .nav-btn{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;text-decoration:none;text-transform:uppercase;padding:7px 12px;border:1px solid;transition:all 0.3s;cursor:pointer;background:transparent;}
+    .nav-btn.admin{color:rgba(0,245,255,0.7);border-color:rgba(0,245,255,0.2);}
+    .nav-btn.admin:hover{color:var(--cyan);border-color:var(--cyan);}
+    .nav-btn.doctor{color:rgba(0,255,136,0.8);border-color:rgba(0,255,136,0.3);}
+    .nav-btn.doctor:hover{color:var(--green);border-color:var(--green);}
+    .nav-btn.logout{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.2);}
+    .nav-btn.logout:hover{color:var(--red);border-color:var(--red);}
+
+    .container{padding:90px 16px 30px;max-width:1400px;margin:0 auto;}
+    .header{margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+    .title{font-family:'Orbitron',monospace;font-size:22px;font-weight:900;letter-spacing:3px;color:var(--orange);}
+    .subtitle{font-size:11px;color:rgba(255,140,0,0.6);font-family:'Orbitron',monospace;letter-spacing:2px;margin-top:4px;text-transform:uppercase;}
+
+    .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;background:rgba(0,15,40,0.5);border:1px solid rgba(255,140,0,0.15);border-radius:4px;padding:12px;}
+    .filter-btn{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;padding:7px 12px;background:transparent;border:1px solid rgba(255,140,0,0.2);color:rgba(255,140,0,0.7);cursor:pointer;border-radius:3px;text-transform:uppercase;}
+    .filter-btn.active{background:rgba(255,140,0,0.15);border-color:var(--orange);color:var(--orange);}
+    .filter-btn:hover{border-color:rgba(255,140,0,0.5);}
+    .btn-clear{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;padding:7px 12px;background:transparent;border:1px solid rgba(255,48,96,0.3);color:rgba(255,48,96,0.7);cursor:pointer;border-radius:3px;text-transform:uppercase;margin-left:auto;}
+    .btn-clear:hover{border-color:var(--red);color:var(--red);}
+    .stats{display:flex;gap:14px;align-items:center;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,255,255,0.6);text-transform:uppercase;}
+    .stats span{color:var(--orange);font-weight:700;}
+
+    .errors-list{display:flex;flex-direction:column;gap:10px;}
+    .error-card{background:rgba(0,15,40,0.7);border:1px solid rgba(255,140,0,0.15);border-radius:4px;padding:14px;transition:all 0.2s;}
+    .error-card.resolved{opacity:0.5;border-color:rgba(0,255,136,0.2);}
+    .error-card:hover{border-color:rgba(255,140,0,0.4);}
+    .error-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+    .error-type{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;padding:3px 8px;border:1px solid;border-radius:2px;text-transform:uppercase;font-weight:700;}
+    .error-type.uncaught_exception{color:var(--red);border-color:rgba(255,48,96,0.4);background:rgba(255,48,96,0.08);}
+    .error-type.unhandled_rejection{color:#ff8c00;border-color:rgba(255,140,0,0.4);background:rgba(255,140,0,0.08);}
+    .error-type.console_error{color:#ffaa00;border-color:rgba(255,170,0,0.4);background:rgba(255,170,0,0.06);}
+    .error-type.frontend_error{color:#ff6b9d;border-color:rgba(255,107,157,0.4);background:rgba(255,107,157,0.06);}
+    .error-time{font-family:'Orbitron',monospace;font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:1px;}
+    .error-message{font-family:'Courier New',monospace;font-size:12px;color:#ddd;background:rgba(0,0,0,0.4);padding:10px;border-radius:3px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;line-height:1.5;}
+    .error-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+    .error-btn{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;padding:6px 12px;background:transparent;border:1px solid;border-radius:3px;cursor:pointer;text-transform:uppercase;font-weight:700;text-decoration:none;display:inline-block;}
+    .error-btn.diagnose{background:rgba(0,255,136,0.12);border-color:rgba(0,255,136,0.6);color:var(--green);}
+    .error-btn.diagnose:hover{background:rgba(0,255,136,0.22);}
+    .error-btn.resolve{border-color:rgba(0,245,255,0.3);color:rgba(0,245,255,0.7);}
+    .error-btn.resolve:hover{border-color:var(--cyan);color:var(--cyan);}
+    .error-btn.delete{border-color:rgba(255,48,96,0.3);color:rgba(255,48,96,0.7);}
+    .error-btn.delete:hover{border-color:var(--red);color:var(--red);}
+
+    .empty{text-align:center;padding:40px;color:rgba(255,255,255,0.4);font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;}
+
+    @media (max-width: 700px) {
+      .container{padding:80px 10px 20px;}
+      .title{font-size:18px;}
+      .nav{padding:10px 14px;}
+      .nav-actions{gap:5px;}
+      .nav-btn{padding:6px 8px;font-size:7px;}
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div class="nav-logo">🐛 LOGS</div>
+    <div class="nav-badge">BUGS</div>
+  </div>
+  <div class="nav-actions">
+    <a href="/admin" class="nav-btn admin">← Admin</a>
+    <a href="/admin/doctor.html" class="nav-btn doctor">🩺 AI Doctor</a>
+    <a href="/logout" class="nav-btn logout">Déco</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="header">
+    <div>
+      <div class="title">🐛 Logs & Bugs</div>
+      <div class="subtitle">Erreurs serveur · Crashes · Frontend</div>
+    </div>
+    <button onclick="loadErrors()" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;padding:8px 16px;background:rgba(255,140,0,0.15);border:1px solid var(--orange);color:var(--orange);cursor:pointer;border-radius:3px;text-transform:uppercase;font-weight:700;">🔄 Rafraîchir</button>
+  </div>
+
+  <div class="toolbar">
+    <button class="filter-btn active" id="filterAll" onclick="setFilter('all')">Tous</button>
+    <button class="filter-btn" id="filterUnresolved" onclick="setFilter('unresolved')">⚠️ Non résolus</button>
+    <div class="stats" id="stats">— erreurs · — non résolues</div>
+    <button class="btn-clear" onclick="clearResolved()">🗑️ Vider les résolus</button>
+  </div>
+
+  <div class="errors-list" id="errorsList">
+    <div class="empty">Chargement...</div>
+  </div>
+</div>
+
+<script>
+let currentFilter = 'all';
+let allErrors = [];
+
+async function loadErrors() {
+  try {
+    const url = '/admin/errors?limit=200' + (currentFilter === 'unresolved' ? '&unresolved=1' : '');
+    const r = await fetch(url);
+    const d = await r.json();
+    allErrors = d.errors || [];
+    render();
+  } catch(e) {
+    document.getElementById('errorsList').innerHTML = '<div class="empty">❌ Erreur chargement: ' + e.message + '</div>';
+  }
+}
+
+function render() {
+  const list = document.getElementById('errorsList');
+  if (allErrors.length === 0) {
+    list.innerHTML = '<div class="empty">✓ Aucune erreur ' + (currentFilter === 'unresolved' ? 'non résolue' : '') + '</div>';
+    document.getElementById('stats').innerHTML = '<span>0</span> erreurs';
+    return;
+  }
+  const unresolvedCount = allErrors.filter(e => !e.resolved).length;
+  document.getElementById('stats').innerHTML = '<span>' + allErrors.length + '</span> erreurs · <span style="color:#ff3060;">' + unresolvedCount + '</span> non résolues';
+
+  list.innerHTML = allErrors.map(e => {
+    const date = new Date(e.timestamp);
+    const dateStr = date.toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const message = String(e.message || '');
+    const safe = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Préparer la string pour AI Doctor (base64 pour éviter problèmes encoding URL)
+    const doctorPayload = btoa(encodeURIComponent('Voici une erreur de mon serveur, peux-tu me dire ce qui se passe et comment fix ?\n\n' + 'Type: ' + e.type + '\nDate: ' + dateStr + '\n\n' + message));
+    return '<div class="error-card ' + (e.resolved ? 'resolved' : '') + '" id="err-' + e._id + '">' +
+      '<div class="error-header">' +
+        '<span class="error-type ' + e.type + '">' + e.type.replace(/_/g, ' ') + '</span>' +
+        '<span class="error-time">' + dateStr + (e.resolved ? ' ✓ résolu' : '') + '</span>' +
+      '</div>' +
+      '<div class="error-message">' + safe + '</div>' +
+      '<div class="error-actions">' +
+        '<a href="/admin/doctor.html?prefill=' + doctorPayload + '" class="error-btn diagnose" target="_blank">🩺 Demander à AI Doctor</a>' +
+        (!e.resolved ? '<button class="error-btn resolve" onclick="resolveError(\'' + e._id + '\')">✓ Marquer résolu</button>' : '') +
+        '<button class="error-btn delete" onclick="deleteError(\'' + e._id + '\')">🗑️ Supprimer</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  document.getElementById('filterAll').classList.toggle('active', f === 'all');
+  document.getElementById('filterUnresolved').classList.toggle('active', f === 'unresolved');
+  loadErrors();
+}
+
+async function resolveError(id) {
+  try {
+    await fetch('/admin/errors/' + id + '/resolve', { method: 'POST' });
+    loadErrors();
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
+
+async function deleteError(id) {
+  if (!confirm('Supprimer cette erreur ?')) return;
+  try {
+    await fetch('/admin/errors/' + id, { method: 'DELETE' });
+    loadErrors();
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
+
+async function clearResolved() {
+  if (!confirm('Vider toutes les erreurs marquées résolues ?')) return;
+  try {
+    await fetch('/admin/errors/clear-resolved', { method: 'POST' });
+    loadErrors();
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
+
+loadErrors();
+// Auto-refresh toutes les 30s
+setInterval(loadErrors, 30000);
+</script>
+
+</body>
+</html>

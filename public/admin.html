@@ -19,6 +19,10 @@
     .nav-btn.site:hover{color:var(--cyan);border-color:var(--cyan);}
     .nav-btn.logout{color:rgba(255,48,96,0.7);border-color:rgba(255,48,96,0.2);}
     .nav-btn.logout:hover{color:var(--red);border-color:var(--red);}
+    .nav-btn.doctor{color:rgba(0,255,136,0.8);border-color:rgba(0,255,136,0.3);}
+    .nav-btn.doctor:hover{color:#00ff88;border-color:#00ff88;background:rgba(0,255,136,0.08);}
+    .nav-btn.logs{color:rgba(255,140,0,0.8);border-color:rgba(255,140,0,0.3);}
+    .nav-btn.logs:hover{color:#ff8c00;border-color:#ff8c00;background:rgba(255,140,0,0.08);}
     .container{position:relative;z-index:1;padding:80px 16px 40px;max-width:1400px;margin:0 auto;}
     .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;}
     .stat-card{background:var(--panel);border:1px solid rgba(0,245,255,0.12);border-radius:4px;padding:16px 12px;text-align:center;}
@@ -96,6 +100,8 @@
     <div class="nav-badge">Admin</div>
   </div>
   <div class="nav-actions">
+    <a href="/admin/logs.html" class="nav-btn logs">🐛 Logs</a>
+    <a href="/admin/doctor.html" class="nav-btn doctor">🩺 AI Doctor</a>
     <a href="/" class="nav-btn site">Site</a>
     <a href="/logout" class="nav-btn logout">Déco</a>
   </div>
@@ -132,6 +138,36 @@
     <div class="stat-card"><div class="stat-num blue" id="dActifs30j">0</div><div class="stat-label">Actifs 30j</div></div>
     <div class="stat-card"><div class="stat-num cyan" id="dAnalyses7j">0</div><div class="stat-label">Analyses 7j</div></div>
     <div class="stat-card"><div class="stat-num cyan" id="dAnalyses30j">0</div><div class="stat-label">Analyses 30j</div></div>
+  </div>
+
+  <!-- ═══ BANNIÈRE CONFIG PRIX DES PACKS ═══ -->
+  <div class="section-title">◈ 💰 Configuration des prix des packs</div>
+  <div style="background:linear-gradient(135deg,rgba(255,215,0,0.06),rgba(0,245,255,0.04));border:1px solid rgba(255,215,0,0.25);border-radius:6px;padding:20px;margin-bottom:24px;">
+    <div style="font-size:11px;color:rgba(255,215,0,0.8);letter-spacing:2px;margin-bottom:14px;font-family:'Orbitron',monospace;text-transform:uppercase;">⚙️ Modifie les prix des packs (mis à jour instantanément côté clients)</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+      <div style="background:rgba(0,15,40,0.7);border:1px solid rgba(0,245,255,0.2);border-radius:4px;padding:14px;">
+        <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;color:var(--cyan);margin-bottom:10px;">STARTER</div>
+        <label style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;">Prix (€/semaine)</label>
+        <input type="number" id="priceStarterInput" min="0" max="9999" value="25" style="width:100%;background:rgba(0,245,255,0.06);border:1px solid rgba(0,245,255,0.2);border-radius:3px;padding:8px 10px;color:#fff;font-family:'Orbitron',monospace;font-size:18px;margin-top:4px;outline:none;"/>
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:6px;">30 analyses</div>
+      </div>
+      <div style="background:rgba(0,15,40,0.7);border:1px solid rgba(255,215,0,0.3);border-radius:4px;padding:14px;">
+        <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;color:var(--gold);margin-bottom:10px;">PRO</div>
+        <label style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;">Prix (€/semaine)</label>
+        <input type="number" id="pricePro" min="0" max="9999" value="100" style="width:100%;background:rgba(255,215,0,0.05);border:1px solid rgba(255,215,0,0.3);border-radius:3px;padding:8px 10px;color:#fff;font-family:'Orbitron',monospace;font-size:18px;margin-top:4px;outline:none;"/>
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:6px;">150 analyses + MT5</div>
+      </div>
+      <div style="background:rgba(0,15,40,0.7);border:1px solid rgba(128,0,255,0.3);border-radius:4px;padding:14px;">
+        <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;color:#a050ff;margin-bottom:10px;">ELITE ⭐</div>
+        <label style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;">Prix (€/semaine)</label>
+        <input type="number" id="priceElite" min="0" max="9999" value="75" style="width:100%;background:rgba(128,0,255,0.05);border:1px solid rgba(128,0,255,0.3);border-radius:3px;padding:8px 10px;color:#fff;font-family:'Orbitron',monospace;font-size:18px;margin-top:4px;outline:none;"/>
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:6px;">Illimité + MT5 + Tout</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:14px;align-items:center;flex-wrap:wrap;">
+      <button onclick="sauverPrixPacks()" style="background:rgba(255,215,0,0.15);border:1px solid var(--gold);color:var(--gold);padding:10px 24px;border-radius:3px;cursor:pointer;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">💾 Sauvegarder les prix</button>
+      <div id="prixSaveStatus" style="font-size:11px;color:rgba(255,255,255,0.4);font-family:'Orbitron',monospace;letter-spacing:1px;"></div>
+    </div>
   </div>
 
   <div class="section-title">◈ Apprentissage IA — Mémoire collective</div>
@@ -203,9 +239,9 @@
     </select>
     <label class="mlabel">Plan</label>
     <select class="mselect" id="pPlan">
-      <option value="starter">Starter — 30 analyses</option>
-      <option value="pro">Pro — 150 analyses</option>
-      <option value="elite">Elite — Illimité</option>
+      <option value="starter" id="pOptStarter">Starter — 30 analyses (25€)</option>
+      <option value="pro" id="pOptPro">Pro — 150 analyses (100€)</option>
+      <option value="elite" id="pOptElite">Elite — Illimité (75€)</option>
     </select>
     <label class="mlabel">Note (référence virement, date...)</label>
     <input type="text" class="minput" id="pNote" placeholder="Ex: Virement 27/03 — 50€"/>
@@ -267,7 +303,154 @@ async function loadUsers(){
   }catch(e){}
 }
 
-function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();}
+function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();loadPrixPacks();}
+
+// Stub : le vrai code AI Doctor est dans /admin/doctor.html (page dédiée)
+function _stubDoctorRemoved(role, content){
+  const box = document.getElementById('aiDoctorMessages');
+  if (!box) return;
+  // Premier message : effacer le placeholder
+  if (aiDoctorHistory.length === 0 && box.querySelector('[style*="font-style:italic"]')) {
+    box.innerHTML = '';
+  }
+  const isUser = role === 'user';
+  const couleur = isUser ? '#00f5ff' : '#00ff88';
+  const labelTxt = isUser ? '👤 TOI' : '🩺 AI DOCTOR';
+  // Échapper HTML mais préserver les blocs code
+  const esc = String(content).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Convertir ```...``` en <pre>
+  const withCode = esc.replace(/```(\w*)\n?([\s\S]*?)```/g, function(_, lang, code){
+    return '<pre style="background:rgba(0,0,0,0.6);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:10px;margin:6px 0;overflow-x:auto;color:#a5f3a5;font-size:12px;line-height:1.4;">' + code.replace(/^\n+|\n+$/g, '') + '</pre>';
+  });
+  // Convertir **gras** en <strong>
+  const withBold = withCode.replace(/\*\*(.+?)\*\*/g, '<strong style="color:' + couleur + ';">$1</strong>');
+  // Convertir `inline` en <code>
+  const withInline = withBold.replace(/`([^`\n]+)`/g, '<code style="background:rgba(0,255,136,0.1);padding:1px 5px;border-radius:2px;color:#a5f3a5;">$1</code>');
+  // Convertir sauts de ligne hors <pre>
+  const final = withInline.replace(/\n(?![^<]*<\/pre>)/g, '<br>');
+
+  const div = document.createElement('div');
+  div.style.cssText = 'margin-bottom:14px;padding:10px;border-left:3px solid ' + couleur + ';background:rgba(' + (isUser ? '0,245,255' : '0,255,136') + ',0.04);border-radius:3px;';
+  div.innerHTML = '<div style="font-family:\'Orbitron\',monospace;font-size:9px;letter-spacing:2px;color:' + couleur + ';margin-bottom:6px;">' + labelTxt + '</div><div>' + final + '</div>';
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function envoyerAiDoctor(){
+  const input = document.getElementById('aiDoctorInput');
+  const btn = document.getElementById('aiDoctorSend');
+  const status = document.getElementById('aiDoctorStatus');
+  const message = input.value.trim();
+  if (!message) {
+    status.textContent = '⚠️ Tape un message d\'abord';
+    setTimeout(() => status.textContent = '', 3000);
+    return;
+  }
+  // Afficher message user
+  appendAiDoctorMessage('user', message);
+  aiDoctorHistory.push({ role: 'user', content: message });
+  input.value = '';
+  btn.disabled = true;
+  btn.textContent = '⏳ Le Doctor réfléchit...';
+  btn.style.opacity = '0.6';
+  status.textContent = '⏳ Envoi à Claude...';
+  status.style.color = 'rgba(0,255,136,0.7)';
+
+  try {
+    const r = await fetch('/admin/ai-doctor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: aiDoctorHistory.slice(0, -1) })
+    });
+    const d = await r.json();
+    if (d.success && d.reply) {
+      appendAiDoctorMessage('assistant', d.reply);
+      aiDoctorHistory.push({ role: 'assistant', content: d.reply });
+      status.textContent = '✓ Réponse reçue';
+      setTimeout(() => status.textContent = '', 3000);
+    } else {
+      status.textContent = '❌ ' + (d.error || 'Erreur inconnue');
+      status.style.color = 'var(--red)';
+    }
+  } catch(e) {
+    status.textContent = '❌ Réseau: ' + e.message;
+    status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🩺 Envoyer au Doctor';
+    btn.style.opacity = '1';
+  }
+}
+
+function resetAiDoctor(){
+  if (aiDoctorHistory.length === 0) return;
+  if (!confirm('Effacer la conversation actuelle ?')) return;
+  aiDoctorHistory = [];
+  const box = document.getElementById('aiDoctorMessages');
+  if (box) {
+    box.innerHTML = '<div style="color:rgba(0,255,136,0.5);font-style:italic;">💡 Nouvelle conversation. Colle ton bug ou ton log...</div>';
+  }
+}
+
+// Envoi avec Ctrl+Enter / Cmd+Enter
+document.addEventListener('keydown', function(e){
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    const input = document.getElementById('aiDoctorInput');
+    if (input && document.activeElement === input) {
+      e.preventDefault();
+      envoyerAiDoctor();
+    }
+  }
+});
+
+async function loadPrixPacks(){
+  try {
+    const r = await fetch('/admin/prix-packs');
+    const p = await r.json();
+    if (p.starter) document.getElementById('priceStarterInput').value = p.starter.prix || 25;
+    if (p.pro) document.getElementById('pricePro').value = p.pro.prix || 100;
+    if (p.elite) document.getElementById('priceElite').value = p.elite.prix || 75;
+    const oS = document.getElementById('pOptStarter');
+    const oP = document.getElementById('pOptPro');
+    const oE = document.getElementById('pOptElite');
+    if (oS) oS.textContent = 'Starter — 30 analyses (' + (p.starter?.prix || 25) + '€)';
+    if (oP) oP.textContent = 'Pro — 150 analyses (' + (p.pro?.prix || 100) + '€)';
+    if (oE) oE.textContent = 'Elite — Illimité (' + (p.elite?.prix || 75) + '€)';
+  } catch(e) { console.log('loadPrixPacks:', e.message); }
+}
+
+async function sauverPrixPacks(){
+  const starter = parseFloat(document.getElementById('priceStarterInput').value) || 25;
+  const pro = parseFloat(document.getElementById('pricePro').value) || 100;
+  const elite = parseFloat(document.getElementById('priceElite').value) || 75;
+  const status = document.getElementById('prixSaveStatus');
+  status.textContent = '⏳ Sauvegarde...';
+  status.style.color = 'rgba(0,245,255,0.7)';
+  try {
+    const r = await fetch('/admin/prix-packs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        starter: { prix: starter },
+        pro: { prix: pro },
+        elite: { prix: elite }
+      })
+    });
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = '✓ Prix sauvegardés (Starter ' + starter + '€ · Pro ' + pro + '€ · Elite ' + elite + '€)';
+      status.style.color = 'var(--green)';
+      loadPrixPacks();
+      setTimeout(() => { status.textContent = ''; }, 5000);
+    } else {
+      status.textContent = '❌ ' + (d.error || 'Erreur');
+      status.style.color = 'var(--red)';
+    }
+  } catch(e) {
+    status.textContent = '❌ Erreur réseau: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
 
 // ─── DASHBOARD AVANCÉ (MRR, croissance, apprentissage IA, top users) ───
 async function loadDashboard(){
