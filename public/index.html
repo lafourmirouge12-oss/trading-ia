@@ -1170,6 +1170,18 @@
       <span class="score-val" id="scoreTxt">—/10</span>
     </div>
 
+    <!-- BANDEAU MODE RISQUE (SURF / VAGUE VERTE / NORMAL / VIGILANCE) -->
+    <div id="modeBox" style="display:none;border-radius:6px;padding:12px 14px;margin-bottom:12px;border:1px solid;position:relative;overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;position:relative;z-index:2;">
+        <div>
+          <div id="modeName" style="font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:2px;margin-bottom:3px;">🔵 MODE NORMAL</div>
+          <div id="modeStats" style="font-size:11px;opacity:0.8;font-family:'Rajdhani',sans-serif;">Capital de base sécurisé · Risque max 3%</div>
+        </div>
+        <div id="modeBoost" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;padding:5px 10px;border-radius:3px;display:none;">×1.00</div>
+      </div>
+      <div id="modeMessage" style="font-size:11px;margin-top:6px;opacity:0.85;font-style:italic;display:none;"></div>
+    </div>
+
     <!-- BLOC CONCEPT UTILISE (sélection intelligente) -->
     <div id="conceptBox" style="display:none;background:linear-gradient(135deg,rgba(180,100,255,0.08),rgba(0,245,255,0.04));border:1px solid rgba(180,100,255,0.3);border-radius:6px;padding:14px;margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -2199,6 +2211,89 @@ async function analyze(){
         else if(el) el.textContent='—';
       });
     })();
+
+    // AFFICHAGE MODE RISQUE
+    const modeBox = document.getElementById('modeBox');
+    if (modeBox) {
+      const mode = d.modeRisque || 'NORMAL';
+      const modeName = document.getElementById('modeName');
+      const modeStats = document.getElementById('modeStats');
+      const modeBoost = document.getElementById('modeBoost');
+      const modeMessage = document.getElementById('modeMessage');
+      const ratioLot = (d.risquePct && d.risqueBase) ? (d.risquePct / d.risqueBase).toFixed(2) : '1.00';
+
+      const configs = {
+        'SURF': {
+          name: '🔥 MODE SURF — Tu surfes ta hot streak',
+          color: '#ff8c00',
+          bg: 'linear-gradient(135deg,rgba(255,140,0,0.12),rgba(255,215,0,0.06))',
+          border: 'rgba(255,140,0,0.5)',
+          stats: 'Setups 9-10 boostés (+5 à +7% des gains) · Capital initial sécurisé'
+        },
+        'VAGUE_VERTE': {
+          name: '🟢 MODE VAGUE VERTE — Tu es en profit',
+          color: '#00ff88',
+          bg: 'linear-gradient(135deg,rgba(0,255,136,0.10),rgba(0,245,255,0.04))',
+          border: 'rgba(0,255,136,0.5)',
+          stats: 'Setups 9-10 boostés (+4 à +5% des gains) · Capital initial protégé'
+        },
+        'NORMAL': {
+          name: '🔵 MODE NORMAL',
+          color: '#00f5ff',
+          bg: 'linear-gradient(135deg,rgba(0,245,255,0.05),rgba(0,15,40,0.6))',
+          border: 'rgba(0,245,255,0.25)',
+          stats: 'Capital sécurisé · Risque max 3% par trade'
+        },
+        'VIGILANCE': {
+          name: '🟡 MODE VIGILANCE',
+          color: '#ffd700',
+          bg: 'linear-gradient(135deg,rgba(255,215,0,0.08),rgba(0,15,40,0.6))',
+          border: 'rgba(255,215,0,0.5)',
+          stats: 'Lot réduit de 50% (anti-tilt)'
+        },
+        'PRESERVATION': {
+          name: '🔴 MODE PRÉSERVATION',
+          color: '#ff3060',
+          bg: 'linear-gradient(135deg,rgba(255,48,96,0.10),rgba(0,15,40,0.7))',
+          border: 'rgba(255,48,96,0.6)',
+          stats: 'Lot réduit de 75% (protection capital)'
+        }
+      };
+      const cfg = configs[mode] || configs.NORMAL;
+      modeName.textContent = cfg.name;
+      modeName.style.color = cfg.color;
+      modeBox.style.background = cfg.bg;
+      modeBox.style.borderColor = cfg.border;
+
+      let extraStats = cfg.stats;
+      if (d.gainPct && (mode === 'SURF' || mode === 'VAGUE_VERTE')) {
+        extraStats += ' · Gain 7j : +' + d.gainPct + '%';
+        if (d.winRate7j) extraStats += ' · WR : ' + d.winRate7j + '%';
+      }
+      modeStats.textContent = extraStats;
+      modeStats.style.color = cfg.color;
+      modeStats.style.opacity = '0.75';
+
+      // Boost multiplier si bonus actif
+      if (d.risquePct && d.risqueBase && d.risquePct > d.risqueBase) {
+        modeBoost.textContent = '×' + ratioLot + ' LOT';
+        modeBoost.style.display = 'block';
+        modeBoost.style.color = cfg.color;
+        modeBoost.style.background = 'rgba(0,0,0,0.4)';
+        modeBoost.style.border = '1px solid ' + cfg.border;
+      } else {
+        modeBoost.style.display = 'none';
+      }
+
+      if (d.modeAlerte) {
+        modeMessage.textContent = d.modeAlerte;
+        modeMessage.style.color = cfg.color;
+        modeMessage.style.display = 'block';
+      } else {
+        modeMessage.style.display = 'none';
+      }
+      modeBox.style.display = 'block';
+    }
 
     // BLOC CONCEPT UTILISE
     const conceptBox = document.getElementById('conceptBox');

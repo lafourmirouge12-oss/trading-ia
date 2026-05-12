@@ -3872,56 +3872,85 @@ async function envoyerAlerteSetupAPlus(parsed, analyseId) {
 }
 
 async function getFacteurRisque(userId, capital) {
-  if (!capital || capital <= 0) return { facteur: 1, alerte: null };
+  if (!capital || capital <= 0) return { facteur: 1, alerte: null, mode: 'NORMAL' };
   try {
     const debutJour = new Date();
     debutJour.setHours(0, 0, 0, 0);
+    const il_y_a_24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const il_y_a_7j = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    const analysesJour = await analysesDb.findAsync({
-      userId,
-      createdAt: { $gte: debutJour }
-    });
+    const analysesJour = await analysesDb.findAsync({ userId, createdAt: { $gte: debutJour } });
+    const analyses24h = await analysesDb.findAsync({ userId, createdAt: { $gte: il_y_a_24h } });
+    const analyses7j = await analysesDb.findAsync({ userId, createdAt: { $gte: il_y_a_7j } });
 
-    // Calculer la perte totale du jour (basée sur tradeProfit ou estimation via SL)
-    let perteJour = 0;
-    let nbSL = 0;
+    let perteJour = 0, nbSL = 0;
     for (const a of analysesJour) {
       if (typeof a.tradeProfit === 'number' && a.tradeProfit < 0) {
         perteJour += Math.abs(a.tradeProfit);
         nbSL++;
       } else if (a.feedbackResult === 'sl' && a.lots && a.slPips) {
-        // Estimation : pour XAU, 1 lot × $1 de SL ≈ $100
         const slDollars = a.slPips < 30 ? a.slPips : a.slPips / 10;
-        const perteEstimee = slDollars * 100 * a.lots;
-        perteJour += perteEstimee;
+        perteJour += slDollars * 100 * a.lots;
         nbSL++;
       }
     }
-
     const pertePct = (perteJour / capital) * 100;
 
-    // Règles
-    if (pertePct >= 10) {
+    // PROTECTIONS (priorité absolue, override tout)
+    if (pertePct >= 10) return { facteur: 0.25, mode: 'PRESERVATION', alerte: `⚠️ Drawdown jour ${pertePct.toFixed(1)}% — lot réduit de 75% (protection capital)` };
+    if (pertePct >= 5)  return { facteur: 0.5,  mode: 'VIGILANCE',   alerte: `⚠️ Drawdown jour ${pertePct.toFixed(1)}% — lot réduit de 50% (protection capital)` };
+    if (nbSL >= 2)      return { facteur: 0.5,  mode: 'VIGILANCE',   alerte: `⚠️ Déjà 2 SL aujourd'hui — lot réduit de 50% (anti-tilt)` };
+
+    // Mode profit : calcul du gain total réalisé (vs capital initial qu'on suppose = capital - gains)
+    let gainCumule = 0;
+    let nbTP = 0;
+    for (const a of analyses7j) {
+      if (typeof a.tradeProfit === 'number' && a.tradeProfit > 0) {
+        gainCumule += a.tradeProfit;
+        nbTP++;
+      }
+    }
+    const nbTradesAvecResult = analyses7j.filter(a => typeof a.tradeProfit === 'number').length;
+    const winRate7j = nbTradesAvecResult > 0 ? (nbTP / nbTradesAvecResult) : 0;
+
+    // SL dans les 24h ? → pas de mode profit (sécurité)
+    const slDernieres24h = analyses24h.some(a =>
+      (typeof a.tradeProfit === 'number' && a.tradeProfit < 0) || a.feedbackResult === 'sl'
+    );
+
+    // 🔥 MODE SURF (très bon état)
+    // Conditions : pas de SL 24h + gain >= 15% + WR >= 60%
+    if (!slDernieres24h && gainCumule / capital >= 0.15 && winRate7j >= 0.6 && nbTradesAvecResult >= 3) {
       return {
-        facteur: 0.25,
-        alerte: `⚠️ Drawdown jour ${pertePct.toFixed(1)}% — lot réduit de 75% (protection capital)`
+        facteur: 1,
+        mode: 'SURF',
+        gainCumule: +gainCumule.toFixed(2),
+        gainPct: +((gainCumule / capital) * 100).toFixed(1),
+        winRate7j: +(winRate7j * 100).toFixed(0),
+        bonusPctScore9: 5,  // 5% sur les gains pour score 9
+        bonusPctScore10: 7, // 7% sur les gains pour score 10
+        alerte: `🔥 MODE SURF activé — gain +${((gainCumule / capital) * 100).toFixed(1)}% sur 7j, WR ${(winRate7j * 100).toFixed(0)}%. Setups 9-10 peuvent pousser jusqu'à 7% des gains.`
       };
     }
-    if (pertePct >= 5) {
+
+    // 🟢 MODE VAGUE VERTE
+    // Conditions : pas de SL 24h + gain >= 5%
+    if (!slDernieres24h && gainCumule / capital >= 0.05 && nbTradesAvecResult >= 2) {
       return {
-        facteur: 0.5,
-        alerte: `⚠️ Drawdown jour ${pertePct.toFixed(1)}% — lot réduit de 50% (protection capital)`
+        facteur: 1,
+        mode: 'VAGUE_VERTE',
+        gainCumule: +gainCumule.toFixed(2),
+        gainPct: +((gainCumule / capital) * 100).toFixed(1),
+        winRate7j: +(winRate7j * 100).toFixed(0),
+        bonusPctScore9: 4,  // 4% sur les gains pour score 9
+        bonusPctScore10: 5, // 5% sur les gains pour score 10
+        alerte: `🟢 MODE VAGUE VERTE — gain +${((gainCumule / capital) * 100).toFixed(1)}% sur 7j. Setups 9-10 utilisent un bonus sur les gains.`
       };
     }
-    if (nbSL >= 2) {
-      return {
-        facteur: 0.5,
-        alerte: `⚠️ Déjà 2 SL aujourd'hui — lot réduit de 50% (anti-tilt)`
-      };
-    }
-    return { facteur: 1, alerte: null };
+
+    return { facteur: 1, mode: 'NORMAL', alerte: null };
   } catch(err) {
-    return { facteur: 1, alerte: null };
+    return { facteur: 1, mode: 'NORMAL', alerte: null };
   }
 }
 
@@ -5354,24 +5383,61 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     // ─── PROTECTIONS AVANCÉES (RSI extrême + mouvement épuisé + R:R réel) ───
     parsed = await verifierProtectionsAvancees(parsed, req.session.userId);
 
-    // ─── CALCUL LOTS CÔTÉ SERVEUR (garanti) ──────────────────
+    // ─── CALCUL LOTS CÔTÉ SERVEUR (avec modes profit) ──────────
     if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {
       const score = parsed.score || 0;
-      const risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
-      parsed.risquePct = risquePct;
 
-      // ✅ FIX BUG 5 : utiliser la distance directe |entrée - SL| en dollars
-      // (plus fiable que les heuristiques sur slPips)
+      // Récupérer le mode du user (NORMAL / VAGUE_VERTE / SURF / VIGILANCE / PRESERVATION)
+      // pour ajuster le risque selon le score
+      const facteurInfo = await getFacteurRisque(req.session.userId, capital);
+      parsed.modeRisque = facteurInfo.mode || 'NORMAL';
+      parsed.modeAlerte = facteurInfo.alerte || null;
+
+      // Risque de base par score (toujours sur le capital total — sécurisé)
+      let risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
+
+      // 🟢 BONUS VAGUE VERTE / SURF : risque supplémentaire sur la part de GAINS uniquement
+      // Le capital initial reste protégé à 3% max. Le bonus s'ajoute sur les gains réalisés.
+      let bonusRisqueDollar = 0;
+      if (facteurInfo.gainCumule && facteurInfo.gainCumule > 0) {
+        if (facteurInfo.mode === 'SURF' && score >= 9) {
+          // Score 10 : 7% des gains, Score 9 : 5% des gains
+          const pctBonus = score >= 10 ? (facteurInfo.bonusPctScore10 || 7) : (facteurInfo.bonusPctScore9 || 5);
+          bonusRisqueDollar = (facteurInfo.gainCumule * pctBonus / 100);
+        } else if (facteurInfo.mode === 'VAGUE_VERTE' && score >= 9) {
+          // Score 10 : 5% des gains, Score 9 : 4% des gains
+          const pctBonus = score >= 10 ? (facteurInfo.bonusPctScore10 || 5) : (facteurInfo.bonusPctScore9 || 4);
+          bonusRisqueDollar = (facteurInfo.gainCumule * pctBonus / 100);
+        }
+      }
+
+      const montantBase = capital * risquePct / 100;
+      const montantTotal = montantBase + bonusRisqueDollar;
+
+      // CAP ABSOLU : on ne dépasse jamais 5% du capital total (sécurité ultime)
+      const capAbsolu = capital * 0.05;
+      const montantFinal = Math.min(montantTotal, capAbsolu);
+
+      // Recalculer le pct effectif pour l'affichage
+      const pctEffectif = (montantFinal / capital) * 100;
+      parsed.risquePct = +pctEffectif.toFixed(2);
+      parsed.risqueBase = +risquePct;
+      parsed.risqueBonusDollar = +bonusRisqueDollar.toFixed(2);
+      parsed.gainCumule = facteurInfo.gainCumule || 0;
+
+      // FIX BUG 5 : utiliser la distance directe |entrée - SL| en dollars
       let slDistanceDollars = null;
       if (parsed.entree && parsed.sl) {
         const distDirect = Math.abs(parseFloat(parsed.entree) - parseFloat(parsed.sl));
         if (distDirect > 0 && !isNaN(distDirect)) slDistanceDollars = distDirect;
       }
-      parsed.lots = calculerLots(capital, risquePct, parsed.slPips, parsed.instrument || '', slDistanceDollars);
-      parsed.montantRisque = (capital * risquePct / 100).toFixed(2);
+      // Calculer lot avec le pourcentage EFFECTIF (qui inclut le bonus mode profit)
+      parsed.lots = calculerLots(capital, pctEffectif, parsed.slPips, parsed.instrument || '', slDistanceDollars);
+      parsed.montantRisque = montantFinal.toFixed(2);
 
-      // ─── LOT DYNAMIQUE (anti-drawdown / anti-tilt) ──────────
-      const { facteur, alerte } = await getFacteurRisque(req.session.userId, capital);
+      // ─── LOT DYNAMIQUE (anti-drawdown / anti-tilt) — APPLIQUE SI FACTEUR < 1 ──
+      const facteur = facteurInfo.facteur;
+      const alerte = facteurInfo.alerte;
       if (facteur < 1 && parsed.lots) {
         const lotsOriginaux = parseFloat(parsed.lots);
         parsed.lots = Math.max(0.01, Math.round(lotsOriginaux * facteur * 100) / 100).toFixed(2);
