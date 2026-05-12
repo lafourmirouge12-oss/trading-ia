@@ -6876,13 +6876,64 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
 
     console.log('[MT5-ORDER] Ordre place ! ID:', result.orderId);
 
+    // ═══ FIX BUG TP PARTIEL : Créer le tracking IMMÉDIATEMENT ═══
+    // Avant : le tracking n'était créé QUE par le wrapper TP au prochain cycle (5 min).
+    // Si le TP1 était touché avant ces 5 min → on ratait le BE et le TP partiel.
+    // Maintenant : tracking créé dès le placement → wrapper TP a tout en main au 1er passage.
+    try {
+      const analyseTracking = analyseCopiee || (analysisId ? await analysesDb.findOneAsync({ _id: analysisId }) : null);
+      if (analyseTracking) {
+        const trackingExistant = await positionsTrackingDb.findOneAsync({
+          userId: req.session.userId,
+          orderId: result.orderId
+        });
+        if (!trackingExistant) {
+          // Récupérer la distribution selon le score (40/30/30, 50/50, etc.)
+          const distribution = typeof getDistribution === 'function'
+            ? getDistribution(analyseTracking.score || 7)
+            : { tp1: 0.5, tp2: 0.3, tp3: 0.2, mode: 'A' };
+
+          await positionsTrackingDb.insertAsync({
+            _id: uuidv4(),
+            userId: req.session.userId,
+            orderId: result.orderId,
+            analyseId: analyseTracking._id,
+            symbol: resolvedSymbol,
+            direction: direction.toUpperCase(),
+            entree: parseFloat(entreeFinale),
+            sl: parseFloat(slFinal),
+            tp1: analyseTracking.tp1 ? parseFloat(analyseTracking.tp1) : null,
+            tp2: analyseTracking.tp2 ? parseFloat(analyseTracking.tp2) : null,
+            tp3: analyseTracking.tp3 ? parseFloat(analyseTracking.tp3) : null,
+            score: analyseTracking.score || 7,
+            volumeInitial: parseFloat(volume),
+            volumeRestant: parseFloat(volume),
+            distribution: distribution,
+            tp1Done: false,
+            tp2Done: false,
+            tp3Done: false,
+            beDone: false,
+            createdAt: new Date(),
+            sourceTracking: 'immediate_placement'
+          });
+          console.log('[TRACKING-IMMEDIAT] Position ' + result.orderId + ' tracée immédiatement (score ' + (analyseTracking.score || 7) + ', mode ' + distribution.mode + ')');
+        }
+      }
+    } catch(trackErr) {
+      console.log('[TRACKING-IMMEDIAT] Erreur création tracking:', trackErr.message);
+      // Pas bloquant : si le tracking immédiat échoue, le wrapper rattrapera plus tard
+    }
+
     await account.undeploy();
     trackUndeploy(account.id);
 
-    // Déclencher wrapper TP 30s après pour rattraper les exécutions rapides
-    setTimeout(() => {
-      gererTpPartielsWrapper().catch(e => console.log('[TP-IMMEDIAT]', e.message));
-    }, 30 * 1000);
+    // Déclenchements multiples du wrapper TP pour rattraper les TP1 rapides
+    // 10s, 30s, 60s, 120s — pour les marchés très volatils
+    [10, 30, 60, 120].forEach(delaiSec => {
+      setTimeout(() => {
+        gererTpPartielsWrapper().catch(e => console.log('[TP-IMMEDIAT-' + delaiSec + 's]', e.message));
+      }, delaiSec * 1000);
+    });
 
     res.json({
       success: true,
