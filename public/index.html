@@ -829,27 +829,232 @@
 .notif-title { font-weight: 700; color: #fff; font-size: 13px; margin-bottom: 4px; }
 .notif-msg { color: #bbb; font-size: 12px; line-height: 1.4; }
 .notif-time { color: #777; font-size: 11px; margin-top: 4px; }
-    /* BROKER BOX */
+    /* ═══ BROKER BOX — EFFET HOLOGRAMME NÉON ═══ */
+
+    /* Pulsation lumineuse principale (glow doux respire) */
     @keyframes brokerPulse {
-      0%, 100% { box-shadow: 0 0 16px rgba(0,245,255,0.3), inset 0 0 12px rgba(0,245,255,0.08); }
-      50% { box-shadow: 0 0 24px rgba(0,245,255,0.5), inset 0 0 18px rgba(0,245,255,0.15); }
+      0%, 100% { box-shadow: 0 0 20px currentColor, 0 0 40px rgba(0,245,255,0.2), inset 0 0 15px rgba(0,245,255,0.05); }
+      50% { box-shadow: 0 0 30px currentColor, 0 0 60px rgba(0,245,255,0.4), inset 0 0 25px rgba(0,245,255,0.12); }
     }
+
+    /* Néon respiration sur le logo (text-shadow multi-couches) */
     @keyframes neonGlow {
-      0%, 100% { text-shadow: 0 0 4px currentColor, 0 0 10px currentColor; }
-      50% { text-shadow: 0 0 6px currentColor, 0 0 16px currentColor, 0 0 24px currentColor; }
+      0%, 100% {
+        text-shadow:
+          0 0 4px currentColor,
+          0 0 10px currentColor,
+          0 0 20px currentColor,
+          0 0 40px currentColor;
+      }
+      50% {
+        text-shadow:
+          0 0 6px currentColor,
+          0 0 16px currentColor,
+          0 0 30px currentColor,
+          0 0 60px currentColor,
+          0 0 80px currentColor;
+      }
     }
-    @keyframes brokerSweep { 0%, 100% { left: -100%; } 50% { left: 0%; } }
-    .broker-box{position:relative;background:linear-gradient(135deg,rgba(0,5,20,0.95),rgba(0,15,40,0.9));border-radius:8px;padding:14px 16px;margin-bottom:12px;border:1px solid;animation:brokerPulse 3s ease-in-out infinite;overflow:hidden;}
-    .broker-box::before{content:'';position:absolute;top:0;left:-100%;width:200%;height:100%;background:linear-gradient(90deg,transparent,currentColor,transparent);opacity:0.05;animation:brokerSweep 4s ease-in-out infinite;pointer-events:none;}
-    .broker-logo{font-family:'Orbitron',monospace;font-size:18px;font-weight:900;letter-spacing:3px;text-transform:uppercase;animation:neonGlow 2s ease-in-out infinite;}
-    .broker-info{display:flex;flex-direction:column;gap:2px;}
-    .broker-server{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;}
-    .broker-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);}
-    .broker-stat-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.35);text-transform:uppercase;margin-bottom:2px;}
-    .broker-stat-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;}
-    .broker-stat-val.profit-positive{color:#00ff88;}
-    .broker-stat-val.profit-negative{color:#ff3060;}
-    @media (max-width:480px){.broker-logo{font-size:15px;}.broker-stat-val{font-size:12px;}}
+
+    /* Sweep lumineux qui traverse le bandeau */
+    @keyframes brokerSweep {
+      0% { left: -100%; }
+      100% { left: 200%; }
+    }
+
+    /* Lignes de scan horizontales (effet écran hologramme) */
+    @keyframes scanlines {
+      0% { background-position: 0 0; }
+      100% { background-position: 0 8px; }
+    }
+
+    /* Glitch léger sur le logo (toutes les 8s) */
+    @keyframes hologramGlitch {
+      0%, 90%, 100% { transform: translate(0, 0); filter: none; }
+      92% { transform: translate(-1px, 0); filter: hue-rotate(15deg); }
+      94% { transform: translate(1px, 0); filter: hue-rotate(-15deg); }
+      96% { transform: translate(0, -1px); filter: blur(0.5px); }
+      98% { transform: translate(0, 1px); filter: none; }
+    }
+
+    /* Flicker subtil (comme une vraie enseigne néon) */
+    @keyframes neonFlicker {
+      0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+      20%, 24%, 55% { opacity: 0.85; }
+    }
+
+    /* Boîte broker principale */
+    .broker-box {
+      position: relative;
+      background:
+        linear-gradient(135deg, rgba(0,5,20,0.96), rgba(0,15,40,0.94)),
+        radial-gradient(circle at 30% 20%, rgba(0,245,255,0.04) 0%, transparent 50%);
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin-bottom: 12px;
+      border: 1px solid;
+      animation: brokerPulse 3s ease-in-out infinite, neonFlicker 6s linear infinite;
+      overflow: hidden;
+      backdrop-filter: blur(2px);
+    }
+
+    /* Sweep lumineux (passe de gauche à droite) */
+    .broker-box::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 50%; height: 100%;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255,255,255,0.08) 40%,
+        currentColor 50%,
+        rgba(255,255,255,0.08) 60%,
+        transparent 100%
+      );
+      opacity: 0.4;
+      animation: brokerSweep 4s ease-in-out infinite;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
+    /* Lignes de scan hologramme (effet écran TV) */
+    .broker-box::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent 0,
+        transparent 3px,
+        rgba(255,255,255,0.02) 3px,
+        rgba(255,255,255,0.025) 4px
+      );
+      pointer-events: none;
+      animation: scanlines 1s linear infinite;
+    }
+
+    /* Logo broker — effet néon intense + glitch occasionnel */
+    .broker-logo {
+      font-family: 'Orbitron', monospace;
+      font-size: 19px;
+      font-weight: 900;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      animation:
+        neonGlow 2s ease-in-out infinite,
+        hologramGlitch 8s ease-in-out infinite;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Effet chromatic aberration sur le logo (RGB split subtil) */
+    .broker-logo::before,
+    .broker-logo::after {
+      content: attr(data-text);
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      opacity: 0.5;
+      mix-blend-mode: screen;
+    }
+    .broker-logo::before {
+      color: rgba(255, 0, 100, 0.4);
+      transform: translate(-1px, 0);
+      filter: blur(0.3px);
+    }
+    .broker-logo::after {
+      color: rgba(0, 255, 255, 0.4);
+      transform: translate(1px, 0);
+      filter: blur(0.3px);
+    }
+
+    .broker-info { display: flex; flex-direction: column; gap: 3px; position: relative; z-index: 2; }
+
+    .broker-server {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+      text-shadow: 0 0 8px currentColor;
+    }
+
+    .broker-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      position: relative;
+      z-index: 2;
+    }
+
+    .broker-stat-lbl {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+
+    .broker-stat-val {
+      font-family: 'Orbitron', monospace;
+      font-size: 15px;
+      font-weight: 700;
+      text-shadow: 0 0 8px currentColor, 0 0 16px rgba(0,245,255,0.3);
+      transition: text-shadow 0.3s;
+    }
+
+    .broker-stat-val:hover {
+      text-shadow: 0 0 12px currentColor, 0 0 24px currentColor;
+    }
+
+    .broker-stat-val.profit-positive {
+      color: #00ff88;
+      text-shadow: 0 0 8px #00ff88, 0 0 16px rgba(0,255,136,0.4);
+      animation: neonGlow 2.5s ease-in-out infinite;
+    }
+
+    .broker-stat-val.profit-negative {
+      color: #ff3060;
+      text-shadow: 0 0 8px #ff3060, 0 0 16px rgba(255,48,96,0.4);
+      animation: neonGlow 2.5s ease-in-out infinite;
+    }
+
+    /* Login compte (badge) */
+    #brokerLogin {
+      position: relative;
+      z-index: 2;
+      text-shadow: 0 0 6px currentColor;
+      padding: 4px 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 3px;
+      background: rgba(0,0,0,0.3);
+    }
+
+    /* Coins d'angle hologramme (décoration high-tech) */
+    .broker-box .holo-corner {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      z-index: 3;
+    }
+    .broker-box .holo-corner.tl { top: 5px; left: 5px; border-top: 1px solid currentColor; border-left: 1px solid currentColor; }
+    .broker-box .holo-corner.tr { top: 5px; right: 5px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; }
+    .broker-box .holo-corner.bl { bottom: 5px; left: 5px; border-bottom: 1px solid currentColor; border-left: 1px solid currentColor; }
+    .broker-box .holo-corner.br { bottom: 5px; right: 5px; border-bottom: 1px solid currentColor; border-right: 1px solid currentColor; }
+
+    /* Responsive mobile */
+    @media (max-width: 480px) {
+      .broker-logo { font-size: 16px; letter-spacing: 3px; }
+      .broker-stat-val { font-size: 13px; }
+      .broker-stats { gap: 8px; }
+    }
     /* MODE BOX */
     .mode-box{border-radius:6px;padding:12px 14px;margin-bottom:12px;border:1px solid;position:relative;overflow:hidden;}
     .mode-name{font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:2px;margin-bottom:3px;}
@@ -898,6 +1103,26 @@
   </div>
 
   <div class="counter" id="counter">Analyses restantes : <span id="analysesLeft">—</span></div>
+
+  <!-- BROKER BOX (visible dès la connexion) -->
+  <div id="brokerBox" class="broker-box" style="display:none;">
+    <span class="holo-corner tl"></span>
+    <span class="holo-corner tr"></span>
+    <span class="holo-corner bl"></span>
+    <span class="holo-corner br"></span>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <div class="broker-info">
+        <div id="brokerLogo" class="broker-logo">—</div>
+        <div id="brokerServer" class="broker-server">—</div>
+      </div>
+      <div id="brokerLogin" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;color:rgba(255,255,255,0.5);"></div>
+    </div>
+    <div class="broker-stats">
+      <div><div class="broker-stat-lbl">💰 Balance</div><div id="brokerBalance" class="broker-stat-val">—</div></div>
+      <div><div class="broker-stat-lbl">🎁 Crédit</div><div id="brokerCredit" class="broker-stat-val">—</div></div>
+      <div><div class="broker-stat-lbl">📊 Profit</div><div id="brokerProfit" class="broker-stat-val">—</div></div>
+    </div>
+  </div>
 
   <!-- ═══ POST-MORTEM : analyser les trades perdants pour faire évoluer l'IA ═══ -->
   <div class="postmortem-banner" id="postmortemBanner" style="display:none;">
@@ -1196,22 +1421,6 @@
     <div class="score-row">
       <span class="score-lbl">◈ Score du setup multi-timeframe</span>
       <span class="score-val" id="scoreTxt">—/10</span>
-    </div>
-
-    <!-- BROKER BOX -->
-    <div id="brokerBox" class="broker-box" style="display:none;">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-        <div class="broker-info">
-          <div id="brokerLogo" class="broker-logo">—</div>
-          <div id="brokerServer" class="broker-server">—</div>
-        </div>
-        <div id="brokerLogin" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;color:rgba(255,255,255,0.5);"></div>
-      </div>
-      <div class="broker-stats">
-        <div><div class="broker-stat-lbl">💰 Balance</div><div id="brokerBalance" class="broker-stat-val">—</div></div>
-        <div><div class="broker-stat-lbl">🎁 Crédit</div><div id="brokerCredit" class="broker-stat-val">—</div></div>
-        <div><div class="broker-stat-lbl">📊 Profit</div><div id="brokerProfit" class="broker-stat-val">—</div></div>
-      </div>
     </div>
 
     <!-- MODE RISQUE -->
@@ -2769,7 +2978,10 @@ document.addEventListener('click', (e) => {
     if (!d.connected || !d.broker) return;
     const box = document.getElementById('brokerBox');
     if (!box) return;
-    document.getElementById('brokerLogo').textContent = '◤ ' + d.broker.name + ' ◥';
+    const logoText = '◤ ' + d.broker.name + ' ◥';
+    const logoEl = document.getElementById('brokerLogo');
+    logoEl.textContent = logoText;
+    logoEl.setAttribute('data-text', logoText);
     document.getElementById('brokerLogo').style.color = d.broker.color;
     box.style.borderColor = d.broker.color;
     box.style.color = d.broker.color;
