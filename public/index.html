@@ -829,6 +829,34 @@
 .notif-title { font-weight: 700; color: #fff; font-size: 13px; margin-bottom: 4px; }
 .notif-msg { color: #bbb; font-size: 12px; line-height: 1.4; }
 .notif-time { color: #777; font-size: 11px; margin-top: 4px; }
+    /* BROKER BOX */
+    @keyframes brokerPulse {
+      0%, 100% { box-shadow: 0 0 16px rgba(0,245,255,0.3), inset 0 0 12px rgba(0,245,255,0.08); }
+      50% { box-shadow: 0 0 24px rgba(0,245,255,0.5), inset 0 0 18px rgba(0,245,255,0.15); }
+    }
+    @keyframes neonGlow {
+      0%, 100% { text-shadow: 0 0 4px currentColor, 0 0 10px currentColor; }
+      50% { text-shadow: 0 0 6px currentColor, 0 0 16px currentColor, 0 0 24px currentColor; }
+    }
+    @keyframes brokerSweep { 0%, 100% { left: -100%; } 50% { left: 0%; } }
+    .broker-box{position:relative;background:linear-gradient(135deg,rgba(0,5,20,0.95),rgba(0,15,40,0.9));border-radius:8px;padding:14px 16px;margin-bottom:12px;border:1px solid;animation:brokerPulse 3s ease-in-out infinite;overflow:hidden;}
+    .broker-box::before{content:'';position:absolute;top:0;left:-100%;width:200%;height:100%;background:linear-gradient(90deg,transparent,currentColor,transparent);opacity:0.05;animation:brokerSweep 4s ease-in-out infinite;pointer-events:none;}
+    .broker-logo{font-family:'Orbitron',monospace;font-size:18px;font-weight:900;letter-spacing:3px;text-transform:uppercase;animation:neonGlow 2s ease-in-out infinite;}
+    .broker-info{display:flex;flex-direction:column;gap:2px;}
+    .broker-server{font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;}
+    .broker-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);}
+    .broker-stat-lbl{font-family:'Orbitron',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.35);text-transform:uppercase;margin-bottom:2px;}
+    .broker-stat-val{font-family:'Orbitron',monospace;font-size:14px;font-weight:700;}
+    .broker-stat-val.profit-positive{color:#00ff88;}
+    .broker-stat-val.profit-negative{color:#ff3060;}
+    @media (max-width:480px){.broker-logo{font-size:15px;}.broker-stat-val{font-size:12px;}}
+    /* MODE BOX */
+    .mode-box{border-radius:6px;padding:12px 14px;margin-bottom:12px;border:1px solid;position:relative;overflow:hidden;}
+    .mode-name{font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:2px;margin-bottom:3px;}
+    .mode-stats{font-size:11px;opacity:0.8;font-family:'Rajdhani',sans-serif;}
+    .mode-boost{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;padding:5px 10px;border-radius:3px;}
+    /* IA STATS BOX */
+    .ia-stats-box{background:linear-gradient(135deg,rgba(180,100,255,0.06),rgba(0,255,136,0.04));border:1px solid rgba(180,100,255,0.25);border-radius:6px;padding:10px 14px;margin-bottom:12px;}
   </style>
 </head>
 <body>
@@ -1170,28 +1198,43 @@
       <span class="score-val" id="scoreTxt">—/10</span>
     </div>
 
-    <!-- BANDEAU MODE RISQUE (SURF / VAGUE VERTE / NORMAL / VIGILANCE) -->
-    <div id="modeBox" style="display:none;border-radius:6px;padding:12px 14px;margin-bottom:12px;border:1px solid;position:relative;overflow:hidden;">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;position:relative;z-index:2;">
-        <div>
-          <div id="modeName" style="font-family:'Orbitron',monospace;font-size:13px;font-weight:900;letter-spacing:2px;margin-bottom:3px;">🔵 MODE NORMAL</div>
-          <div id="modeStats" style="font-size:11px;opacity:0.8;font-family:'Rajdhani',sans-serif;">Capital de base sécurisé · Risque max 3%</div>
+    <!-- BROKER BOX -->
+    <div id="brokerBox" class="broker-box" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <div class="broker-info">
+          <div id="brokerLogo" class="broker-logo">—</div>
+          <div id="brokerServer" class="broker-server">—</div>
         </div>
-        <div id="modeBoost" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;padding:5px 10px;border-radius:3px;display:none;">×1.00</div>
+        <div id="brokerLogin" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;color:rgba(255,255,255,0.5);"></div>
+      </div>
+      <div class="broker-stats">
+        <div><div class="broker-stat-lbl">💰 Balance</div><div id="brokerBalance" class="broker-stat-val">—</div></div>
+        <div><div class="broker-stat-lbl">🎁 Crédit</div><div id="brokerCredit" class="broker-stat-val">—</div></div>
+        <div><div class="broker-stat-lbl">📊 Profit</div><div id="brokerProfit" class="broker-stat-val">—</div></div>
+      </div>
+    </div>
+
+    <!-- MODE RISQUE -->
+    <div id="modeBox" class="mode-box" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div id="modeName" class="mode-name">🔵 MODE NORMAL</div>
+          <div id="modeStats" class="mode-stats">Capital sécurisé · Risque max 3%</div>
+        </div>
+        <div id="modeBoost" class="mode-boost" style="display:none;">×1.00</div>
       </div>
       <div id="modeMessage" style="font-size:11px;margin-top:6px;opacity:0.85;font-style:italic;display:none;"></div>
     </div>
 
-    <!-- BLOC CONCEPT UTILISE (sélection intelligente) -->
-    <div id="conceptBox" style="display:none;background:linear-gradient(135deg,rgba(180,100,255,0.08),rgba(0,245,255,0.04));border:1px solid rgba(180,100,255,0.3);border-radius:6px;padding:14px;margin-bottom:12px;">
+    <!-- IA STATS -->
+    <div id="iaStatsBox" class="ia-stats-box" style="display:none;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <div>
-          <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:rgba(180,100,255,0.7);text-transform:uppercase;margin-bottom:4px;">🏆 Meilleur concept détecté</div>
-          <div id="conceptName" style="font-family:'Orbitron',monospace;font-size:16px;font-weight:700;color:#b464ff;letter-spacing:1px;">—</div>
+          <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(180,100,255,0.8);text-transform:uppercase;margin-bottom:3px;">🧠 IA PERSONNALISÉE</div>
+          <div id="iaStatsTxt" style="font-size:12px;color:rgba(255,255,255,0.7);">— leçons · — setups gagnants</div>
         </div>
-        <button id="conceptToggle" onclick="toggleConceptsTested()" style="background:transparent;border:1px solid rgba(180,100,255,0.3);color:rgba(180,100,255,0.8);padding:6px 12px;border-radius:3px;font-size:10px;cursor:pointer;font-family:'Orbitron',monospace;letter-spacing:1px;">Voir les autres testés ▼</button>
+        <div id="iaStatsLevel" style="font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;padding:5px 10px;border-radius:3px;color:#b464ff;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);">🆕 DEBUTANT</div>
       </div>
-      <div id="conceptsList" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid rgba(180,100,255,0.15);"></div>
     </div>
 
     <div class="tf-conf" id="tfConf">
@@ -1260,19 +1303,16 @@
         <div class="tp-lbl">◈ TP 1</div>
         <div class="tp-val" id="tp1Val">—</div>
         <div class="tp-rr" id="tp1RR">RR —</div>
-        <div class="tp-src" id="tp1Src" style="font-size:9px;color:rgba(0,255,136,0.4);font-style:italic;margin-top:2px;"></div>
       </div>
       <div class="tp-card" id="tpCard2" onclick="selectTP(2)">
         <div class="tp-lbl">◈ TP 2</div>
         <div class="tp-val" id="tp2Val">—</div>
         <div class="tp-rr" id="tp2RR">RR —</div>
-        <div class="tp-src" id="tp2Src" style="font-size:9px;color:rgba(0,255,136,0.4);font-style:italic;margin-top:2px;"></div>
       </div>
       <div class="tp-card" id="tpCard3" onclick="selectTP(3)">
         <div class="tp-lbl">◈ TP 3</div>
         <div class="tp-val" id="tp3Val">—</div>
         <div class="tp-rr" id="tp3RR">RR —</div>
-        <div class="tp-src" id="tp3Src" style="font-size:9px;color:rgba(0,255,136,0.4);font-style:italic;margin-top:2px;"></div>
       </div>
     </div>
 
@@ -1365,16 +1405,6 @@ function resetIdleTimer() {
 document.addEventListener('click', resetIdleTimer);
 document.addEventListener('touchstart', resetIdleTimer);
 startIdleTimer(); // démarrer au chargement
-
-// Toggle liste concepts testés
-function toggleConceptsTested() {
-  const list = document.getElementById('conceptsList');
-  const btn = document.getElementById('conceptToggle');
-  if (!list || !btn) return;
-  const visible = list.style.display === 'block';
-  list.style.display = visible ? 'none' : 'block';
-  btn.textContent = visible ? 'Voir les autres testés ▼' : 'Masquer ▲';
-}
 
 // ─── SELECTION DU TP ─────────────────────────────────────────────
 function selectTP(num) {
@@ -2053,6 +2083,9 @@ async function analyze(){
 
     currentId=d.analysisId;
 
+    // Afficher le bandeau MODE (SURF / VAGUE_VERTE / NORMAL / VIGILANCE / PRESERVATION)
+    if (typeof displayMode === 'function') displayMode(d);
+
     const dec=d.decision||'NE PAS TRADER';
     const decLow=dec.toLowerCase();
     const decClass=decLow.includes('buy')?'buy':decLow.includes('sell')?'sell':'skip';
@@ -2190,139 +2223,17 @@ async function analyze(){
     document.getElementById('tp1Val').textContent=d.tp1||'—';
     document.getElementById('tp2Val').textContent=d.tp2||'—';
     document.getElementById('tp3Val').textContent=d.tp3||'—';
-    // Afficher sources TP
-    if(document.getElementById('tp1Src')) document.getElementById('tp1Src').textContent = d.tp1Source ? '→ ' + d.tp1Source : '';
-    if(document.getElementById('tp2Src')) document.getElementById('tp2Src').textContent = d.tp2Source ? '→ ' + d.tp2Source : '';
-    if(document.getElementById('tp3Src')) document.getElementById('tp3Src').textContent = d.tp3Source ? '→ ' + d.tp3Source : '';
-    // Calcul RR réel dynamique avec couleur attractive
+    // Calcul RR réel dynamique
     (function(){
       const eNum=parseFloat(d.entree), sNum=parseFloat(d.sl);
       const dSL=eNum&&sNum?Math.abs(eNum-sNum):0;
       ['tp1','tp2','tp3'].forEach(k=>{
         const tpNum=parseFloat(d[k]);
         const el=document.getElementById(k+'RR');
-        if(el&&tpNum&&dSL>0){
-          const rr = Math.abs(tpNum-eNum)/dSL;
-          el.textContent='RR 1:'+rr.toFixed(1);
-          if(rr >= 5) el.style.color = '#ffd700';
-          else if(rr >= 3) el.style.color = '#00ff88';
-          else el.style.color = '';
-        }
+        if(el&&tpNum&&dSL>0) el.textContent='RR 1:'+(Math.abs(tpNum-eNum)/dSL).toFixed(1);
         else if(el) el.textContent='—';
       });
     })();
-
-    // AFFICHAGE MODE RISQUE
-    const modeBox = document.getElementById('modeBox');
-    if (modeBox) {
-      const mode = d.modeRisque || 'NORMAL';
-      const modeName = document.getElementById('modeName');
-      const modeStats = document.getElementById('modeStats');
-      const modeBoost = document.getElementById('modeBoost');
-      const modeMessage = document.getElementById('modeMessage');
-      const ratioLot = (d.risquePct && d.risqueBase) ? (d.risquePct / d.risqueBase).toFixed(2) : '1.00';
-
-      const configs = {
-        'SURF': {
-          name: '🔥 MODE SURF — Tu surfes ta hot streak',
-          color: '#ff8c00',
-          bg: 'linear-gradient(135deg,rgba(255,140,0,0.12),rgba(255,215,0,0.06))',
-          border: 'rgba(255,140,0,0.5)',
-          stats: 'Setups 9-10 boostés (+5 à +7% des gains) · Capital initial sécurisé'
-        },
-        'VAGUE_VERTE': {
-          name: '🟢 MODE VAGUE VERTE — Tu es en profit',
-          color: '#00ff88',
-          bg: 'linear-gradient(135deg,rgba(0,255,136,0.10),rgba(0,245,255,0.04))',
-          border: 'rgba(0,255,136,0.5)',
-          stats: 'Setups 9-10 boostés (+4 à +5% des gains) · Capital initial protégé'
-        },
-        'NORMAL': {
-          name: '🔵 MODE NORMAL',
-          color: '#00f5ff',
-          bg: 'linear-gradient(135deg,rgba(0,245,255,0.05),rgba(0,15,40,0.6))',
-          border: 'rgba(0,245,255,0.25)',
-          stats: 'Capital sécurisé · Risque max 3% par trade'
-        },
-        'VIGILANCE': {
-          name: '🟡 MODE VIGILANCE',
-          color: '#ffd700',
-          bg: 'linear-gradient(135deg,rgba(255,215,0,0.08),rgba(0,15,40,0.6))',
-          border: 'rgba(255,215,0,0.5)',
-          stats: 'Lot réduit de 50% (anti-tilt)'
-        },
-        'PRESERVATION': {
-          name: '🔴 MODE PRÉSERVATION',
-          color: '#ff3060',
-          bg: 'linear-gradient(135deg,rgba(255,48,96,0.10),rgba(0,15,40,0.7))',
-          border: 'rgba(255,48,96,0.6)',
-          stats: 'Lot réduit de 75% (protection capital)'
-        }
-      };
-      const cfg = configs[mode] || configs.NORMAL;
-      modeName.textContent = cfg.name;
-      modeName.style.color = cfg.color;
-      modeBox.style.background = cfg.bg;
-      modeBox.style.borderColor = cfg.border;
-
-      let extraStats = cfg.stats;
-      if (d.gainPct && (mode === 'SURF' || mode === 'VAGUE_VERTE')) {
-        extraStats += ' · Gain 7j : +' + d.gainPct + '%';
-        if (d.winRate7j) extraStats += ' · WR : ' + d.winRate7j + '%';
-      }
-      modeStats.textContent = extraStats;
-      modeStats.style.color = cfg.color;
-      modeStats.style.opacity = '0.75';
-
-      // Boost multiplier si bonus actif
-      if (d.risquePct && d.risqueBase && d.risquePct > d.risqueBase) {
-        modeBoost.textContent = '×' + ratioLot + ' LOT';
-        modeBoost.style.display = 'block';
-        modeBoost.style.color = cfg.color;
-        modeBoost.style.background = 'rgba(0,0,0,0.4)';
-        modeBoost.style.border = '1px solid ' + cfg.border;
-      } else {
-        modeBoost.style.display = 'none';
-      }
-
-      if (d.modeAlerte) {
-        modeMessage.textContent = d.modeAlerte;
-        modeMessage.style.color = cfg.color;
-        modeMessage.style.display = 'block';
-      } else {
-        modeMessage.style.display = 'none';
-      }
-      modeBox.style.display = 'block';
-    }
-
-    // BLOC CONCEPT UTILISE
-    const conceptBox = document.getElementById('conceptBox');
-    if(conceptBox && d.conceptUtilise && d.conceptUtilise !== 'NONE'){
-      const labels = {
-        'CRT_KASPER': '📐 CRT Kasper Karl',
-        'OTE_FIBO': '📊 OTE Fibonacci',
-        'AMD': '🌀 Accumulation-Manipulation-Distribution',
-        'SWEEP_REVERSAL': '🎯 Sweep + Reversal',
-        'SILVER_BULLET': '⭐ Silver Bullet',
-        'VOLUME_SPIKE': '⚡ Volume Spike',
-        'POC_RETEST': '📍 POC Retest',
-        'ORDER_BLOCK_H1': '📦 Order Block H1'
-      };
-      document.getElementById('conceptName').textContent = labels[d.conceptUtilise] || d.conceptUtilise;
-      if(d.conceptsTestes && Array.isArray(d.conceptsTestes)){
-        const list = document.getElementById('conceptsList');
-        list.innerHTML = '<div style="font-size:10px;color:rgba(180,100,255,0.6);margin-bottom:8px;letter-spacing:1px;">CONCEPTS COMPARÉS :</div>';
-        d.conceptsTestes.forEach(c => {
-          const score = c.score || 0;
-          const couleur = score >= 7 ? '#00ff88' : score >= 5 ? '#ffd700' : '#888';
-          const label = labels[c.nom] || c.nom;
-          list.innerHTML += '<div style="padding:6px 0;border-bottom:1px solid rgba(180,100,255,0.08);font-size:12px;"><div style="display:flex;justify-content:space-between;"><strong style="color:#ccc;">' + label + '</strong><span style="color:' + couleur + ';font-weight:700;">' + score + '/10</span></div><div style="color:#888;font-size:11px;margin-top:2px;">' + (c.raison || '') + '</div></div>';
-        });
-      }
-      conceptBox.style.display = 'block';
-    } else if(conceptBox) {
-      conceptBox.style.display = 'none';
-    }
     document.getElementById('bePrice').textContent=d.entree||'—';
     document.getElementById('smTendance').textContent=d.tendance||'—';
     document.getElementById('smConfl').textContent=d.confluence||'—';
@@ -2848,6 +2759,97 @@ document.addEventListener('click', (e) => {
   }
 });
 
+
+// LOAD BROKER + IA STATS
+(async function loadBrokerBox() {
+  try {
+    const r = await fetch('/mt5/account-snapshot');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.connected || !d.broker) return;
+    const box = document.getElementById('brokerBox');
+    if (!box) return;
+    document.getElementById('brokerLogo').textContent = '◤ ' + d.broker.name + ' ◥';
+    document.getElementById('brokerLogo').style.color = d.broker.color;
+    box.style.borderColor = d.broker.color;
+    box.style.color = d.broker.color;
+    document.getElementById('brokerServer').textContent = '⚡ ' + (d.server || '—');
+    document.getElementById('brokerLogin').textContent = '#' + (d.login || '—');
+    const cur = d.currency || 'USD';
+    let symbol = cur;
+    if (cur === 'EUR') symbol = '€';
+    else if (cur === 'USD') symbol = '\u0024';
+    const bal = document.getElementById('brokerBalance');
+    const cred = document.getElementById('brokerCredit');
+    const prof = document.getElementById('brokerProfit');
+    bal.textContent = (d.balance || 0).toFixed(2) + ' ' + symbol;
+    bal.style.color = d.broker.color;
+    cred.textContent = (d.credit || 0).toFixed(2) + ' ' + symbol;
+    cred.style.color = d.broker.accent;
+    const p = d.profitFlottant || 0;
+    prof.textContent = (p > 0 ? '+' : '') + p.toFixed(2) + ' ' + symbol;
+    if (p > 0) prof.className = 'broker-stat-val profit-positive';
+    else if (p < 0) prof.className = 'broker-stat-val profit-negative';
+    else prof.className = 'broker-stat-val';
+    box.style.display = 'block';
+  } catch(e) {}
+})();
+
+(async function loadIaStats() {
+  try {
+    const r = await fetch('/api/ia-stats');
+    if (!r.ok) return;
+    const d = await r.json();
+    const box = document.getElementById('iaStatsBox');
+    if (!box) return;
+    const txt = document.getElementById('iaStatsTxt');
+    const lvl = document.getElementById('iaStatsLevel');
+    if (d.lecons + d.setupsGagnants > 0) {
+      txt.textContent = d.lecons + ' lecon(s) · ' + d.setupsGagnants + ' setup(s) gagnant(s)';
+      lvl.textContent = d.badge + ' ' + d.niveau;
+    } else {
+      txt.textContent = "L'IA n'a pas encore appris de toi. Place ton premier trade !";
+      lvl.textContent = '🆕 DEBUTANT';
+    }
+    box.style.display = 'block';
+  } catch(e) {}
+})();
+
+function displayMode(modeData) {
+  const box = document.getElementById('modeBox');
+  if (!box) return;
+  const mode = (modeData && modeData.modeRisque) || 'NORMAL';
+  const configs = {
+    SURF: {name:'🔥 MODE SURF',color:'#ff8c00',bg:'linear-gradient(135deg,rgba(255,140,0,0.12),rgba(255,215,0,0.06))',border:'rgba(255,140,0,0.5)',stats:'Setups 9-10 boostés · Capital sécurisé'},
+    VAGUE_VERTE: {name:'🟢 MODE VAGUE VERTE',color:'#00ff88',bg:'linear-gradient(135deg,rgba(0,255,136,0.10),rgba(0,245,255,0.04))',border:'rgba(0,255,136,0.5)',stats:'Setups 9-10 boostés sur les gains'},
+    NORMAL: {name:'🔵 MODE NORMAL',color:'#00f5ff',bg:'linear-gradient(135deg,rgba(0,245,255,0.05),rgba(0,15,40,0.6))',border:'rgba(0,245,255,0.25)',stats:'Capital sécurisé · Risque max 3%'},
+    VIGILANCE: {name:'🟡 MODE VIGILANCE',color:'#ffd700',bg:'linear-gradient(135deg,rgba(255,215,0,0.08),rgba(0,15,40,0.6))',border:'rgba(255,215,0,0.5)',stats:'Lot réduit de 50% (anti-tilt)'},
+    PRESERVATION: {name:'🔴 MODE PRESERVATION',color:'#ff3060',bg:'linear-gradient(135deg,rgba(255,48,96,0.10),rgba(0,15,40,0.7))',border:'rgba(255,48,96,0.6)',stats:'Lot réduit de 75% (protection)'}
+  };
+  const cfg = configs[mode] || configs.NORMAL;
+  document.getElementById('modeName').textContent = cfg.name;
+  document.getElementById('modeName').style.color = cfg.color;
+  let s = cfg.stats; if (modeData && modeData.gainPct) s += ' · Gain 7j +' + modeData.gainPct + '%';
+  document.getElementById('modeStats').textContent = s;
+  document.getElementById('modeStats').style.color = cfg.color;
+  box.style.background = cfg.bg;
+  box.style.borderColor = cfg.border;
+  if (modeData && modeData.risquePct && modeData.risqueBase && modeData.risquePct > modeData.risqueBase) {
+    const boost = document.getElementById('modeBoost');
+    boost.textContent = '×' + (modeData.risquePct / modeData.risqueBase).toFixed(2) + ' LOT';
+    boost.style.display = 'block';
+    boost.style.color = cfg.color;
+    boost.style.background = 'rgba(0,0,0,0.4)';
+    boost.style.border = '1px solid ' + cfg.border;
+  } else { document.getElementById('modeBoost').style.display = 'none'; }
+  if (modeData && modeData.modeAlerte) {
+    const m = document.getElementById('modeMessage');
+    m.textContent = modeData.modeAlerte;
+    m.style.color = cfg.color;
+    m.style.display = 'block';
+  } else { document.getElementById('modeMessage').style.display = 'none'; }
+  box.style.display = 'block';
+}
 </script>
 </body>
 </html>

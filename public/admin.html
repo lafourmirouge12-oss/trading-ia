@@ -170,6 +170,31 @@
     </div>
   </div>
 
+  <!-- ═══ TABLEAU TP/SL PAR CLIENT (perfs trading) ═══ -->
+  <div class="section-title">◈ 📊 Performance trading par client (30 derniers jours)</div>
+  <div style="background:rgba(0,15,40,0.7);border:1px solid rgba(0,255,136,0.15);border-radius:6px;padding:14px;margin-bottom:24px;overflow-x:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:11px;color:rgba(0,255,136,0.7);letter-spacing:2px;text-transform:uppercase;font-family:'Orbitron',monospace;">🎯 Qui gagne, qui perd ? · 30j</div>
+      <button onclick="loadClientsTradesStats()" style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.4);color:rgba(0,255,136,0.9);padding:5px 12px;border-radius:3px;cursor:pointer;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;">🔄 Rafraîchir</button>
+    </div>
+    <table id="clientsTradesTable" style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid rgba(0,255,136,0.2);">
+          <th style="padding:8px;text-align:left;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,255,255,0.5);">CLIENT</th>
+          <th style="padding:8px;text-align:center;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,255,255,0.5);">PLAN</th>
+          <th style="padding:8px;text-align:center;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(0,255,136,0.8);">✓ TP</th>
+          <th style="padding:8px;text-align:center;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,48,96,0.8);">✗ SL</th>
+          <th style="padding:8px;text-align:center;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,255,255,0.5);">WR</th>
+          <th style="padding:8px;text-align:right;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,255,255,0.5);">PROFIT</th>
+          <th style="padding:8px;text-align:center;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;color:rgba(255,255,255,0.5);">DERNIER</th>
+        </tr>
+      </thead>
+      <tbody id="clientsTradesBody">
+        <tr><td colspan="7" style="text-align:center;padding:20px;color:rgba(255,255,255,0.4);">Chargement...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <div class="section-title">◈ Apprentissage IA — Mémoire collective</div>
   <div class="winrate-grid">
     <div class="stat-card"><div class="stat-num orange" id="aLecons">0</div><div class="stat-label">📚 Leçons apprises</div></div>
@@ -303,7 +328,36 @@ async function loadUsers(){
   }catch(e){}
 }
 
-function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();loadPrixPacks();}
+function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();loadPrixPacks();loadClientsTradesStats();}
+
+async function loadClientsTradesStats(){
+  const body = document.getElementById('clientsTradesBody');
+  if (!body) return;
+  try {
+    const r = await fetch('/admin/clients-trades-stats');
+    const d = await r.json();
+    if (!d.clients || d.clients.length === 0) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:rgba(255,255,255,0.4);">Aucun trade dans les 30 derniers jours</td></tr>';
+      return;
+    }
+    body.innerHTML = d.clients.map(c => {
+      const wrColor = c.winRate >= 60 ? '#00ff88' : c.winRate >= 45 ? '#ffd700' : '#ff3060';
+      const profitColor = c.profitTotal > 0 ? '#00ff88' : c.profitTotal < 0 ? '#ff3060' : '#888';
+      const planColor = c.plan === 'elite' ? '#b464ff' : c.plan === 'pro' || c.plan === 'premium' ? '#ffd700' : c.plan === 'starter' ? '#00f5ff' : '#666';
+      let dernierTxt = '—';
+      if (c.dernierTrade) {
+        const res = c.dernierTrade.result;
+        const resCol = res === 'TP' ? '#00ff88' : '#ff3060';
+        const prof = c.dernierTrade.profit !== null ? ' (' + (c.dernierTrade.profit > 0 ? '+' : '') + c.dernierTrade.profit.toFixed(0) + '€)' : '';
+        dernierTxt = '<span style="color:' + resCol + ';font-weight:700;">' + res + '</span> ' + c.dernierTrade.direction + ' ' + c.dernierTrade.instrument + prof;
+      }
+      const email = c.email ? c.email.split('@')[0] : 'user';
+      return '<tr style="border-bottom:1px solid rgba(0,255,136,0.05);"><td style="padding:8px;color:#fff;font-size:12px;">' + email + '</td><td style="padding:8px;text-align:center;"><span style="color:' + planColor + ';font-family:Orbitron,monospace;font-size:9px;letter-spacing:1px;text-transform:uppercase;font-weight:700;">' + c.plan + '</span></td><td style="padding:8px;text-align:center;color:#00ff88;font-weight:700;">' + c.tps + '</td><td style="padding:8px;text-align:center;color:#ff3060;font-weight:700;">' + c.sls + '</td><td style="padding:8px;text-align:center;color:' + wrColor + ';font-weight:700;">' + c.winRate + '%</td><td style="padding:8px;text-align:right;color:' + profitColor + ';font-weight:700;font-family:Orbitron,monospace;">' + (c.profitTotal > 0 ? '+' : '') + c.profitTotal.toFixed(0) + '€</td><td style="padding:8px;text-align:center;font-size:11px;">' + dernierTxt + '</td></tr>';
+    }).join('');
+  } catch(e) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#ff3060;">Erreur: ' + e.message + '</td></tr>';
+  }
+}
 
 // Stub : le vrai code AI Doctor est dans /admin/doctor.html (page dédiée)
 function _stubDoctorRemoved(role, content){

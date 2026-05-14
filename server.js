@@ -1830,6 +1830,9 @@ async function gererTpPartiels3Tier({
         });
 
         const il_y_a_7j = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const il_y_a_24h_filt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        // Ordres placés via "Ordre auto" (workflow normal)
         const ordresPlaces = await analysesDb.findAsync({
           userId: user._id,
           decision: { $in: ['BUY', 'SELL'] },
@@ -1838,13 +1841,27 @@ async function gererTpPartiels3Tier({
           apprentissageStatut: { $ne: 'TRAITE' }
         });
 
+        // FIX : aussi les analyses récentes avec TP1/TP2/TP3 même SANS orderPlaced
+        // (cas où le user a fait une analyse puis placé manuellement sur MT5)
+        const analysesAvecTPs = await analysesDb.findAsync({
+          userId: user._id,
+          decision: { $in: ['BUY', 'SELL'] },
+          createdAt: { $gte: il_y_a_24h_filt },
+          $or: [{ tp1: { $exists: true } }, { tp: { $exists: true } }]
+        });
+        const aAnalyseAvecTPRecente = analysesAvecTPs && analysesAvecTPs.length > 0;
+
         const aQuelqueChoseAGerer = (trackingsActifs && trackingsActifs.length > 0) ||
-                                    (ordresPlaces && ordresPlaces.length > 0);
+                                    (ordresPlaces && ordresPlaces.length > 0) ||
+                                    aAnalyseAvecTPRecente;
 
         if (!aQuelqueChoseAGerer) {
-          // Aucun ordre placé via notre système qui ne soit pas déjà clos
-          // → ZERO deploy nécessaire. Économie massive.
+          // Aucun ordre + aucune analyse récente avec TPs → skip pour économiser MetaApi
           continue;
+        }
+        if (aAnalyseAvecTPRecente && !(trackingsActifs?.length || ordresPlaces?.length)) {
+          // Cas du trade manuel : log pour debug
+          console.log('[TP-WRAPPER] User ' + user._id + ' : analyse récente avec TPs détectée, on check les positions MT5 (trade manuel possible)');
         }
 
         account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
@@ -1880,7 +1897,35 @@ async function gererTpPartiels3Tier({
         for (const pos of positions) {
           try {
             // ─── 1. CHARGER OU CRÉER LE TRACKING ─────────────────────
+            // FIX : chercher par positionId OU orderId (un tracking immédiat est créé avec orderId
+            //        qui est ensuite égal au positionId pour market, mais peut différer pour limit déclenché)
             let tracking = await positionsTrackingDb.findOneAsync({ positionId: pos.id });
+            if (!tracking) {
+              // Fallback : matcher par orderId (cas où limit s'est exécuté avec positionId différent)
+              tracking = await positionsTrackingDb.findOneAsync({ orderId: pos.id });
+              if (!tracking) {
+                // Fallback 2 : par symbole + direction + entrée proche (cas trade manuel)
+                const positionEntry = parseFloat(pos.openPrice);
+                const tradesProches = await positionsTrackingDb.findAsync({
+                  userId: user._id,
+                  symbol: { $regex: pos.symbol.split('-')[0] }, // match XAUUSD-STD → XAUUSD
+                  direction: (pos.type === 'POSITION_TYPE_BUY') ? 'BUY' : 'SELL',
+                  tp3Done: { $ne: true }
+                });
+                tracking = tradesProches.find(t => {
+                  const entreeT = parseFloat(t.entree || t.entry || 0);
+                  return Math.abs(entreeT - positionEntry) < (positionEntry * 0.003); // 0.3% tolérance
+                });
+              }
+              // Si trouvé via fallback, on synchronise positionId pour la prochaine fois
+              if (tracking) {
+                await positionsTrackingDb.updateAsync(
+                  { _id: tracking._id },
+                  { $set: { positionId: pos.id } }
+                );
+                console.log('[WRAPPER-TP] Tracking ' + tracking._id + ' synchronisé avec positionId ' + pos.id);
+              }
+            }
 
             // Si tp3 déjà fait OU pas de runner → on skip (rien à gérer)
             if (tracking && tracking.tp3Done) continue;
@@ -2382,6 +2427,7 @@ const promptRules = { getReglesText };
 
 const _marketDataCache = new Map(); // key → { data, time }
 const MARKET_CACHE_TTL_MS = 90 * 1000;
+// Note: pool MT5 retiré (jamais branché aux fonctions existantes). Sera ajouté plus tard si besoin avec tests.
 
 async function fetchAllMarketData(userId, symbole) {
   if (!metaApi) return null;
@@ -3979,8 +4025,10 @@ async function cleanupTracking() {
   } catch(e) {}
 }
 
-// Toutes les 5 minutes (économie MetaApi — capture les TP qui se forment sur > 5 min)
-setInterval(gererTpPartielsWrapper, 5 * 60 * 1000);
+// FIX COÛT : Wrapper TP à 10 min (au lieu de 5)
+// Les déclenchements immédiats à 10s/30s/60s/120s après placement couvrent les exécutions rapides
+// → cycle de 10 min suffisant pour le reste (BE qui doit bouger, trailing, etc.)
+setInterval(gererTpPartielsWrapper, 10 * 60 * 1000);
 // Cleanup tous les jours
 setInterval(cleanupTracking, 24 * 60 * 60 * 1000);
 
@@ -4085,8 +4133,9 @@ async function surveillerTradesEtApprendre() {
     }
   } catch(err) { console.log('[APPRENTISSAGE] Erreur globale:', err.message); }
 }
-// FIX COÛT : 5min → 30min (apprentissage pas urgent, économise massivement)
-setInterval(surveillerTradesEtApprendre, 30 * 60 * 1000);
+// FIX COÛT : apprentissage à 2h (au lieu de 30 min) = -75% de deploys
+// L'apprentissage n'est PAS urgent, attendre 2h ne change rien
+setInterval(surveillerTradesEtApprendre, 2 * 60 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════════════
 // 🛡️ RATE LIMITER (protège la facture Anthropic)
@@ -5392,6 +5441,8 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
       const facteurInfo = await getFacteurRisque(req.session.userId, capital);
       parsed.modeRisque = facteurInfo.mode || 'NORMAL';
       parsed.modeAlerte = facteurInfo.alerte || null;
+      parsed.gainPct = facteurInfo.gainPct || null;
+      parsed.winRate7j = facteurInfo.winRate7j || null;
 
       // Risque de base par score (toujours sur le capital total — sécurisé)
       let risquePct = score >= 8 ? 3 : score >= 6 ? 2 : 1;
@@ -6087,6 +6138,98 @@ Si le bug n'est pas clair, demande UNE info précise avant de proposer.`;
   }
 });
 
+// ═══ STATS IA PERSO (compteur leçons + setups gagnants) ═══
+app.get('/api/ia-stats', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  try {
+    const [lecons, setups, analyses] = await Promise.all([
+      leconsDb.findAsync({ userId: req.session.userId }),
+      setupsGagnantsDb.findAsync({ userId: req.session.userId }),
+      analysesDb.findAsync({ userId: req.session.userId, decision: { $in: ['BUY', 'SELL'] } })
+    ]);
+    // Calcul du niveau de maturité (gamification)
+    const total = lecons.length + setups.length;
+    let niveau, badge;
+    if (total >= 50) { niveau = 'EXPERT'; badge = '🏆'; }
+    else if (total >= 20) { niveau = 'AVANCE'; badge = '⭐'; }
+    else if (total >= 5) { niveau = 'EN APPRENTISSAGE'; badge = '🌱'; }
+    else { niveau = 'DEBUTANT'; badge = '🆕'; }
+    res.json({
+      lecons: lecons.length,
+      setupsGagnants: setups.length,
+      analysesTotal: analyses.length,
+      niveau, badge
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ STATS TP/SL PAR CLIENT (dashboard admin) ═══
+app.get('/admin/clients-trades-stats', checkAdmin, async (req, res) => {
+  try {
+    const users = await db.findAsync({ role: { $ne: 'admin' } });
+    const il_y_a_30j = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const stats = [];
+    for (const user of users) {
+      const analyses = await analysesDb.findAsync({
+        userId: user._id,
+        decision: { $in: ['BUY', 'SELL'] },
+        createdAt: { $gte: il_y_a_30j }
+      });
+      const tradesAvecResult = analyses.filter(a =>
+        a.feedbackResult === 'tp' || a.feedbackResult === 'sl' ||
+        (typeof a.tradeProfit === 'number')
+      );
+      const tps = tradesAvecResult.filter(a =>
+        a.feedbackResult === 'tp' || (typeof a.tradeProfit === 'number' && a.tradeProfit > 0)
+      );
+      const sls = tradesAvecResult.filter(a =>
+        a.feedbackResult === 'sl' || (typeof a.tradeProfit === 'number' && a.tradeProfit < 0)
+      );
+
+      // Calcul profit total
+      let profitTotal = 0;
+      for (const t of tradesAvecResult) {
+        if (typeof t.tradeProfit === 'number') profitTotal += t.tradeProfit;
+      }
+
+      // Dernier trade
+      let dernierTrade = null;
+      if (tradesAvecResult.length) {
+        const sorted = [...tradesAvecResult].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const last = sorted[0];
+        const result = last.feedbackResult === 'tp' || (typeof last.tradeProfit === 'number' && last.tradeProfit > 0) ? 'TP' : 'SL';
+        dernierTrade = {
+          result,
+          instrument: last.instrument || 'XAUUSD',
+          direction: last.decision,
+          profit: typeof last.tradeProfit === 'number' ? last.tradeProfit : null,
+          date: last.createdAt
+        };
+      }
+
+      if (analyses.length > 0) {
+        stats.push({
+          userId: user._id,
+          email: user.email,
+          plan: user.plan || 'free',
+          tps: tps.length,
+          sls: sls.length,
+          tradesTotal: tradesAvecResult.length,
+          analysesTotal: analyses.length,
+          winRate: tradesAvecResult.length > 0 ? Math.round((tps.length / tradesAvecResult.length) * 100) : 0,
+          profitTotal: +profitTotal.toFixed(2),
+          dernierTrade
+        });
+      }
+    }
+
+    // Tri par profit total décroissant
+    stats.sort((a, b) => b.profitTotal - a.profitTotal);
+    res.json({ clients: stats, total: stats.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/prix-packs', checkAdmin, (req, res) => { res.json(chargerPrix()); });
 app.get('/api/prix-packs', (req, res) => { res.json(chargerPrix()); });
 app.post('/admin/prix-packs', checkAdmin, (req, res) => {
@@ -6588,19 +6731,75 @@ app.post('/mt5/disconnect', async (req, res) => {
 });
 
 // ─── GET /mt5/status : etat de la connexion MT5 du user ─────────────
+// Détection broker depuis le nom du serveur MT5
+function detectBroker(serverName) {
+  const s = (serverName || '').toUpperCase();
+  if (s.includes('VTMARKETS') || s.includes('VT-') || s.includes('VTM')) return { name: 'VTMarkets', color: '#00d4ff', accent: '#0066ff' };
+  if (s.includes('RAISEFX') || s.includes('RAISE-') || s.includes('RAISEFX-')) return { name: 'RaiseFX', color: '#00ff88', accent: '#00ffaa' };
+  if (s.includes('ICMARKETS') || s.includes('IC-')) return { name: 'IC Markets', color: '#ff6b00', accent: '#ff9500' };
+  if (s.includes('VANTAGE') || s.includes('VANT-')) return { name: 'Vantage', color: '#ffd700', accent: '#ffaa00' };
+  if (s.includes('EXNESS')) return { name: 'Exness', color: '#fbb900', accent: '#ff7700' };
+  if (s.includes('FTMO')) return { name: 'FTMO', color: '#9b59b6', accent: '#8e44ad' };
+  if (s.includes('PEPPERSTONE') || s.includes('PEPPER-')) return { name: 'Pepperstone', color: '#e74c3c', accent: '#c0392b' };
+  if (s.includes('OANDA')) return { name: 'Oanda', color: '#0066cc', accent: '#004499' };
+  if (s.includes('XM-') || s.includes('XMGLOBAL')) return { name: 'XM', color: '#e60000', accent: '#cc0000' };
+  if (s.includes('ADMIRAL')) return { name: 'Admiral', color: '#1a5490', accent: '#0d3a6e' };
+  if (s.includes('TICKMILL')) return { name: 'Tickmill', color: '#00a8e8', accent: '#0078a8' };
+  if (s.includes('FXCM')) return { name: 'FXCM', color: '#00aa44', accent: '#008833' };
+  if (s.includes('FUSION') || s.includes('FUSIONMARKETS')) return { name: 'Fusion Markets', color: '#7b68ee', accent: '#5a4ecc' };
+  if (s.includes('FXPRO')) return { name: 'FxPro', color: '#003d99', accent: '#0066ff' };
+  if (s.includes('FBS')) return { name: 'FBS', color: '#0099cc', accent: '#007fa8' };
+  // Broker inconnu : on retourne le nom du serveur tel quel
+  return { name: serverName || 'MT5 Broker', color: '#00f5ff', accent: '#00ff88' };
+}
+
 app.get('/mt5/status', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
   const user = await db.findOneAsync({ _id: req.session.userId });
   if (!user || !user.mt5) return res.json({ connected: false });
+  const broker = detectBroker(user.mt5.server);
   res.json({
     connected: true,
     login: user.mt5.login,
     server: user.mt5.server,
     accountType: user.mt5.accountType,
     capital: user.mt5.capital,
+    balance: user.mt5.balance || null,
+    credit: user.mt5.credit || 0,
+    equity: user.mt5.equity || null,
     currency: user.mt5.currency,
-    connectedAt: user.mt5.connectedAt
+    profitFlottant: user.mt5.equity && user.mt5.balance ? +(user.mt5.equity - user.mt5.balance).toFixed(2) : 0,
+    connectedAt: user.mt5.connectedAt,
+    broker: broker
   });
+});
+
+// ─── GET /mt5/account-snapshot : info compte (cache, économe) ─────
+// Renvoie balance/credit/equity stockés en DB (mis à jour à chaque refresh)
+// Sans aucun deploy MetaApi → super rapide et gratuit
+app.get('/mt5/account-snapshot', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  try {
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!user || !user.mt5) return res.json({ connected: false });
+    const broker = detectBroker(user.mt5.server);
+    const balance = parseFloat(user.mt5.balance) || 0;
+    const credit = parseFloat(user.mt5.credit) || 0;
+    const equity = parseFloat(user.mt5.equity) || balance;
+    const profitFlottant = +(equity - balance - credit).toFixed(2);
+    res.json({
+      connected: true,
+      broker: broker,
+      login: user.mt5.login,
+      server: user.mt5.server,
+      balance: balance,
+      credit: credit,
+      equity: equity,
+      profitFlottant: profitFlottant,
+      currency: user.mt5.currency || 'USD',
+      lastUpdate: user.mt5.lastBalanceUpdate || user.mt5.connectedAt
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── POST /mt5/refresh-capital : refresh capital depuis MT5 ─────────
@@ -6648,7 +6847,8 @@ app.post('/mt5/refresh-capital', async (req, res) => {
         'mt5.balance': info.balance,
         'mt5.credit': info.credit || 0,
         'mt5.equity': info.equity || info.balance,
-        'mt5.currency': info.currency
+        'mt5.currency': info.currency,
+        'mt5.lastBalanceUpdate': new Date().toISOString()
       } }
     );
 
@@ -6893,14 +7093,19 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
             ? getDistribution(analyseTracking.score || 7)
             : { tp1: 0.5, tp2: 0.3, tp3: 0.2, mode: 'A' };
 
+          // FIX : pour MARKET ORDER, orderId == positionId généralement
+          // Pour LIMIT ORDER, positionId créé à l'exécution → on initialise à orderId
+          // Le wrapper TP va matcher via positionId, donc on doit le renseigner
           await positionsTrackingDb.insertAsync({
             _id: uuidv4(),
             userId: req.session.userId,
             orderId: result.orderId,
+            positionId: result.orderId, // Initialement = orderId (sera mis à jour si différent)
             analyseId: analyseTracking._id,
             symbol: resolvedSymbol,
             direction: direction.toUpperCase(),
             entree: parseFloat(entreeFinale),
+            entry: parseFloat(entreeFinale), // alias pour compatibilité wrapper
             sl: parseFloat(slFinal),
             tp1: analyseTracking.tp1 ? parseFloat(analyseTracking.tp1) : null,
             tp2: analyseTracking.tp2 ? parseFloat(analyseTracking.tp2) : null,
@@ -6908,6 +7113,8 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
             score: analyseTracking.score || 7,
             volumeInitial: parseFloat(volume),
             volumeRestant: parseFloat(volume),
+            tp1Volume: 0,
+            tp2Volume: 0,
             distribution: distribution,
             tp1Done: false,
             tp2Done: false,
