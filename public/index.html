@@ -829,6 +829,177 @@
 .notif-title { font-weight: 700; color: #fff; font-size: 13px; margin-bottom: 4px; }
 .notif-msg { color: #bbb; font-size: 12px; line-height: 1.4; }
 .notif-time { color: #777; font-size: 11px; margin-top: 4px; }
+    /* ═══ BOUTON SWITCH COMPTES ═══ */
+    .broker-switch-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 5;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid currentColor;
+      color: currentColor;
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      letter-spacing: 1.5px;
+      padding: 4px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.3s;
+      backdrop-filter: blur(2px);
+    }
+    .broker-switch-btn:hover {
+      background: currentColor;
+      color: #000;
+      box-shadow: 0 0 12px currentColor;
+    }
+    .broker-switch-btn::before { content: '⇄ '; }
+
+    /* ═══ MODAL SÉLECTION COMPTES ═══ */
+    .mt5-accounts-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,5,15,0.85);
+      backdrop-filter: blur(10px);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .mt5-accounts-modal.active { display: flex; }
+    .mt5-accounts-modal-content {
+      background: linear-gradient(135deg, rgba(0,15,40,0.95), rgba(0,5,20,0.95));
+      border: 1px solid rgba(0,245,255,0.3);
+      border-radius: 12px;
+      max-width: 480px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 24px;
+      box-shadow: 0 0 40px rgba(0,245,255,0.2);
+    }
+    .mt5-modal-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      color: #00f5ff;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      text-shadow: 0 0 8px currentColor;
+    }
+    .mt5-modal-subtitle {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 18px;
+      letter-spacing: 1px;
+    }
+    .mt5-account-card {
+      background: rgba(0,15,40,0.6);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .mt5-account-card:hover {
+      border-color: currentColor;
+      transform: translateX(2px);
+    }
+    .mt5-account-card.active {
+      border-color: #00ff88;
+      background: rgba(0,255,136,0.06);
+    }
+    .mt5-account-card.active::after {
+      content: '✓ ACTIF';
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      color: #00ff88;
+      letter-spacing: 2px;
+      font-weight: 900;
+    }
+    .mt5-account-broker {
+      font-family: 'Orbitron', monospace;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .mt5-account-details {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      font-family: 'Rajdhani', sans-serif;
+    }
+    .mt5-account-stats {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+    }
+    .mt5-account-stats span { color: rgba(255,255,255,0.7); }
+    .mt5-account-delete {
+      position: absolute;
+      bottom: 8px;
+      right: 12px;
+      background: transparent;
+      border: 1px solid rgba(255,48,96,0.3);
+      color: rgba(255,48,96,0.7);
+      font-size: 9px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: 'Orbitron', monospace;
+      letter-spacing: 1px;
+    }
+    .mt5-account-delete:hover { background: rgba(255,48,96,0.15); color: #ff3060; }
+    .mt5-modal-actions {
+      margin-top: 18px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .mt5-modal-btn {
+      flex: 1;
+      padding: 10px 14px;
+      background: transparent;
+      border: 1px solid;
+      border-radius: 4px;
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      cursor: pointer;
+      text-transform: uppercase;
+      text-decoration: none;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .mt5-modal-btn.primary {
+      border-color: #00ff88;
+      color: #00ff88;
+      background: rgba(0,255,136,0.1);
+    }
+    .mt5-modal-btn.primary:hover { background: rgba(0,255,136,0.25); }
+    .mt5-modal-btn.close {
+      border-color: rgba(255,255,255,0.2);
+      color: rgba(255,255,255,0.5);
+    }
+    .mt5-modal-btn.close:hover { border-color: rgba(255,48,96,0.5); color: #ff3060; }
+    .mt5-modal-limit-info {
+      font-size: 10px;
+      color: rgba(255,215,0,0.7);
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+      font-family: 'Orbitron', monospace;
+    }
+
     /* ═══ BROKER BOX — EFFET HOLOGRAMME NÉON ═══ */
 
     /* Pulsation lumineuse principale (glow doux respire) */
@@ -1106,6 +1277,7 @@
 
   <!-- BROKER BOX (visible dès la connexion) -->
   <div id="brokerBox" class="broker-box" style="display:none;">
+    <button id="brokerSwitchBtn" class="broker-switch-btn" style="display:none;" onclick="openMT5Modal()">Changer</button>
     <span class="holo-corner tl"></span>
     <span class="holo-corner tr"></span>
     <span class="holo-corner bl"></span>
@@ -2970,6 +3142,75 @@ document.addEventListener('click', (e) => {
 
 
 // LOAD BROKER + IA STATS
+// ═══ MULTI-COMPTES MT5 (Elite/Admin) ═══
+async function openMT5Modal() {
+  try {
+    const r = await fetch('/mt5/accounts');
+    if (!r.ok) return;
+    const d = await r.json();
+    const list = document.getElementById('mt5AccountsList');
+    const limitInfo = document.getElementById('mt5ModalLimitInfo');
+    const addBtn = document.getElementById('mt5AddBtn');
+
+    limitInfo.textContent = '◈ ' + d.accounts.length + ' / ' + d.limit + ' compte(s) connecté(s)';
+    if (!d.canAddMore) {
+      addBtn.style.opacity = '0.4';
+      addBtn.style.pointerEvents = 'none';
+      addBtn.textContent = 'Limite atteinte';
+    } else {
+      addBtn.style.opacity = '1';
+      addBtn.style.pointerEvents = 'auto';
+      addBtn.textContent = '+ Ajouter un compte';
+    }
+
+    if (d.accounts.length === 0) {
+      list.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(255,255,255,0.4);font-size:13px;">Aucun compte MT5 connecté.<br>Clique sur "Ajouter un compte" pour commencer.</div>';
+    } else {
+      list.innerHTML = d.accounts.map(a => {
+        const symbol = a.currency === 'EUR' ? '€' : a.currency === 'USD' ? '\u0024' : a.currency;
+        return '<div class="mt5-account-card ' + (a.isActive ? 'active' : '') + '" style="color:' + a.broker.color + ';" ' +
+          (a.isActive ? '' : 'onclick="switchMT5Account(\'' + a.id + '\')"') + '>' +
+          '<div class="mt5-account-broker" style="color:' + a.broker.color + ';">' + a.broker.name + '</div>' +
+          '<div class="mt5-account-details">⚡ ' + a.server + ' · #' + a.login + ' · ' + (a.accountType || 'demo').toUpperCase() + '</div>' +
+          '<div class="mt5-account-stats">' +
+            '<span>💰 ' + (a.balance || 0).toFixed(2) + ' ' + symbol + '</span>' +
+            (a.credit > 0 ? '<span>🎁 ' + a.credit.toFixed(2) + ' ' + symbol + '</span>' : '') +
+          '</div>' +
+          (!a.isActive ? '<button class="mt5-account-delete" onclick="event.stopPropagation(); deleteMT5Account(\'' + a.id + '\', \'' + (a.broker.name + ' ' + a.login).replace(/'/g,'') + '\')">✕ Supprimer</button>' : '') +
+          '</div>';
+      }).join('');
+    }
+    document.getElementById('mt5AccountsModal').classList.add('active');
+  } catch(e) { alert('Erreur : ' + e.message); }
+}
+
+function closeMT5Modal() {
+  document.getElementById('mt5AccountsModal').classList.remove('active');
+}
+
+async function switchMT5Account(accountId) {
+  try {
+    const r = await fetch('/mt5/accounts/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId })
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur'); }
+    closeMT5Modal();
+    // Recharger la page pour rafraîchir le bandeau et le contexte (apprentissage compte spécifique)
+    location.reload();
+  } catch(e) { alert('Erreur : ' + e.message); }
+}
+
+async function deleteMT5Account(accountId, label) {
+  if (!confirm('Supprimer le compte ' + label + ' ?\n\nL\'historique reste en DB mais le compte ne sera plus accessible.')) return;
+  try {
+    const r = await fetch('/mt5/accounts/' + accountId, { method: 'DELETE' });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Erreur'); }
+    openMT5Modal(); // recharger la liste
+  } catch(e) { alert('Erreur : ' + e.message); }
+}
+
 (async function loadBrokerBox() {
   try {
     const r = await fetch('/mt5/account-snapshot');
@@ -3004,6 +3245,17 @@ document.addEventListener('click', (e) => {
     else if (p < 0) prof.className = 'broker-stat-val profit-negative';
     else prof.className = 'broker-stat-val';
     box.style.display = 'block';
+
+    // Si plus d'1 compte autorisé (Elite/Admin), afficher le bouton "Changer"
+    try {
+      const ra = await fetch('/mt5/accounts');
+      if (ra.ok) {
+        const da = await ra.json();
+        if (da.limit > 1) {
+          document.getElementById('brokerSwitchBtn').style.display = 'block';
+        }
+      }
+    } catch(e) {}
   } catch(e) {}
 })();
 
@@ -3063,5 +3315,20 @@ function displayMode(modeData) {
   box.style.display = 'block';
 }
 </script>
+
+<!-- ═══ MODAL SÉLECTION COMPTES MT5 (Elite/Admin) ═══ -->
+<div id="mt5AccountsModal" class="mt5-accounts-modal" onclick="if(event.target===this) closeMT5Modal()">
+  <div class="mt5-accounts-modal-content">
+    <div class="mt5-modal-title">⇄ Mes comptes MT5</div>
+    <div class="mt5-modal-subtitle">Sélectionne le compte sur lequel tu veux trader</div>
+    <div id="mt5ModalLimitInfo" class="mt5-modal-limit-info"></div>
+    <div id="mt5AccountsList"></div>
+    <div class="mt5-modal-actions">
+      <a id="mt5AddBtn" href="/mt5.html" class="mt5-modal-btn primary">+ Ajouter un compte</a>
+      <button class="mt5-modal-btn close" onclick="closeMT5Modal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

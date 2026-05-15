@@ -3471,7 +3471,8 @@ async function enregistrerSetupGagnant(analyse) {
   } catch(err) { console.log('[SETUP-GAGNANT] Erreur:', err.message); }
 }
 
-async function getBlocSetupsGagnants(userId, instrument) {
+async function getBlocSetupsGagnants(userId, instrument, accountId) {
+  // Si accountId fourni, on filtre les setups gagnants pour ce compte uniquement
   try {
     const setups = await setupsGagnantsDb.findAsync({ userId, instrument: instrument || 'XAUUSD' });
     if (!setups.length) return '';
@@ -3509,7 +3510,9 @@ async function getBlocSetupsGagnants(userId, instrument) {
 // 📚 POST-MORTEM AUTO (sans screen — récupère les bougies via MetaAPI)
 // ═══════════════════════════════════════════════════════════════════
 
-async function getLeconsPourPrompt(userId) {
+async function getLeconsPourPrompt(userId, accountId) {
+  // Si accountId fourni, on filtre les leçons pour ce compte uniquement
+  // Sinon on charge tout (rétrocompat)
   try {
     const lecons = await leconsDb.findAsync({ userId });
     lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -6418,26 +6421,120 @@ async function findMetaApiAccountByLogin(login) {
 }
 
 // Helper : chiffrer + sauvegarder credentials MT5 d'un user
+// ═══ HELPERS MULTI-COMPTES MT5 ═══
+// L'ancien format avait user.mt5 = { ... } (1 seul compte)
+// Le nouveau format a user.mt5Accounts = [ { id, label, ... } ] + user.activeMT5AccountId
+// Cette fonction normalise et retourne le compte actif
+
+function getMT5AccountLimit(user) {
+  const plan = (user.plan || 'free').toLowerCase();
+  if (plan === 'admin' || user.role === 'admin') return 999;
+  if (plan === 'elite') return 5;
+  if (plan === 'pro' || plan === 'premium') return 1;
+  return 0;
+}
+
+async function getActiveMT5(userId) {
+  const user = await db.findOneAsync({ _id: userId });
+  if (!user) return null;
+  // Nouveau format : tableau de comptes
+  if (Array.isArray(user.mt5Accounts) && user.mt5Accounts.length > 0) {
+    const activeId = user.activeMT5AccountId || user.mt5Accounts[0].id;
+    return user.mt5Accounts.find(a => a.id === activeId) || user.mt5Accounts[0];
+  }
+  // Ancien format : objet unique → on le retourne tel quel (rétrocompat)
+  if (user.mt5) {
+    return { ...user.mt5, id: 'legacy', label: user.mt5.login + ' (legacy)' };
+  }
+  return null;
+}
+
+async function getAllMT5Accounts(userId) {
+  const user = await db.findOneAsync({ _id: userId });
+  if (!user) return [];
+  if (Array.isArray(user.mt5Accounts) && user.mt5Accounts.length > 0) {
+    return user.mt5Accounts;
+  }
+  if (user.mt5) {
+    return [{ ...user.mt5, id: 'legacy', label: user.mt5.login + ' (legacy)' }];
+  }
+  return [];
+}
+
+// Migration auto : si user a user.mt5 mais pas user.mt5Accounts, on convertit
+async function migrateMT5Format(userId) {
+  const user = await db.findOneAsync({ _id: userId });
+  if (!user || !user.mt5) return;
+  if (Array.isArray(user.mt5Accounts) && user.mt5Accounts.length > 0) return;
+  const accountId = uuidv4();
+  const account = {
+    id: accountId,
+    label: user.mt5.login + ' (' + (user.mt5.server || 'MT5') + ')',
+    ...user.mt5,
+    addedAt: user.mt5.connectedAt || new Date().toISOString()
+  };
+  await db.updateAsync(
+    { _id: userId },
+    { $set: { mt5Accounts: [account], activeMT5AccountId: accountId } }
+  );
+  console.log('[MIGRATION-MT5] User ' + userId + ' converti vers multi-comptes');
+}
+
 async function saveMT5Credentials(userId, mt5Data) {
   const encryptedPassword = encryptStr(mt5Data.password);
+  const user = await db.findOneAsync({ _id: userId });
+  const limit = getMT5AccountLimit(user);
+
+  // Vérifier que l'utilisateur a le droit (Pro=1, Elite=5, Admin=999)
+  if (limit === 0) {
+    throw new Error('Ton plan ne donne pas accès à MT5');
+  }
+
+  // Migration auto si format ancien
+  await migrateMT5Format(userId);
+
+  // Récupérer les comptes existants (post-migration)
+  const userFresh = await db.findOneAsync({ _id: userId });
+  let accounts = Array.isArray(userFresh.mt5Accounts) ? [...userFresh.mt5Accounts] : [];
+
+  // Cherche un compte existant avec le même login + serveur
+  const existingIdx = accounts.findIndex(a =>
+    String(a.login) === String(mt5Data.login) && a.server === mt5Data.server
+  );
+
+  const accountData = {
+    id: existingIdx >= 0 ? accounts[existingIdx].id : uuidv4(),
+    label: mt5Data.login + ' (' + (mt5Data.server || 'MT5') + ')',
+    login: String(mt5Data.login),
+    passwordEnc: encryptedPassword,
+    server: mt5Data.server,
+    accountType: mt5Data.accountType || 'demo',
+    metaApiAccountId: mt5Data.metaApiAccountId,
+    capital: mt5Data.capital || null,
+    balance: mt5Data.balance != null ? mt5Data.balance : mt5Data.capital || null,
+    credit: mt5Data.credit || 0,
+    equity: mt5Data.equity || mt5Data.capital || null,
+    currency: mt5Data.currency || 'USD',
+    connectedAt: new Date().toISOString(),
+    addedAt: existingIdx >= 0 ? accounts[existingIdx].addedAt : new Date().toISOString()
+  };
+
+  if (existingIdx >= 0) {
+    accounts[existingIdx] = accountData;
+  } else {
+    if (accounts.length >= limit) {
+      throw new Error('Limite atteinte : ton plan permet ' + limit + ' compte(s) MT5 max. Supprime-en un pour en ajouter un nouveau.');
+    }
+    accounts.push(accountData);
+  }
+
   await db.updateAsync(
     { _id: userId },
     { $set: {
-      mt5: {
-        login: String(mt5Data.login),
-        passwordEnc: encryptedPassword,
-        server: mt5Data.server,
-        accountType: mt5Data.accountType || 'demo',
-        metaApiAccountId: mt5Data.metaApiAccountId,
-        capital: mt5Data.capital || null,
-        // FIX : sauvegarder balance et credit séparément pour le widget frontend
-        balance: mt5Data.balance != null ? mt5Data.balance : mt5Data.capital || null,
-        credit: mt5Data.credit || 0,
-        equity: mt5Data.equity || mt5Data.capital || null,
-        currency: mt5Data.currency || 'USD',
-        connectedAt: new Date().toISOString()
-      }
-    }}
+      mt5Accounts: accounts,
+      activeMT5AccountId: accountData.id,
+      mt5: accountData
+    } }
   );
 }
 
@@ -6752,6 +6849,95 @@ function detectBroker(serverName) {
   // Broker inconnu : on retourne le nom du serveur tel quel
   return { name: serverName || 'MT5 Broker', color: '#00f5ff', accent: '#00ff88' };
 }
+
+// ═══ ENDPOINTS MULTI-COMPTES MT5 ═══
+
+// Liste tous les comptes MT5 du user (avec leur label, broker détecté, etc.)
+app.get('/mt5/accounts', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  try {
+    await migrateMT5Format(req.session.userId);
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    const accounts = await getAllMT5Accounts(req.session.userId);
+    const limit = getMT5AccountLimit(user);
+    const activeId = user.activeMT5AccountId || (accounts[0] && accounts[0].id);
+
+    res.json({
+      accounts: accounts.map(a => ({
+        id: a.id,
+        label: a.label,
+        login: a.login,
+        server: a.server,
+        accountType: a.accountType,
+        balance: a.balance,
+        credit: a.credit || 0,
+        currency: a.currency,
+        broker: detectBroker(a.server),
+        isActive: a.id === activeId,
+        addedAt: a.addedAt || a.connectedAt
+      })),
+      limit: limit,
+      canAddMore: accounts.length < limit,
+      activeId: activeId
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Switcher de compte actif
+app.post('/mt5/accounts/switch', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  const { accountId } = req.body;
+  if (!accountId) return res.status(400).json({ error: 'accountId requis' });
+  try {
+    await migrateMT5Format(req.session.userId);
+    const accounts = await getAllMT5Accounts(req.session.userId);
+    const target = accounts.find(a => a.id === accountId);
+    if (!target) return res.status(404).json({ error: 'Compte introuvable' });
+
+    // Update active + sync user.mt5 (rétrocompat)
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $set: { activeMT5AccountId: accountId, mt5: target } }
+    );
+    console.log('[MT5-SWITCH] User ' + req.session.userId + ' → compte ' + target.label);
+    res.json({ success: true, account: target, broker: detectBroker(target.server) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Supprimer un compte de la liste
+app.delete('/mt5/accounts/:accountId', async (req, res) => {
+  if (!req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  const { accountId } = req.params;
+  try {
+    await migrateMT5Format(req.session.userId);
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    const accounts = Array.isArray(user.mt5Accounts) ? user.mt5Accounts : [];
+    const filtered = accounts.filter(a => a.id !== accountId);
+
+    if (filtered.length === accounts.length) {
+      return res.status(404).json({ error: 'Compte introuvable' });
+    }
+
+    // Si on supprimait le compte actif, on bascule sur le premier restant
+    let newActive = user.activeMT5AccountId;
+    let newMt5 = user.mt5;
+    if (user.activeMT5AccountId === accountId) {
+      newActive = filtered.length > 0 ? filtered[0].id : null;
+      newMt5 = filtered.length > 0 ? filtered[0] : null;
+    }
+
+    await db.updateAsync(
+      { _id: req.session.userId },
+      { $set: {
+        mt5Accounts: filtered,
+        activeMT5AccountId: newActive,
+        mt5: newMt5
+      } }
+    );
+    console.log('[MT5-DELETE] User ' + req.session.userId + ' a supprimé compte ' + accountId);
+    res.json({ success: true, remaining: filtered.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/mt5/status', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Non connecte' });
