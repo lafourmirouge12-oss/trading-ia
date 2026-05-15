@@ -277,7 +277,8 @@ function decryptStr(payload) {
 //   - Exness     : XAUUSDm (micro), EURUSDm, USTECm
 // Si le symbole de base ne marche pas, on essaie ces alternatives.
 const SYMBOL_ALIASES = {
-  'XAUUSD': ['XAUUSD', 'GOLD', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD'],
+  // FIX RaiseFX : utilise 'Gold' (avec G majuscule, sans suffixe) — on ajoute toutes les variantes possibles
+  'XAUUSD': ['XAUUSD', 'GOLD', 'Gold', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD', 'XAUUSD.r', 'XAUUSDx', 'GOLDx', 'XAU.cash'],
   'XAGUSD': ['XAGUSD', 'SILVER', 'XAG', 'SILVER.cash', 'XAGUSDm', 'XAG/USD'],
   'EURUSD': ['EURUSD', 'EUR/USD', 'EURUSDm'],
   'GBPUSD': ['GBPUSD', 'GBP/USD', 'GBPUSDm'],
@@ -302,12 +303,21 @@ const SYMBOL_ALIASES = {
 };
 
 // Retourne tous les noms candidats pour un symbole demandé
+// FIX : on retourne aussi les variantes avec casse mixte (Gold, BtcUsd...) pour brokers qui s'en servent
 function getSymbolCandidates(baseSymbol) {
   const sym = (baseSymbol || '').toUpperCase();
   // Trouver le groupe d'alias auquel appartient ce symbole
   for (const [canonical, aliases] of Object.entries(SYMBOL_ALIASES)) {
     if (aliases.some(a => a.toUpperCase() === sym)) {
-      return [...new Set([sym, ...aliases.map(a => a.toUpperCase())])]; // unique
+      // On retourne les alias TELS QUELS (avec leur casse originale) + en majuscules
+      // Ex: pour XAUUSD → ['XAUUSD', 'GOLD', 'Gold', 'XAU', ...]
+      const all = new Set();
+      aliases.forEach(a => {
+        all.add(a);                    // casse originale (ex: 'Gold')
+        all.add(a.toUpperCase());      // majuscules (ex: 'GOLD')
+      });
+      all.add(sym);
+      return Array.from(all);
     }
   }
   // Pas dans la table → on garde le nom original
@@ -315,7 +325,9 @@ function getSymbolCandidates(baseSymbol) {
 }
 
 async function resolveSymbolForUser(connection, baseSymbol, serverName) {
-  const sym = (baseSymbol || '').toUpperCase();
+  // FIX : on garde aussi la casse originale pour les brokers qui ont "Gold" (RaiseFX par ex)
+  const symRaw = (baseSymbol || '').trim();
+  const sym = symRaw.toUpperCase();
   const sn = (serverName || '').toUpperCase();
   let suffixes;
   if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
@@ -1021,18 +1033,69 @@ function detecterTendanceRobuste(candles) {
   else if (bearCount >= 18 && bearScore > bullScore * 1.5) { votesBearish++; votes.m5 = 'BEAR'; }
   else votes.m5 = 'NEUTRAL';
 
+  // ─── M6 : MOUVEMENT VIOLENT RÉCENT (capture les crashes/pumps explosifs) ─
+  // FIX BUG : sur ta capture H1 du 15/05, le marché chutait de 4759 → 4648
+  // (-2.3%) en ~6 bougies mais les autres méthodes ne détectaient que "RANGE"
+  // car la chute était trop récente pour faire bouger MA50/ADX/swings structurels.
+  // Cette méthode CAPTURE explicitement ces moves explosifs.
+  try {
+    const dernieres8 = candles.slice(-8);
+    const dernieres12 = candles.slice(-12);
+    if (dernieres8.length >= 8 && dernieres12.length >= 12) {
+      // Mouvement net sur 8 bougies : open de la 1ère vs close de la dernière
+      const moveRecent = dernieres8[dernieres8.length-1].close - dernieres8[0].open;
+      const movePct = Math.abs(moveRecent) / dernieres8[0].open * 100;
+
+      // Bougies majoritairement du même côté (5+ sur 8)
+      let bullRecent = 0, bearRecent = 0;
+      dernieres8.forEach(c => { if (c.close > c.open) bullRecent++; else if (c.close < c.open) bearRecent++; });
+
+      // Calcul de l'ATR (Average True Range) pour calibrer
+      let atrSum = 0;
+      dernieres12.forEach(c => atrSum += (c.high - c.low));
+      const atrAvg = atrSum / dernieres12.length;
+
+      // Mouvement violent = mouvement total > 3× ATR moyen sur 8 bougies
+      const moveViolent = Math.abs(moveRecent) > atrAvg * 3;
+
+      debug.method6 = {
+        moveRecent: +moveRecent.toFixed(2),
+        movePct: +movePct.toFixed(2),
+        bullRecent, bearRecent,
+        atrAvg: +atrAvg.toFixed(2),
+        moveViolent
+      };
+
+      // Vote BEAR si chute violente + majorité bougies rouges
+      if (moveRecent < 0 && moveViolent && bearRecent >= 5) {
+        votesBearish++;
+        votes.m6 = 'BEAR';
+      }
+      // Vote BULL si montée violente + majorité bougies vertes
+      else if (moveRecent > 0 && moveViolent && bullRecent >= 5) {
+        votesBullish++;
+        votes.m6 = 'BULL';
+      }
+      else votes.m6 = 'NEUTRAL';
+    }
+  } catch(e) { debug.method6 = { error: e.message }; votes.m6 = 'NEUTRAL'; }
+
   // ─── DÉCISION FINALE ─────────────────────────────────────────────
   // Si choppy ET pas de majorité écrasante → RANGE forcé
   let trend = 'RANGE';
   let confidence = 0;
+  // FIX : on a maintenant 6 méthodes (M1 à M6). Sur 6, on garde le seuil à 3+
+  // mais la confidence max est 6/6. Pour rester compatible avec les checks
+  // "confidence >= 4" existants, on continue à compter sur l'échelle 5.
   if (votesBullish >= 3 && votesBullish > votesBearish && (!isChoppy || votesBullish >= 4)) {
     trend = 'BULLISH';
-    confidence = votesBullish;
+    // Normaliser sur 5 (6→5, 5→5, 4→4, 3→3) pour rester compatible
+    confidence = Math.min(votesBullish, 5);
   } else if (votesBearish >= 3 && votesBearish > votesBullish && (!isChoppy || votesBearish >= 4)) {
     trend = 'BEARISH';
-    confidence = votesBearish;
+    confidence = Math.min(votesBearish, 5);
   } else {
-    confidence = Math.max(votesBullish, votesBearish);
+    confidence = Math.min(Math.max(votesBullish, votesBearish), 5);
   }
 
   return { trend, confidence, votes, votesBullish, votesBearish, debug };
@@ -2851,7 +2914,14 @@ async function verifierProtectionsAvancees(parsed, userId) {
           }
         }
         // Cas 2 : un seul TF contre avec confidence forte (4+/5) → annulé
-        else if ((signalContreH1 && tH1.confidence >= 4) || (signalContreM30 && tM30.confidence >= 4)) {
+        // FIX : aussi annulé si M6 vote contre (mouvement violent récent détecté)
+        const m6ContreH1 = tH1.votes && tH1.votes.m6 && (
+          (isBuy && tH1.votes.m6 === 'BEAR') || (!isBuy && tH1.votes.m6 === 'BULL')
+        );
+        const m6ContreM30 = tM30.votes && tM30.votes.m6 && (
+          (isBuy && tM30.votes.m6 === 'BEAR') || (!isBuy && tM30.votes.m6 === 'BULL')
+        );
+        if ((signalContreH1 && (tH1.confidence >= 4 || m6ContreH1)) || (signalContreM30 && (tM30.confidence >= 4 || m6ContreM30))) {
           if (!mssAlignedAvecSignal) {
             tradeAnnule = true;
             const tf = signalContreH1 ? 'H1' : 'M30';
@@ -6552,7 +6622,8 @@ app.post('/mt5/connect', async (req, res) => {
   // Les plans Free et Starter n'ont pas accès à la connexion MT5
   const userForPlan = await db.findOneAsync({ _id: req.session.userId });
   const planUser = (userForPlan && userForPlan.plan) ? userForPlan.plan.toLowerCase() : 'free';
-  const plansAutorisesMT5 = ['premium', 'elite', 'admin'];
+  // FIX BUG : 'pro' était oublié alors que c'est le nom stocké en DB (voir /admin/payment)
+  const plansAutorisesMT5 = ['pro', 'premium', 'elite', 'admin'];
   if (userForPlan && userForPlan.role !== 'admin' && !plansAutorisesMT5.includes(planUser)) {
     return res.status(403).json({
       error: 'mt5_plan_required',
