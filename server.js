@@ -1872,7 +1872,20 @@ async function gererTpPartiels3Tier({
       for (const a of analysesActives) { if (a.userId) userIdsActifs.add(a.userId); }
     } catch(e) { console.log('[TP-WRAPPER] Erreur filtre actifs:', e.message); }
 
+    const now = Date.now();
     for (const user of users) {
+      // Skip si on a déjà checké ce user dans les 2 dernières minutes
+      const lastCheck = _wrapperCheckCache.get(user._id);
+      if (lastCheck && (now - lastCheck) < WRAPPER_MIN_INTERVAL_MS) {
+        continue;
+      }
+      _wrapperCheckCache.set(user._id, now);
+      // Nettoyer le cache des entrées trop anciennes (>10 min)
+      if (_wrapperCheckCache.size > 50) {
+        for (const [k, v] of _wrapperCheckCache.entries()) {
+          if (now - v > 10 * 60 * 1000) _wrapperCheckCache.delete(k);
+        }
+      }
       let deployedHere = false;
       let account = null;
       try {
@@ -2157,6 +2170,36 @@ async function gererTpPartiels3Tier({
               }
             }
 
+            // ═══ PALIER 0a : MI-CHEMIN TP1 → SL avance à mi-risque (sécurise 50%) ═══
+            // On ne ferme RIEN, on bouge juste le SL pour réduire le risque de moitié
+            // Effet : à mi-chemin TP1, ton risque passe de 1R à 0.5R automatiquement
+            if (!tracking.tp1Done && !tracking.miTp1Done) {
+              const miTp1 = entree + (tp1 - entree) * 0.5; // milieu entre entrée et TP1
+              const miTp1Atteint = isBuy ? prixActuel >= miTp1 : prixActuel <= miTp1;
+              if (miTp1Atteint && tp1 > 0) {
+                // SL → mi-chemin entre entrée et SL actuel (sécurise 50% du risque)
+                const slMiRisque = isBuy
+                  ? entree - (entree - sl) * 0.5  // BUY : SL plus haut (moins de risque)
+                  : entree + (sl - entree) * 0.5; // SELL : SL plus bas
+                try {
+                  await connection.modifyPosition(pos.id, slMiRisque, pos.takeProfit);
+                  console.log(`[MI-TP1] Mi-chemin TP1 atteint @ ${prixActuel.toFixed(2)} → SL → ${slMiRisque.toFixed(2)} (risque divisé par 2)`);
+                  await positionsTrackingDb.updateAsync(
+                    { positionId: pos.id },
+                    { $set: { miTp1Done: true, miTp1Time: new Date(), miTp1Price: prixActuel, slMiRisque } }
+                  );
+                  if (typeof creerNotification === 'function') {
+                    try {
+                      await creerNotification(user._id, 'mi_tp_partiel',
+                        `🎯 Mi-chemin TP1 atteint sur ${pos.symbol}`,
+                        `Prix à mi-chemin entre entrée et TP1. SL avancé à ${slMiRisque.toFixed(2)} → risque divisé par 2. Aucun lot fermé, on garde tout pour TP1/TP2/TP3.`,
+                        { miTp1: prixActuel, nouveauSL: slMiRisque });
+                    } catch(e) {}
+                  }
+                } catch(err) { console.log('[MI-TP1] Erreur modifySL:', err.message); }
+              }
+            }
+
             // ═══ PALIER 1 : TP1 atteint ═══════════════════════════════
             if (!tracking.tp1Done) {
               const tp1Atteint = isBuy ? prixActuel >= tp1 : prixActuel <= tp1;
@@ -2190,6 +2233,36 @@ async function gererTpPartiels3Tier({
                     }
                   } catch(err) { console.log('[TP1] Erreur fermeture:', err.message); continue; }
                 }
+              }
+            }
+
+            // ═══ PALIER 1b : MI-CHEMIN TP2 → SL avance encore (après TP1) ═══
+            // Si TP1 déjà touché et qu'on arrive à mi-chemin TP2 → SL → mi-chemin entre TP1 et TP2
+            // Effet : on lock plus de profit même avant TP2
+            else if (tracking.tp1Done && !tracking.tp2Done && !tracking.miTp2Done && tp2 > 0 && distribution.tp2 > 0) {
+              const miTp2 = tp1 + (tp2 - tp1) * 0.5; // milieu entre TP1 et TP2
+              const miTp2Atteint = isBuy ? prixActuel >= miTp2 : prixActuel <= miTp2;
+              if (miTp2Atteint) {
+                // SL → mi-chemin entre TP1 et entrée (lock 25% du gain TP1)
+                const slMiTp2 = isBuy
+                  ? entree + (tp1 - entree) * 0.25  // BUY : SL au-dessus de BE
+                  : entree - (entree - tp1) * 0.25; // SELL : SL en-dessous de BE
+                try {
+                  await connection.modifyPosition(pos.id, slMiTp2, pos.takeProfit);
+                  console.log(`[MI-TP2] Mi-chemin TP2 atteint @ ${prixActuel.toFixed(2)} → SL → ${slMiTp2.toFixed(2)} (lock 25% gain TP1)`);
+                  await positionsTrackingDb.updateAsync(
+                    { positionId: pos.id },
+                    { $set: { miTp2Done: true, miTp2Time: new Date(), miTp2Price: prixActuel, slMiTp2 } }
+                  );
+                  if (typeof creerNotification === 'function') {
+                    try {
+                      await creerNotification(user._id, 'mi_tp_partiel',
+                        `🎯 Mi-chemin TP2 atteint sur ${pos.symbol}`,
+                        `Prix à mi-chemin entre TP1 et TP2. SL avancé à ${slMiTp2.toFixed(2)} → 25% du gain TP1 verrouillé.`,
+                        { miTp2: prixActuel, nouveauSL: slMiTp2 });
+                    } catch(e) {}
+                  }
+                } catch(err) { console.log('[MI-TP2] Erreur modifySL:', err.message); }
               }
             }
 
@@ -3520,6 +3593,7 @@ async function enregistrerSetupGagnant(analyse) {
     await setupsGagnantsDb.insertAsync({
       _id: uuidv4(),
       userId: analyse.userId,
+      accountId: analyse.accountId || null,
       instrument: analyse.instrument || 'XAUUSD',
       direction: analyse.decision,
       session,
@@ -3542,9 +3616,11 @@ async function enregistrerSetupGagnant(analyse) {
 }
 
 async function getBlocSetupsGagnants(userId, instrument, accountId) {
-  // Si accountId fourni, on filtre les setups gagnants pour ce compte uniquement
+  // FIX multi-comptes : filtre par accountId si fourni
+  const setupQuery = { userId, instrument: instrument || 'XAUUSD' };
+  if (accountId) setupQuery.accountId = accountId;
   try {
-    const setups = await setupsGagnantsDb.findAsync({ userId, instrument: instrument || 'XAUUSD' });
+    const setups = await setupsGagnantsDb.findAsync(setupQuery);
     if (!setups.length) return '';
     setups.sort((a, b) => b.profit - a.profit);
     const top = setups.slice(0, 5);
@@ -3581,10 +3657,12 @@ async function getBlocSetupsGagnants(userId, instrument, accountId) {
 // ═══════════════════════════════════════════════════════════════════
 
 async function getLeconsPourPrompt(userId, accountId) {
-  // Si accountId fourni, on filtre les leçons pour ce compte uniquement
+  // FIX multi-comptes : si accountId fourni, on filtre les leçons pour ce compte
   // Sinon on charge tout (rétrocompat)
+  const baseQuery = { userId };
+  if (accountId) baseQuery.accountId = accountId;
   try {
-    const lecons = await leconsDb.findAsync({ userId });
+    const lecons = await leconsDb.findAsync(baseQuery);
     lecons.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const top = lecons.slice(0, 10);
     if (!top.length) return '';
@@ -3603,44 +3681,53 @@ async function getLeconsPourPrompt(userId, accountId) {
 }
 
 async function genererPostMortemAuto(analyse, userId) {
-  if (!metaApi) return null;
   try {
     const user = await db.findOneAsync({ _id: userId });
-    if (!user || !user.mt5 || !user.mt5.metaApiAccountId) return null;
+    if (!user) return null;
 
     // GATING : post-mortem auto uniquement Pro/Elite
     if (!hasPremiumAccess(user)) return null;
 
-    const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
-    if (account.state !== 'DEPLOYED') return null;
-    const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized();
-
-    // Récupérer les 30 bougies M5 autour du moment du SL touché
+    // FIX BUG : la leçon doit être générée MÊME sans MT5 connecté ou deployed
+    // On utilise les données déjà présentes dans l'analyse (pas besoin de re-fetch bougies)
     const symbole = (analyse.instrument || 'XAUUSD').toUpperCase();
     const tempsCloture = new Date(analyse.tradeClotureTemps || analyse.createdAt);
-    const debut = new Date(tempsCloture.getTime() - 30 * 5 * 60 * 1000); // 2h30 avant
 
+    // Tentative de récupération bougies UNIQUEMENT si MT5 connecté ET deployed (optionnel)
     let candles = [];
-    const resolvedPM = await resolveSymbolForUser(connection, symbole, user.mt5.server);
-    if (resolvedPM) {
-      try { candles = await connection.getHistoricalCandles(resolvedPM.symbol, '5m', debut, 30) || []; } catch(e) {}
+    let obs = [], fvgs = [];
+    if (metaApi && user.mt5 && user.mt5.metaApiAccountId) {
+      try {
+        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+        if (account.state === 'DEPLOYED') {
+          const connection = account.getRPCConnection();
+          await connection.connect();
+          await connection.waitSynchronized();
+          const debut = new Date(tempsCloture.getTime() - 30 * 5 * 60 * 1000);
+          const resolvedPM = await resolveSymbolForUser(connection, symbole, user.mt5.server);
+          if (resolvedPM) {
+            try { candles = await connection.getHistoricalCandles(resolvedPM.symbol, '5m', debut, 30) || []; } catch(e) {}
+          }
+        }
+      } catch(e) { /* on continue sans les bougies */ }
     }
-    if (!candles.length) return null;
 
-    // Détecter OB/FVG sur ces bougies pour donner du contexte à l'IA
-    const obs = detecterOrderBlocks(candles);
-    const fvgs = detecterFairValueGaps(candles);
+    // Détecter OB/FVG SI on a les bougies, sinon on s'en passe
+    if (candles.length > 0) {
+      try { obs = detecterOrderBlocks(candles); } catch(e) {}
+      try { fvgs = detecterFairValueGaps(candles); } catch(e) {}
+    }
 
     // Construction du résumé textuel pour l'IA
-    const dernieresBougies = candles.slice(-10).map(c => ({
+    // Si bougies dispo, on les inclut. Sinon on se base juste sur l'analyse.
+    const dernieresBougies = candles.length > 0 ? candles.slice(-10).map(c => ({
       time: new Date(c.time).toISOString(),
       o: c.open.toFixed(2),
       h: c.high.toFixed(2),
       l: c.low.toFixed(2),
       c: c.close.toFixed(2)
-    }));
+    })) : [];
+    const bougiesDispoText = candles.length > 0 ? `\nDERNIÈRES BOUGIES M5 AVANT SL :\n${JSON.stringify(dernieresBougies, null, 2)}\n` : '\n(Bougies non disponibles — analyse rétrospective basée sur les paramètres du trade)\n';
 
     const promptText = `Tu es un trader expert ICT. Analyse pourquoi ce trade a touché le SL.
 
@@ -3656,13 +3743,11 @@ CONTEXTE DU TRADE PERDANT :
 - Date analyse : ${new Date(analyse.createdAt).toISOString()}
 - Date clôture : ${tempsCloture.toISOString()}
 
-DONNÉES OBJECTIVES DU MARCHÉ AU MOMENT DU SL :
-- 10 dernières bougies M5 avant le SL :
-${dernieresBougies.map(b => `  ${b.time}: O=${b.o} H=${b.h} L=${b.l} C=${b.c}`).join('\n')}
-
-- OB bullish détectés : ${obs.bullish.length} (zones: ${obs.bullish.map(o => o.zone.low.toFixed(2) + '-' + o.zone.high.toFixed(2)).join(', ') || 'aucun'})
-- OB bearish détectés : ${obs.bearish.length} (zones: ${obs.bearish.map(o => o.zone.low.toFixed(2) + '-' + o.zone.high.toFixed(2)).join(', ') || 'aucun'})
-- FVG bullish : ${fvgs.bullish.length}, FVG bearish : ${fvgs.bearish.length}
+DONNÉES OBJECTIVES DU MARCHÉ :
+${bougiesDispoText}
+- OB bullish détectés : ${obs.bullish ? obs.bullish.length : 0} (zones: ${obs.bullish ? obs.bullish.map(o => o.zone.low.toFixed(2) + '-' + o.zone.high.toFixed(2)).join(', ') || 'aucun' : 'N/A'})
+- OB bearish détectés : ${obs.bearish ? obs.bearish.length : 0} (zones: ${obs.bearish ? obs.bearish.map(o => o.zone.low.toFixed(2) + '-' + o.zone.high.toFixed(2)).join(', ') || 'aucun' : 'N/A'})
+- FVG bullish : ${fvgs.bullish ? fvgs.bullish.length : 0}, FVG bearish : ${fvgs.bearish ? fvgs.bearish.length : 0}
 
 MISSION :
 1. Identifie CE QUI A FOIRÉ (qu'est-ce qui a fait que le SL a été touché)
@@ -3692,6 +3777,7 @@ Réponds UNIQUEMENT en JSON valide :
     await leconsDb.insertAsync({
       _id: leconId,
       userId,
+      accountId: analyse.accountId || null,
       analyseId: analyse._id,
       instrument: analyse.instrument,
       direction: analyse.decision,
@@ -4083,6 +4169,10 @@ async function getFacteurRisque(userId, capital) {
 //   - SL → lock 50% du gain TP1 après TP2
 //   - Trailing structurel sur swings M5 pour le runner
 // Wrapper TP partiels : 1 tick toutes les 5 min (économie MetaApi)
+// Cache : userId → dernier check timestamp (évite double-check si plusieurs triggers proches)
+const _wrapperCheckCache = new Map();
+const WRAPPER_MIN_INTERVAL_MS = 2 * 60 * 1000; // 2 min minimum entre 2 checks du même user
+
 async function gererTpPartielsWrapper() {
   await gererTpPartiels3Tier({
     metaApi, db, analysesDb, positionsTrackingDb,
@@ -4441,6 +4531,8 @@ app.post('/login', async (req, res) => {
     }
     req.session.userId = user._id;
     req.session.userRole = user.role;
+    // FIX multi-comptes : mémoriser le compte MT5 actif en session
+    req.session.userMT5AccountId = user.activeMT5AccountId || null;
     res.json({ success: true, redirect: user.role === 'admin' ? '/admin.html' : '/' });
   } catch(e) { res.json({ error: 'Erreur serveur: ' + e.message }); }
 });
@@ -4643,6 +4735,7 @@ Réponds UNIQUEMENT en JSON :
     await leconsDb.insertAsync({
       _id: leconId,
       userId: req.session.userId,
+      accountId: analyse.accountId || req.session.userMT5AccountId || null,
       analyseId: analyse._id,
       instrument: analyse.instrument,
       direction: analyse.decision,
@@ -4934,10 +5027,10 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     }
 
     // 📚 Leçons des trades perdants précédents
-    const blocLecons = await getLeconsPourPrompt(req.session.userId);
+    const blocLecons = await getLeconsPourPrompt(req.session.userId, req.session.userMT5AccountId);
 
     // 🏆 Setups gagnants précédents (patterns à reproduire)
-    const blocSetupsGagnants = await getBlocSetupsGagnants(req.session.userId, req.body.instrument || 'XAUUSD');
+    const blocSetupsGagnants = await getBlocSetupsGagnants(req.session.userId, req.body.instrument || 'XAUUSD', req.session.userMT5AccountId);
 
     // 🧠 PATTERN D'ERREURS PERSONNALISÉ (Pro/Elite uniquement)
     let blocPatternErreurs = '';
@@ -5627,6 +5720,7 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     await analysesDb.insertAsync({
       _id: analysisId,
       userId: req.session.userId,
+      accountId: req.session.userMT5AccountId || null, // FIX multi-comptes : qui a tradé
       decision: parsed.decision,
       entry: parsed.entree,
       entree: parsed.entree,
@@ -6970,6 +7064,9 @@ app.post('/mt5/accounts/switch', async (req, res) => {
       { _id: req.session.userId },
       { $set: { activeMT5AccountId: accountId, mt5: target } }
     );
+    // FIX multi-comptes : mettre à jour la session pour que les futures analyses
+    // soient attribuées au bon compte
+    req.session.userMT5AccountId = accountId;
     console.log('[MT5-SWITCH] User ' + req.session.userId + ' → compte ' + target.label);
     res.json({ success: true, account: target, broker: detectBroker(target.server) });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -7373,6 +7470,8 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
             tp1Volume: 0,
             tp2Volume: 0,
             distribution: distribution,
+            miTp1Done: false,
+            miTp2Done: false,
             tp1Done: false,
             tp2Done: false,
             tp3Done: false,
@@ -7391,13 +7490,13 @@ app.post('/mt5/place-order', checkPremium, async (req, res) => {
     await account.undeploy();
     trackUndeploy(account.id);
 
-    // Déclenchements multiples du wrapper TP pour rattraper les TP1 rapides
-    // 10s, 30s, 60s, 120s — pour les marchés très volatils
-    [10, 30, 60, 120].forEach(delaiSec => {
-      setTimeout(() => {
-        gererTpPartielsWrapper().catch(e => console.log('[TP-IMMEDIAT-' + delaiSec + 's]', e.message));
-      }, delaiSec * 1000);
-    });
+    // FIX COÛT : 4 déclenchements c'est trop, on en garde QUE 1 à 60s
+    // Le tracking est déjà créé immédiatement avec orderId et positionId,
+    // donc le prochain cycle wrapper (toutes les 10min) le retrouvera.
+    // Un seul trigger à 60s pour rattraper les TP1 très rapides (rare sur XAU).
+    setTimeout(() => {
+      gererTpPartielsWrapper().catch(e => console.log('[TP-IMMEDIAT-60s]', e.message));
+    }, 60 * 1000);
 
     res.json({
       success: true,

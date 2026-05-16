@@ -3128,6 +3128,19 @@ async function markAllRead() {
 
 // Polling notifications toutes les 60s pour update le badge
 loadNotifications();
+
+// FIX : Polling auto des notifs toutes les 30s pour que le client soit averti
+// en TEMPS RÉEL des TP partiels, BE, etc. sans recharger la page
+let _notifPollingInterval = setInterval(loadNotifications, 30 * 1000);
+// Pause auto si onglet inactif (économie batterie/data mobile)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearInterval(_notifPollingInterval);
+  } else {
+    loadNotifications(); // refresh immédiat au retour
+    _notifPollingInterval = setInterval(loadNotifications, 30 * 1000);
+  }
+});
 setInterval(loadNotifications, 60000);
 
 // Fermer panneau si clic ailleurs
