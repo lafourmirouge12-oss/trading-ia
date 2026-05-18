@@ -4201,7 +4201,7 @@ const _wrapperCheckCache = new Map();
 const WRAPPER_MIN_INTERVAL_MS = 2 * 60 * 1000; // 2 min minimum entre 2 checks du même user
 // FIX ÉCO : cache erreurs récentes pour éviter de re-tenter sans cesse les comptes qui échouent
 const _wrapperErrorCache = new Map(); // userId → timestamp dernière erreur
-const ERROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 min de cooldown après une erreur de connexion
+const ERROR_COOLDOWN_MS = 15 * 60 * 1000; // FIX : 15 min de cooldown (au lieu de 5) pour réduire les Failed to subscribe
 
 async function gererTpPartielsWrapper() {
   await gererTpPartiels3Tier({
@@ -4274,7 +4274,10 @@ async function surveillerTradesEtApprendre() {
         await connection.connect();
         await connection.waitSynchronized();
 
-        const deals = await connection.getDealsByTimeRange(dateLimit, new Date());
+        // FIX BUG : selon SDK MetaApi, getDealsByTimeRange retourne soit un array,
+        // soit un objet { deals: [...] }. On normalise pour éviter "deals.filter is not a function"
+        let dealsRaw = await connection.getDealsByTimeRange(dateLimit, new Date());
+        const deals = Array.isArray(dealsRaw) ? dealsRaw : (dealsRaw && Array.isArray(dealsRaw.deals) ? dealsRaw.deals : []);
 
         for (const analyse of parUser[userId]) {
           const symbAnalyse = (analyse.instrument || 'XAUUSD').toUpperCase();
@@ -5373,8 +5376,9 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     const _tStart = Date.now();
     console.log('[ANALYZE-PERF] Appel Claude début... (images: ' + allFiles.length + ', prompt size: ' + JSON.stringify(content).length + ' chars)');
 
+    // FIX VITESSE : Haiku 4.5 = 3-4x plus rapide que Sonnet, parfait pour ICT/SMC
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 1500,
       system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
