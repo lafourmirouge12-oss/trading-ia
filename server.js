@@ -5010,6 +5010,7 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
       const file = files[tfKey]?.[0];
       if (file) {
         let imageData = fs.readFileSync(file.path);
+        let mimeTypeFinal = file.mimetype || 'image/png'; // type réel par défaut
 
         // Si > 500KB et sharp dispo, on redimensionne à 1280px max
         if (sharp && imageData.length > 500 * 1024) {
@@ -5019,16 +5020,18 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
               .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
               .jpeg({ quality: 85, mozjpeg: true })
               .toBuffer();
+            mimeTypeFinal = 'image/jpeg'; // seulement si compression réussie
             console.log('[ANALYZE-PERF] Image ' + tfKey + ' compressée en ' + (Date.now()-tStart) + 'ms (taille finale: ' + Math.round(imageData.length/1024) + 'KB)');
           } catch(e) {
             console.log('[ANALYZE-PERF] Compression échouée pour ' + tfKey + ': ' + e.message);
             imageData = fs.readFileSync(file.path);
+            // mimeTypeFinal reste celui du fichier original
           }
         }
 
         content.push({
           type: 'image',
-          source: { type: 'base64', media_type: sharp && imageData.length > 0 ? 'image/jpeg' : (file.mimetype || 'image/png'), data: imageData.toString('base64') }
+          source: { type: 'base64', media_type: mimeTypeFinal, data: imageData.toString('base64') }
         });
         content.push({ type: 'text', text: `[Graphique ${tfNames[tfKey]}]` });
       }
