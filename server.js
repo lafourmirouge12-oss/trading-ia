@@ -5360,12 +5360,60 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
           parsed = JSON.parse(clean);
         } catch(e1) {
           // Strategie 4 : reparation des erreurs courantes
-          const fixed = clean
-            .replace(/,\s*}/g, '}')           // trailing comma
-            .replace(/,\s*]/g, ']')
-            .replace(/:\s*undefined/g, ':null') // undefined → null
+          let fixed = clean
+            .replace(/,\s*}/g, '}')                     // trailing comma object
+            .replace(/,\s*]/g, ']')                     // trailing comma array
+            .replace(/:\s*undefined/g, ':null')         // undefined → null
             .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":'); // cles sans guillemets
-          parsed = JSON.parse(fixed);
+
+          try {
+            parsed = JSON.parse(fixed);
+          } catch(e2) {
+            // Strategie 5 : reparer les virgules MANQUANTES dans les tableaux
+            // Pattern : "valeur"\n  "valeur" ou "valeur" "valeur" → ajout de virgule
+            fixed = fixed
+              .replace(/"\s*\n\s*"/g, '",\n"')        // strings sur lignes différentes
+              .replace(/"\s+"/g, '","')                 // strings collées avec espace
+              .replace(/}\s*\n\s*{/g, '},\n{')        // objets sur lignes différentes
+              .replace(/]\s*\n\s*\[/g, '],\n[')      // arrays sur lignes différentes
+              .replace(/(\d)\s*\n\s*"/g, '$1,\n"')   // nombre suivi de string
+              .replace(/(\d)\s+(\d)/g, '$1,$2')       // 2 nombres collés
+              .replace(/}\s+"/g, '},"')                 // } suivi de string
+              .replace(/]\s+"/g, '],"');                // ] suivi de string
+
+            try {
+              parsed = JSON.parse(fixed);
+              console.log('[PARSING] JSON repare via strategie 5 (virgules manquantes)');
+            } catch(e3) {
+              // Strategie 6 : extraction manuelle des champs critiques au regex
+              // Si tout echoue, on construit un objet minimal pour pas tout casser
+              console.log('[PARSING] Toutes strategies echouees. Extraction au regex de secours.');
+              parsed = {};
+              const extractField = (name, isNumber = false) => {
+                const re = new RegExp('"' + name + '"\\s*:\\s*' + (isNumber ? '([\\d.\\-]+)' : '"([^"]*)"'));
+                const m = clean.match(re);
+                if (m) parsed[name] = isNumber ? parseFloat(m[1]) : m[1];
+              };
+              extractField('decision');
+              extractField('entree', true);
+              extractField('sl', true);
+              extractField('tp', true);
+              extractField('tp1', true);
+              extractField('tp2', true);
+              extractField('tp3', true);
+              extractField('score', true);
+              extractField('confidence', true);
+              extractField('justification');
+              extractField('lots', true);
+              extractField('contexte');
+              // Si on n'a pas pu extraire au moins decision + entree, on relance l'erreur
+              if (!parsed.decision || (parsed.decision !== 'NE PAS TRADER' && (!parsed.entree || !parsed.sl))) {
+                throw new Error('Extraction regex incomplete - JSON IA trop corrompu');
+              }
+              parsed.decision = parsed.decision || 'NE PAS TRADER';
+              parsed.justification = parsed.justification || 'Reponse IA partiellement corrompue, donnees extraites au regex';
+            }
+          }
         }
       }
     } catch(e) {
