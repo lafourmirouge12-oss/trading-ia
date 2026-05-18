@@ -1879,6 +1879,11 @@ async function gererTpPartiels3Tier({
       if (lastCheck && (now - lastCheck) < WRAPPER_MIN_INTERVAL_MS) {
         continue;
       }
+      // FIX ÉCO : skip si erreur récente sur ce compte (cooldown 5 min)
+      const lastError = _wrapperErrorCache.get(user._id);
+      if (lastError && (now - lastError) < ERROR_COOLDOWN_MS) {
+        continue;
+      }
       _wrapperCheckCache.set(user._id, now);
       // Nettoyer le cache des entrées trop anciennes (>10 min)
       if (_wrapperCheckCache.size > 50) {
@@ -1950,16 +1955,38 @@ async function gererTpPartiels3Tier({
             await account.deploy();
             if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
             deployedHere = true;
-            await account.waitConnected();
+            // FIX TIMEOUT : waitConnected avec limite 30s pour éviter les hangs
+            await Promise.race([
+              account.waitConnected(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 30s')), 30000))
+            ]);
           } catch(deployErr) {
             console.log('[TP-WRAPPER] Deploy auto échoué pour ' + user._id + ': ' + deployErr.message);
+            // FIX ÉCO : undeploy en cas d'échec pour pas laisser le compte facturé
+            if (deployedHere) {
+              try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+            }
             continue;
           }
         }
 
         const connection = account.getRPCConnection();
-        await connection.connect();
-        await connection.waitSynchronized();
+        // FIX TIMEOUT : connect + sync avec limite 30s
+        try {
+          await Promise.race([
+            (async () => { await connection.connect(); await connection.waitSynchronized(); })(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout 30s')), 30000))
+          ]);
+        } catch(syncErr) {
+          console.log('[TP-WRAPPER] Sync timeout user ' + user._id + ': ' + syncErr.message);
+          // FIX ÉCO : marquer cet user en cooldown 5 min
+          _wrapperErrorCache.set(user._id, Date.now());
+          // Undeploy si on a déployé ici (pas la peine de garder un compte non sync)
+          if (deployedHere) {
+            try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+          }
+          continue;
+        }
 
         const positions = await connection.getPositions();
         if (!positions || !positions.length) {
@@ -4172,6 +4199,9 @@ async function getFacteurRisque(userId, capital) {
 // Cache : userId → dernier check timestamp (évite double-check si plusieurs triggers proches)
 const _wrapperCheckCache = new Map();
 const WRAPPER_MIN_INTERVAL_MS = 2 * 60 * 1000; // 2 min minimum entre 2 checks du même user
+// FIX ÉCO : cache erreurs récentes pour éviter de re-tenter sans cesse les comptes qui échouent
+const _wrapperErrorCache = new Map(); // userId → timestamp dernière erreur
+const ERROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 min de cooldown après une erreur de connexion
 
 async function gererTpPartielsWrapper() {
   await gererTpPartiels3Tier({
@@ -4971,13 +5001,34 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
     const tfNames = { imageH1: 'H1', imageM30: 'M30', imageM15: 'M15', imageM5: 'M5', imageM1: 'M1' };
     const tfOrder = ['imageH1', 'imageM30', 'imageM15', 'imageM5', 'imageM1'];
 
+    // FIX PERFS : compresser les images > 500KB pour accélérer Claude
+    // Claude analyse plus vite des images de taille modérée
+    let sharp;
+    try { sharp = require('sharp'); } catch(e) { sharp = null; }
+
     for (const tfKey of tfOrder) {
       const file = files[tfKey]?.[0];
       if (file) {
-        const imageData = fs.readFileSync(file.path);
+        let imageData = fs.readFileSync(file.path);
+
+        // Si > 500KB et sharp dispo, on redimensionne à 1280px max
+        if (sharp && imageData.length > 500 * 1024) {
+          try {
+            const tStart = Date.now();
+            imageData = await sharp(imageData)
+              .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+              .jpeg({ quality: 85, mozjpeg: true })
+              .toBuffer();
+            console.log('[ANALYZE-PERF] Image ' + tfKey + ' compressée en ' + (Date.now()-tStart) + 'ms (taille finale: ' + Math.round(imageData.length/1024) + 'KB)');
+          } catch(e) {
+            console.log('[ANALYZE-PERF] Compression échouée pour ' + tfKey + ': ' + e.message);
+            imageData = fs.readFileSync(file.path);
+          }
+        }
+
         content.push({
           type: 'image',
-          source: { type: 'base64', media_type: file.mimetype || 'image/png', data: imageData.toString('base64') }
+          source: { type: 'base64', media_type: sharp && imageData.length > 0 ? 'image/jpeg' : (file.mimetype || 'image/png'), data: imageData.toString('base64') }
         });
         content.push({ type: 'text', text: `[Graphique ${tfNames[tfKey]}]` });
       }
@@ -5315,12 +5366,20 @@ Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backti
 Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont informatifs pour aider le trader à comprendre.`
     });
 
+    // FIX PERFS : logger le temps pour traquer la lenteur
+    const _tStart = Date.now();
+    console.log('[ANALYZE-PERF] Appel Claude début... (images: ' + allFiles.length + ', prompt size: ' + JSON.stringify(content).length + ' chars)');
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2500,
+      max_tokens: 1500,
       system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
+
+    const _tEnd = Date.now();
+    const _tDur = ((_tEnd - _tStart) / 1000).toFixed(1);
+    console.log('[ANALYZE-PERF] Claude répondu en ' + _tDur + 's (tokens: ' + (response.usage?.output_tokens || '?') + '/2500)');
 
     allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
 
