@@ -4434,7 +4434,35 @@ async function backupDatabases() {
 setTimeout(backupDatabases, 5000);
 setInterval(backupDatabases, 24 * 60 * 60 * 1000);
 
-app.get('/', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
+// FIX : si visiteur PAS connecté → landing commerciale, sinon → app principale
+app.get('/', (req, res) => {
+  if (req.session && req.session.userId) {
+    return res.sendFile(path.join(__dirname, 'public/index.html'));
+  }
+  // Visiteur non connecté → landing commerciale
+  const landingPath = path.join(__dirname, 'public/landing.html');
+  if (fs.existsSync(landingPath)) {
+    return res.sendFile(landingPath);
+  }
+  // Fallback si landing.html n'existe pas → redirection login
+  return res.redirect('/login.html');
+});
+app.get('/app', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
+app.get('/landing.html', (req, res) => {
+  // FIX : si user déjà connecté → direct app, pas la landing commerciale
+  if (req.session && req.session.userId) {
+    return res.redirect('/app');
+  }
+  res.sendFile(path.join(__dirname, 'public/landing.html'));
+});
+
+// FIX : endpoint léger pour que la landing puisse vérifier en JS si l'user est connecté
+app.get('/api/me/session-status', (req, res) => {
+  res.json({
+    connected: !!(req.session && req.session.userId),
+    hasSubscription: !!(req.session && req.session.userId)
+  });
+});
 app.get('/index.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/abonnement.html', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/abonnement.html')));
 app.get('/admin.html', checkAuth, (req, res) => {
