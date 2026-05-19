@@ -290,7 +290,7 @@ const SYMBOL_ALIASES = {
   'EURJPY': ['EURJPY', 'EUR/JPY', 'EURJPYm'],
   'GBPJPY': ['GBPJPY', 'GBP/JPY', 'GBPJPYm'],
   'EURGBP': ['EURGBP', 'EUR/GBP', 'EURGBPm'],
-  'NAS100': ['NAS100', 'USTEC', 'US100', 'NDX100', 'NAS100.cash', 'USTECm', 'USNAS100'],
+  'NAS100': ['NAS100', 'USTEC', 'US100', 'NDX100', 'NAS100.cash', 'USTECm', 'USNAS100', 'NDAQ'],
   'US30':   ['US30', 'DJ30', 'WS30', 'DJ.cash', 'US30.cash', 'DJI30', 'USWS30'],
   'US500':  ['US500', 'SPX500', 'SP500', 'SPX', 'US500.cash', 'USSPX500'],
   'GER40':  ['GER40', 'DAX40', 'DE40', 'GER30', 'DAX.cash', 'DEU40'],
@@ -325,40 +325,62 @@ function getSymbolCandidates(baseSymbol) {
 }
 
 async function resolveSymbolForUser(connection, baseSymbol, serverName) {
-  // FIX : on garde aussi la casse originale pour les brokers qui ont "Gold" (RaiseFX par ex)
   const symRaw = (baseSymbol || '').trim();
   const sym = symRaw.toUpperCase();
   const sn = (serverName || '').toUpperCase();
+
+  // ── FIX RAISEGLOBAL : suffixes prioritaires pour RAISE* + LIVE ──────────
+  // RaiseGlobal-Live utilise des symboles sans suffixe ET avec casse mixte (ex: "Gold")
+  // On les place EN PREMIER pour éviter 20 essais inutiles avant de tomber dessus.
   let suffixes;
-  if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  if (sn.includes('RAISE') || sn.includes('RAISEGLOBAL') || sn.includes('RAISEFX')) {
+    suffixes = ['', '-Raw', '-Pro', '-VIP', '-STD', '-ECN', '.a', '_m', '.cash'];
+  } else if (sn.includes('STD'))  suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else if (sn.includes('VIP'))    suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else if (sn.includes('ECN'))    suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
   else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
 
-  // 1. Essayer le symbole demandé avec ses suffixes serveur
-  for (const sfx of suffixes) {
+  // Helper : teste un candidat et retourne le résultat si valide
+  async function tryPrice(candidate) {
     try {
-      const candidate = sym + sfx;
       const tick = await connection.getSymbolPrice(candidate);
-      if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
+      if (tick && tick.bid > 0 && tick.ask > 0) {
         return { symbol: candidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
       }
     } catch(e) {}
+    return null;
   }
 
-  // 2. Si rien trouvé, essayer les alias multi-broker (ex: GOLD au lieu de XAUUSD)
-  const candidates = getSymbolCandidates(sym);
+  // 1. Essayer le symbole demandé (majuscules) avec ses suffixes
+  for (const sfx of suffixes) {
+    const r = await tryPrice(sym + sfx);
+    if (r) return r;
+  }
+
+  // 2. Essayer tous les alias — EN CONSERVANT LA CASSE ORIGINALE DE L'ALIAS
+  //    C'est ici que "Gold" (casse mixte) est testé — avant on testait seulement GOLD
+  const candidates = getSymbolCandidates(sym); // retourne ['XAUUSD','GOLD','Gold','XAU',...]
   for (const cand of candidates) {
-    if (cand === sym) continue; // déjà testé
+    if (cand.toUpperCase() === sym) continue; // déjà testé dans l'étape 1
     for (const sfx of suffixes) {
-      try {
-        const fullCandidate = cand + sfx;
-        const tick = await connection.getSymbolPrice(fullCandidate);
-        if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
-          console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + fullCandidate);
-          return { symbol: fullCandidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
-        }
-      } catch(e) {}
+      // Test avec la casse ORIGINALE de l'alias (ex: 'Gold', pas 'GOLD')
+      const r = await tryPrice(cand + sfx);
+      if (r) {
+        console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + (cand + sfx) + ' (serveur ' + sn + ')');
+        return r;
+      }
+    }
+  }
+
+  // 3. Dernier recours : essayer "Gold", "Silver" etc. en casse naturelle sans suffixe
+  //    (pour les brokers exotiques qui utilisent des noms anglais simples)
+  const naturalNames = { XAUUSD: ['Gold', 'GOLD', 'gold'], XAGUSD: ['Silver', 'SILVER'], XPTUSD: ['Platinum'] };
+  const naturals = naturalNames[sym] || [];
+  for (const name of naturals) {
+    const r = await tryPrice(name);
+    if (r) {
+      console.log('[SYMBOL-RESOLVE] Nom naturel trouvé : ' + sym + ' → ' + name + ' (serveur ' + sn + ')');
+      return r;
     }
   }
 
@@ -2619,16 +2641,35 @@ async function fetchAllMarketData(userId, symbole) {
         await account.deploy();
         if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
         deployedHere = true;
-        await account.waitConnected();
+        // ── FIX TIMEOUT : limite 40s pour éviter les hangs RaiseGlobal/broker lent ──
+        await Promise.race([
+          account.waitConnected(),
+          new Promise((_, r) => setTimeout(() => r(new Error('waitConnected timeout 40s')), 40000))
+        ]);
       } catch(deployErr) {
         console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
+        if (deployedHere) {
+          try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+        }
         return null;
       }
     }
 
     const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized();
+    // ── FIX TIMEOUT : sync avec limite 40s ──
+    try {
+      await connection.connect();
+      await Promise.race([
+        connection.waitSynchronized(),
+        new Promise((_, r) => setTimeout(() => r(new Error('waitSynchronized timeout 40s')), 40000))
+      ]);
+    } catch(syncErr) {
+      console.log('[FETCH-MARKET] Sync timeout pour ' + userId + ' : ' + syncErr.message);
+      if (deployedHere) {
+        try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+      }
+      return null;
+    }
 
     // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
     const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
@@ -4274,10 +4315,24 @@ async function surveillerTradesEtApprendre() {
         await connection.connect();
         await connection.waitSynchronized();
 
-        // FIX BUG : selon SDK MetaApi, getDealsByTimeRange retourne soit un array,
-        // soit un objet { deals: [...] }. On normalise pour éviter "deals.filter is not a function"
-        let dealsRaw = await connection.getDealsByTimeRange(dateLimit, new Date());
-        const deals = Array.isArray(dealsRaw) ? dealsRaw : (dealsRaw && Array.isArray(dealsRaw.deals) ? dealsRaw.deals : []);
+        // FIX BUG : getDealsByTimeRange peut retourner :
+        //   - un Array directement
+        //   - { deals: [...] }
+        //   - { data: [...] }
+        //   - { items: [...] }
+        //   - null / undefined
+        // On normalise tout pour éviter "(deals || []).filter is not a function"
+        let dealsRaw;
+        try { dealsRaw = await connection.getDealsByTimeRange(dateLimit, new Date()); } catch(e) { dealsRaw = []; }
+        let deals = [];
+        if (Array.isArray(dealsRaw)) {
+          deals = dealsRaw;
+        } else if (dealsRaw && typeof dealsRaw === 'object') {
+          // Cherche le premier champ qui est un Array
+          const arrField = ['deals', 'data', 'items', 'history'].find(k => Array.isArray(dealsRaw[k]));
+          deals = arrField ? dealsRaw[arrField] : [];
+        }
+        console.log('[APPRENTISSAGE] ' + deals.length + ' deal(s) récupérés pour userId=' + userId);
 
         for (const analyse of parUser[userId]) {
           const symbAnalyse = (analyse.instrument || 'XAUUSD').toUpperCase();
