@@ -290,7 +290,7 @@ const SYMBOL_ALIASES = {
   'EURJPY': ['EURJPY', 'EUR/JPY', 'EURJPYm'],
   'GBPJPY': ['GBPJPY', 'GBP/JPY', 'GBPJPYm'],
   'EURGBP': ['EURGBP', 'EUR/GBP', 'EURGBPm'],
-  'NAS100': ['NAS100', 'USTEC', 'US100', 'NDX100', 'NAS100.cash', 'USTECm', 'USNAS100', 'NDAQ'],
+  'NAS100': ['NAS100', 'USTEC', 'US100', 'NDX100', 'NAS100.cash', 'USTECm', 'USNAS100'],
   'US30':   ['US30', 'DJ30', 'WS30', 'DJ.cash', 'US30.cash', 'DJI30', 'USWS30'],
   'US500':  ['US500', 'SPX500', 'SP500', 'SPX', 'US500.cash', 'USSPX500'],
   'GER40':  ['GER40', 'DAX40', 'DE40', 'GER30', 'DAX.cash', 'DEU40'],
@@ -325,62 +325,40 @@ function getSymbolCandidates(baseSymbol) {
 }
 
 async function resolveSymbolForUser(connection, baseSymbol, serverName) {
+  // FIX : on garde aussi la casse originale pour les brokers qui ont "Gold" (RaiseFX par ex)
   const symRaw = (baseSymbol || '').trim();
   const sym = symRaw.toUpperCase();
   const sn = (serverName || '').toUpperCase();
-
-  // ── FIX RAISEGLOBAL : suffixes prioritaires pour RAISE* + LIVE ──────────
-  // RaiseGlobal-Live utilise des symboles sans suffixe ET avec casse mixte (ex: "Gold")
-  // On les place EN PREMIER pour éviter 20 essais inutiles avant de tomber dessus.
   let suffixes;
-  if (sn.includes('RAISE') || sn.includes('RAISEGLOBAL') || sn.includes('RAISEFX')) {
-    suffixes = ['', '-Raw', '-Pro', '-VIP', '-STD', '-ECN', '.a', '_m', '.cash'];
-  } else if (sn.includes('STD'))  suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else if (sn.includes('VIP'))    suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else if (sn.includes('ECN'))    suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
   else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
 
-  // Helper : teste un candidat et retourne le résultat si valide
-  async function tryPrice(candidate) {
+  // 1. Essayer le symbole demandé avec ses suffixes serveur
+  for (const sfx of suffixes) {
     try {
+      const candidate = sym + sfx;
       const tick = await connection.getSymbolPrice(candidate);
-      if (tick && tick.bid > 0 && tick.ask > 0) {
+      if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
         return { symbol: candidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
       }
     } catch(e) {}
-    return null;
   }
 
-  // 1. Essayer le symbole demandé (majuscules) avec ses suffixes
-  for (const sfx of suffixes) {
-    const r = await tryPrice(sym + sfx);
-    if (r) return r;
-  }
-
-  // 2. Essayer tous les alias — EN CONSERVANT LA CASSE ORIGINALE DE L'ALIAS
-  //    C'est ici que "Gold" (casse mixte) est testé — avant on testait seulement GOLD
-  const candidates = getSymbolCandidates(sym); // retourne ['XAUUSD','GOLD','Gold','XAU',...]
+  // 2. Si rien trouvé, essayer les alias multi-broker (ex: GOLD au lieu de XAUUSD)
+  const candidates = getSymbolCandidates(sym);
   for (const cand of candidates) {
-    if (cand.toUpperCase() === sym) continue; // déjà testé dans l'étape 1
+    if (cand === sym) continue; // déjà testé
     for (const sfx of suffixes) {
-      // Test avec la casse ORIGINALE de l'alias (ex: 'Gold', pas 'GOLD')
-      const r = await tryPrice(cand + sfx);
-      if (r) {
-        console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + (cand + sfx) + ' (serveur ' + sn + ')');
-        return r;
-      }
-    }
-  }
-
-  // 3. Dernier recours : essayer "Gold", "Silver" etc. en casse naturelle sans suffixe
-  //    (pour les brokers exotiques qui utilisent des noms anglais simples)
-  const naturalNames = { XAUUSD: ['Gold', 'GOLD', 'gold'], XAGUSD: ['Silver', 'SILVER'], XPTUSD: ['Platinum'] };
-  const naturals = naturalNames[sym] || [];
-  for (const name of naturals) {
-    const r = await tryPrice(name);
-    if (r) {
-      console.log('[SYMBOL-RESOLVE] Nom naturel trouvé : ' + sym + ' → ' + name + ' (serveur ' + sn + ')');
-      return r;
+      try {
+        const fullCandidate = cand + sfx;
+        const tick = await connection.getSymbolPrice(fullCandidate);
+        if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
+          console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + fullCandidate);
+          return { symbol: fullCandidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
+        }
+      } catch(e) {}
     }
   }
 
@@ -2641,35 +2619,16 @@ async function fetchAllMarketData(userId, symbole) {
         await account.deploy();
         if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
         deployedHere = true;
-        // ── FIX TIMEOUT : limite 40s pour éviter les hangs RaiseGlobal/broker lent ──
-        await Promise.race([
-          account.waitConnected(),
-          new Promise((_, r) => setTimeout(() => r(new Error('waitConnected timeout 40s')), 40000))
-        ]);
+        await account.waitConnected();
       } catch(deployErr) {
         console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
-        if (deployedHere) {
-          try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
-        }
         return null;
       }
     }
 
     const connection = account.getRPCConnection();
-    // ── FIX TIMEOUT : sync avec limite 40s ──
-    try {
-      await connection.connect();
-      await Promise.race([
-        connection.waitSynchronized(),
-        new Promise((_, r) => setTimeout(() => r(new Error('waitSynchronized timeout 40s')), 40000))
-      ]);
-    } catch(syncErr) {
-      console.log('[FETCH-MARKET] Sync timeout pour ' + userId + ' : ' + syncErr.message);
-      if (deployedHere) {
-        try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
-      }
-      return null;
-    }
+    await connection.connect();
+    await connection.waitSynchronized();
 
     // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
     const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
@@ -4315,24 +4274,10 @@ async function surveillerTradesEtApprendre() {
         await connection.connect();
         await connection.waitSynchronized();
 
-        // FIX BUG : getDealsByTimeRange peut retourner :
-        //   - un Array directement
-        //   - { deals: [...] }
-        //   - { data: [...] }
-        //   - { items: [...] }
-        //   - null / undefined
-        // On normalise tout pour éviter "(deals || []).filter is not a function"
-        let dealsRaw;
-        try { dealsRaw = await connection.getDealsByTimeRange(dateLimit, new Date()); } catch(e) { dealsRaw = []; }
-        let deals = [];
-        if (Array.isArray(dealsRaw)) {
-          deals = dealsRaw;
-        } else if (dealsRaw && typeof dealsRaw === 'object') {
-          // Cherche le premier champ qui est un Array
-          const arrField = ['deals', 'data', 'items', 'history'].find(k => Array.isArray(dealsRaw[k]));
-          deals = arrField ? dealsRaw[arrField] : [];
-        }
-        console.log('[APPRENTISSAGE] ' + deals.length + ' deal(s) récupérés pour userId=' + userId);
+        // FIX BUG : selon SDK MetaApi, getDealsByTimeRange retourne soit un array,
+        // soit un objet { deals: [...] }. On normalise pour éviter "deals.filter is not a function"
+        let dealsRaw = await connection.getDealsByTimeRange(dateLimit, new Date());
+        const deals = Array.isArray(dealsRaw) ? dealsRaw : (dealsRaw && Array.isArray(dealsRaw.deals) ? dealsRaw.deals : []);
 
         for (const analyse of parUser[userId]) {
           const symbAnalyse = (analyse.instrument || 'XAUUSD').toUpperCase();
@@ -5116,7 +5061,7 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
 RÈGLE ABSOLUE SESSION ASIATIQUE :
 - Le marché est en RANGE, faible directionnalité, faible volume
 - Les faux breakouts sont TRÈS fréquents pendant cette session
-- NE PAS TRADER sauf si : (1) cassure NETTE du range asiatique avec forte bougie + (2) score >= 8 + (3) confluence CRT + ICT claire
+- NE PAS TRADER sauf si : (1) cassure NETTE du range asiatique avec forte bougie + (2) score >= 7 + (3) confluence CRT + ICT claire (OPTION B : plus permissif qu'avant qui exigeait 8)
 - Si le signal est dans le range asiatique sans cassure confirmée → NE PAS TRADER obligatoire (score automatique < 5)
 - Le RSI en zone neutre (40-60) pendant la session asiatique = PAS de momentum suffisant → NE PAS TRADER
 - Sois BEAUCOUP plus strict qu'en session Londres ou New York`;
@@ -5248,7 +5193,7 @@ CONCEPTS À ÉVALUER (donne un score 0-10 à chacun) :
  8. ORDER_BLOCK_H1 — OB qualité HIGH non mitigé (meilleur sur retracement)
 
 → Choisis le concept au score le + élevé et fais TON trade dessus
-→ Si AUCUN concept n'a score >= 7 → "NE PAS TRADER" obligatoire
+→ Si AUCUN concept n'a score >= 6 → "NE PAS TRADER" obligatoire (OPTION B : seuil 6 au lieu de 7)
 → Renseigne "conceptUtilise" et "conceptsTestes" dans le JSON
 → Pour le scoring final tu utilises le score du concept gagnant
 
@@ -5652,9 +5597,14 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     }
 
     // ─── GARDE SCORE MINIMUM 7 (objectif WR 60%) ──────────────────
-    // Score < 7 = pas assez de confluence → trade refusé
-    if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < 7) {
-      console.log('[SCORE-GUARD] Score ' + parsed.score + ' < 7 → NE PAS TRADER (objectif WR 60%)');
+    // OPTION B : Score min 6 (au lieu de 7) — sauf si contre tendance D1
+    // On accepte les setups corrects (6+) tant qu'ils ne vont pas contre D1
+    const d1Pour = (parsed.tendanceD1 || '').toUpperCase();
+    const isBuyD1 = parsed.decision === 'BUY';
+    const contreD1 = (isBuyD1 && d1Pour === 'BEARISH') || (!isBuyD1 && d1Pour === 'BULLISH');
+    const scoreMinRequis = contreD1 ? 7 : 6;
+    if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < scoreMinRequis) {
+      console.log('[SCORE-GUARD] Score ' + parsed.score + ' < ' + scoreMinRequis + (contreD1 ? ' (contre D1)' : '') + ' → NE PAS TRADER');
       parsed.decision = 'NE PAS TRADER';
       parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 7/10 pour viser WR 60%';
     }
@@ -5720,10 +5670,16 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
         if (!isBuy && rsiM15 < 22) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 22 (survente extrême) avec SELL');
       }
 
-      if (hardBlocks.length > 0) {
-        console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé : ' + hardBlocks.join(' | '));
+      // OPTION B : on annule SEULEMENT si 2+ hardBlocks (avant : 1 suffisait)
+      // 1 seul block = warning + score réduit (le trader décide)
+      if (hardBlocks.length >= 2) {
+        console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé (' + hardBlocks.length + ' blocks) : ' + hardBlocks.join(' | '));
         parsed.decision = 'NE PAS TRADER';
-        parsed.hardBlockAlerte = 'Trade annulé par hard-block serveur : ' + hardBlocks.join(' | ');
+        parsed.hardBlockAlerte = 'Trade annulé : ' + hardBlocks.length + ' blocks détectés (' + hardBlocks.join(' | ') + ')';
+      } else if (hardBlocks.length === 1) {
+        console.log('[HARD-BLOCK-WARN] ' + parsed.decision + ' : 1 warning (' + hardBlocks[0] + ') — score réduit');
+        parsed.score = Math.max((parsed.score || 7) - 1, 6);
+        parsed.hardBlockAlerte = '⚠️ Attention : ' + hardBlocks[0] + ' (score réduit à ' + parsed.score + ')';
       }
     }
 
@@ -5747,11 +5703,21 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
             parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
               '⚠️ Trade contre tendance D1 ' + d1IA + ' (IA le confirme elle-même) — score réduit à ' + parsed.score;
           } else {
-            // Score moyen : annulation
-            parsed.decision = 'NE PAS TRADER';
-            parsed.score = Math.min(parsed.score || 5, 5);
-            parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
-              '🚫 ' + (isBuyD1 ? 'BUY' : 'SELL') + ' contre tendance D1 ' + d1IA + ' identifiée par l\'IA elle-même — annulé';
+            // OPTION B : score moyen contre D1 → score réduit MAIS pas annulé direct
+            // L'IA peut quand même proposer si score reste >= 6 après réduction
+            const oldScore = parsed.score || 6;
+            const newScore = Math.max(oldScore - 1, 5);
+            parsed.score = newScore;
+            if (newScore >= 6) {
+              // Score acceptable : on garde le trade mais avec warning
+              parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
+                '⚠️ Trade contre D1 ' + d1IA + ' (score réduit ' + oldScore + ' → ' + newScore + ') — sois prudent';
+            } else {
+              // Score trop bas : annulation
+              parsed.decision = 'NE PAS TRADER';
+              parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
+                '🚫 ' + (isBuyD1 ? 'BUY' : 'SELL') + ' contre D1 ' + d1IA + ', score trop bas après réduction (' + newScore + ')';
+            }
           }
           console.log('[D1-COHERENCE] ' + (isBuyD1 ? 'BUY' : 'SELL') + ' vs D1=' + d1IA + ' score=' + scoreActuel + ' → ' + parsed.decision);
         }
