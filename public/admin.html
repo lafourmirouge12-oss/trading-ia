@@ -233,6 +233,18 @@
     <button class="fbtn" onclick="setFilter('online',this)">En ligne</button>
     <button class="fbtn" onclick="setFilter('banned',this)">Bannis</button>
     <button class="fbtn" onclick="loadAll()">↻</button>
+
+      <!-- ═══ PAIEMENTS EN ATTENTE (nouveaux inscrits avec pack demandé) ═══ -->
+      <div id="pendingPaymentsSection" style="margin-top:20px;padding:16px;background:linear-gradient(135deg,rgba(255,215,0,0.05),rgba(255,140,0,0.03));border:1px solid rgba(255,215,0,0.3);border-radius:8px;display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div style="font-family:'Orbitron',monospace;font-size:12px;letter-spacing:2px;color:#ffd700;text-transform:uppercase;">
+            ⚠️ PAIEMENTS EN ATTENTE <span id="pendingCount" style="background:rgba(255,48,96,0.2);color:#ff3060;padding:2px 8px;border-radius:10px;margin-left:6px;font-size:10px;">0</span>
+          </div>
+          <button onclick="loadPendingPayments()" style="background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.4);color:#ffd700;padding:5px 12px;border-radius:3px;cursor:pointer;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;">🔄 Rafraîchir</button>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:12px;">Ces utilisateurs viennent de s'inscrire et ont demandé un pack. Vérifie qu'ils ont bien payé puis valide.</div>
+        <div id="pendingPaymentsList"></div>
+      </div>
   </div>
   <div class="table-wrap">
     <table>
@@ -328,7 +340,76 @@ async function loadUsers(){
   }catch(e){}
 }
 
-function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();loadPrixPacks();loadClientsTradesStats();}
+function loadAll(){loadStats();loadFeedback();loadUsers();loadDashboard();loadPrixPacks();loadClientsTradesStats();loadPendingPayments();}
+
+async function loadPendingPayments(){
+  try {
+    const r = await fetch('/admin/pending-payments');
+    if (!r.ok) return;
+    const d = await r.json();
+    const section = document.getElementById('pendingPaymentsSection');
+    const list = document.getElementById('pendingPaymentsList');
+    const count = document.getElementById('pendingCount');
+    if (!section || !list || !count) return;
+
+    count.textContent = d.count || 0;
+
+    if (d.count === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+
+    list.innerHTML = d.pending.map(u => {
+      const pack = u.packDemande || 'inconnu';
+      const prix = u.packPrix ? u.packPrix.prix + ' ' + (u.packPrix.devise === 'EUR' ? '€' : u.packPrix.devise) : '?';
+      const date = u.packDemandeAt ? new Date(u.packDemandeAt).toLocaleString('fr-FR') : '?';
+      const packColor = pack === 'elite' ? '#ffd700' : (pack === 'pro' ? '#a855f7' : '#00d4ff');
+      return '<div style="background:rgba(0,15,40,0.5);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:12px;margin-bottom:10px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px;">' +
+          '<div>' +
+            '<div style="font-family:Orbitron,monospace;font-size:13px;font-weight:700;color:#fff;">' + u.email + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px;">' + date + '</div>' +
+          '</div>' +
+          '<div style="font-family:Orbitron,monospace;font-size:14px;font-weight:900;letter-spacing:2px;color:' + packColor + ';text-transform:uppercase;">' + pack + ' · ' + prix + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:8px;">' +
+          '<button onclick="validatePending(\''+u._id+'\', \''+u.email+'\', \''+pack+'\')" style="flex:1;padding:8px 12px;background:rgba(0,245,160,0.15);border:1px solid #00f5a0;color:#00f5a0;border-radius:4px;cursor:pointer;font-family:Orbitron,monospace;font-size:10px;letter-spacing:1px;font-weight:700;">✓ VALIDER (a payé)</button>' +
+          '<button onclick="rejectPending(\''+u._id+'\', \''+u.email+'\')" style="flex:1;padding:8px 12px;background:rgba(255,53,101,0.1);border:1px solid #ff3565;color:#ff3565;border-radius:4px;cursor:pointer;font-family:Orbitron,monospace;font-size:10px;letter-spacing:1px;font-weight:700;">✕ REFUSER</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) { console.error('loadPendingPayments', e); }
+}
+
+async function validatePending(userId, email, pack){
+  if (!confirm('Confirmer que ' + email + ' a bien payé ' + pack.toUpperCase() + ' ?\n\nCela va activer son pack immédiatement.')) return;
+  try {
+    const r = await fetch('/admin/validate-pending/' + userId, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      alert('✅ Pack ' + pack.toUpperCase() + ' activé pour ' + email);
+      loadPendingPayments();
+      loadUsers();
+    } else {
+      alert('❌ Erreur: ' + (d.error || 'inconnu'));
+    }
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
+
+async function rejectPending(userId, email){
+  if (!confirm('Refuser la demande de pack pour ' + email + ' ?\n\nIl restera inscrit mais sans pack.')) return;
+  try {
+    const r = await fetch('/admin/reject-pending/' + userId, { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      alert('Demande refusée pour ' + email);
+      loadPendingPayments();
+    } else {
+      alert('Erreur: ' + (d.error || 'inconnu'));
+    }
+  } catch(e) { alert('Erreur: ' + e.message); }
+}
 
 async function loadClientsTradesStats(){
   const body = document.getElementById('clientsTradesBody');
