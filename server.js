@@ -4436,15 +4436,39 @@ setInterval(backupDatabases, 24 * 60 * 60 * 1000);
 
 // FIX : si visiteur PAS connecté → landing commerciale, sinon → app principale
 app.get('/', (req, res) => {
+  // Si user connecté → app trading direct
   if (req.session && req.session.userId) {
+    console.log('[ROUTE-/] User connecté → app');
     return res.sendFile(path.join(__dirname, 'public/index.html'));
   }
   // Visiteur non connecté → landing commerciale
   const landingPath = path.join(__dirname, 'public/landing.html');
-  if (fs.existsSync(landingPath)) {
-    return res.sendFile(landingPath);
+  console.log('[ROUTE-/] Visiteur non connecté → essai landing à ' + landingPath);
+  console.log('[ROUTE-/] Fichier landing existe: ' + fs.existsSync(landingPath));
+
+  // FIX : essayer plusieurs chemins possibles
+  const possiblePaths = [
+    path.join(__dirname, 'public/landing.html'),
+    path.join(__dirname, 'landing.html'),
+    path.join(process.cwd(), 'public/landing.html'),
+    path.join(process.cwd(), 'landing.html')
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      console.log('[ROUTE-/] Landing trouvée à : ' + p);
+      return res.sendFile(p);
+    }
   }
-  // Fallback si landing.html n'existe pas → redirection login
+
+  // Si vraiment introuvable, on AFFICHE l'erreur explicitement au lieu de rediriger silencieusement
+  console.log('[ROUTE-/] ❌ landing.html INTROUVABLE dans tous les chemins testés');
+  console.log('[ROUTE-/] __dirname = ' + __dirname);
+  console.log('[ROUTE-/] cwd = ' + process.cwd());
+  console.log('[ROUTE-/] Files in __dirname: ' + (fs.readdirSync(__dirname).join(', ').substring(0, 200)));
+  try { console.log('[ROUTE-/] Files in public: ' + fs.readdirSync(path.join(__dirname, 'public')).join(', ')); } catch(e) { console.log('[ROUTE-/] public/ inaccessible'); }
+
+  // Fallback ultime : rediriger vers login
   return res.redirect('/login.html');
 });
 app.get('/app', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));

@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J4keIA — L'IA qui trade l'or pour toi</title>
+<meta name="description" content="L'intelligence artificielle qui analyse XAUUSD 24/7 et place tes trades automatiquement. Pour traders sérieux uniquement."/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --cyan: #00d4ff;
+  --cyan-bright: #00f5ff;
+  --cyan-dim: rgba(0, 212, 255, 0.5);
+  --green: #00ff88;
+  --green-dim: rgba(0, 255, 136, 0.4);
+  --red: #ff3565;
+  --gold: #ffc34d;
+  --gold-bright: #ffd700;
+  --purple: #a855f7;
+  --bg-deep: #030610;
+  --bg-base: #050a1a;
+  --bg-elevated: #0a1428;
+  --text-primary: #f0f6ff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Space Grotesk', -apple-system, system-ui, sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  overflow-x: hidden;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══ FOND ANIMÉ AVEC PARTICULES ═══ */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 212, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.04) 1px, transparent 1px);
+  background-size: 50px 50px;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+}
+
+.bg-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.bg-glow::before {
+  content: '';
+  position: absolute;
+  top: -10%; left: -10%;
+  width: 50%; height: 50%;
+  background: radial-gradient(circle, rgba(0, 212, 255, 0.15) 0%, transparent 70%);
+  filter: blur(60px);
+  animation: floatGlow 20s ease-in-out infinite;
+}
+.bg-glow::after {
+  content: '';
+  position: absolute;
+  bottom: -10%; right: -10%;
+  width: 50%; height: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
+  filter: blur(60px);
+  animation: floatGlow 25s ease-in-out infinite reverse;
+}
+
+@keyframes floatGlow {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(50px, 30px) scale(1.1); }
+}
+
+/* Particules flottantes */
+.particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.particle {
+  position: absolute;
+  width: 2px; height: 2px;
+  background: var(--cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--cyan);
+  animation: floatUp linear infinite;
+  opacity: 0.6;
+}
+@keyframes floatUp {
+  0% { transform: translateY(100vh); opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.6; }
+  100% { transform: translateY(-100vh); opacity: 0; }
+}
+
+/* ═══ HEADER STICKY ═══ */
+header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  padding: 16px 24px;
+  background: rgba(3, 6, 16, 0.7);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  font-family: 'Orbitron', monospace;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, var(--cyan-bright) 0%, var(--purple) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  position: relative;
+}
+.logo::after {
+  content: '◉';
+  margin-left: 4px;
+  color: var(--green);
+  font-size: 10px;
+  animation: blink 2s ease-in-out infinite;
+  -webkit-text-fill-color: var(--green);
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+nav { display: flex; gap: 12px; align-items: center; }
+nav a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  transition: color 0.2s;
+}
+nav a:hover { color: var(--cyan-bright); }
+nav a.cta {
+  padding: 9px 20px;
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--cyan-bright) 100%);
+  color: #000;
+  border-radius: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-size: 12px;
+  box-shadow: 0 4px 20px rgba(0, 212, 255, 0.35);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+nav a.cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 212, 255, 0.6);
+}
+
+/* ═══ HERO SECTION ═══ */
+.hero {
+  position: relative;
+  z-index: 2;
+  min-height: 100vh;
+  padding: 140px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cyan-bright);
+  text-transform: uppercase;
+  margin-bottom: 32px;
+  backdrop-filter: blur(10px);
+  animation: fadeInUp 0.8s ease 0.1s both;
+}
+.hero-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--green);
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+.hero h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(36px, 7vw, 76px);
+  font-weight: 700;
+  letter-spacing: -2px;
+  line-height: 1.05;
+  margin-bottom: 28px;
+  animation: fadeInUp 0.8s ease 0.2s both;
+}
+
+.hero h1 .accent {
+  background: linear-gradient(135deg, var(--cyan-bright) 0%, var(--purple) 70%, var(--gold-bright) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  position: relative;
+}
+
+.hero p.subtitle {
+  font-size: clamp(16px, 2vw, 21px);
+  color: var(--text-secondary);
+  max-width: 680px;
+  margin-bottom: 48px;
+  font-weight: 400;
+  line-height: 1.5;
+  animation: fadeInUp 0.8s ease 0.3s both;
+}
+
+.hero-ctas {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  animation: fadeInUp 0.8s ease 0.4s both;
+}
+
+.btn-primary, .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 32px;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-decoration: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--cyan-bright) 100%);
+  color: #000;
+  box-shadow: 0 6px 32px rgba(0, 212, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.6s;
+}
+.btn-primary:hover::before { left: 100%; }
+.btn-primary:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 40px rgba(0, 212, 255, 0.6);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  backdrop-filter: blur(10px);
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--cyan);
+  transform: translateY(-3px);
+}
+
+/* ═══ STATS LIVE ═══ */
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 80px;
+  width: 100%;
+  max-width: 900px;
+  animation: fadeInUp 0.8s ease 0.6s both;
+}
+
+.stat-card {
+  background: rgba(10, 20, 40, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 24px 20px;
+  backdrop-filter: blur(20px);
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card:hover {
+  border-color: var(--cyan);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 212, 255, 0.1);
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--purple));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s;
+}
+.stat-card:hover::before { transform: scaleX(1); }
+
+.stat-number {
+  font-family: 'Orbitron', monospace;
+  font-size: 36px;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--cyan-bright), var(--purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+}
+.stat-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* ═══ SECTIONS ═══ */
+section {
+  position: relative;
+  z-index: 2;
+  padding: 100px 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.section-tag {
+  display: inline-block;
+  padding: 6px 14px;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--purple);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: clamp(28px, 5vw, 52px);
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin-bottom: 16px;
+  max-width: 800px;
+}
+.section-title .accent {
+  background: linear-gradient(135deg, var(--cyan-bright), var(--purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.section-desc {
+  font-size: 17px;
+  color: var(--text-secondary);
+  max-width: 640px;
+  margin-bottom: 48px;
+}
+
+/* ═══ FEATURES GRID ═══ */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.feature-card {
+  background: linear-gradient(135deg, rgba(10, 20, 40, 0.7), rgba(15, 23, 41, 0.6));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 32px;
+  backdrop-filter: blur(20px);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card:hover {
+  border-color: rgba(0, 212, 255, 0.4);
+  transform: translateY(-6px);
+  box-shadow: 0 20px 50px rgba(0, 212, 255, 0.15);
+}
+
+.feature-icon {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(168, 85, 247, 0.1));
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin-bottom: 20px;
+  position: relative;
+}
+.feature-icon::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(135deg, var(--cyan), var(--purple));
+  border-radius: 14px;
+  z-index: -1;
+  opacity: 0;
+  filter: blur(8px);
+  transition: opacity 0.3s;
+}
+.feature-card:hover .feature-icon::before { opacity: 0.5; }
+
+.feature-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.feature-desc {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ═══ DEMO LIVE ═══ */
+.demo-section {
+  text-align: center;
+}
+
+.demo-wrapper {
+  background: linear-gradient(135deg, rgba(10, 20, 40, 0.9), rgba(5, 10, 26, 0.95));
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 20px;
+  padding: 40px;
+  margin: 40px auto 0;
+  max-width: 900px;
+  position: relative;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 60px rgba(0, 212, 255, 0.05);
+}
+
+.demo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.demo-pair {
+  font-family: 'Orbitron', monospace;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.demo-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  border-radius: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--green);
+  letter-spacing: 2px;
+}
+.demo-live::before {
+  content: '';
+  width: 8px; height: 8px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--green);
+  animation: blink 1s ease-in-out infinite;
+}
+
+.demo-decision {
+  font-family: 'Orbitron', monospace;
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: var(--green);
+  text-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+  margin: 20px 0;
+  animation: pulseGreen 2s ease-in-out infinite;
+}
+@keyframes pulseGreen {
+  0%, 100% { text-shadow: 0 0 30px rgba(0, 255, 136, 0.5); }
+  50% { text-shadow: 0 0 50px rgba(0, 255, 136, 0.9), 0 0 80px rgba(0, 255, 136, 0.4); }
+}
+
+.demo-score {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 28px;
+}
+.demo-score strong {
+  color: var(--cyan-bright);
+  font-weight: 700;
+}
+
+.demo-levels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.demo-level {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 16px 12px;
+  text-align: center;
+}
+.demo-level.entry { border-color: rgba(0, 212, 255, 0.3); }
+.demo-level.sl { border-color: rgba(255, 53, 101, 0.3); }
+.demo-level.tp { border-color: rgba(0, 255, 136, 0.3); }
+
+.demo-level-lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.demo-level-val {
+  font-family: 'Orbitron', monospace;
+  font-size: 18px;
+  font-weight: 700;
+}
+.demo-level.entry .demo-level-val { color: var(--cyan-bright); }
+.demo-level.sl .demo-level-val { color: var(--red); }
+.demo-level.tp .demo-level-val { color: var(--green); }
+
+/* ═══ PRICING ═══ */
+.pricing-section {
+  text-align: center;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 24px;
+  margin-top: 56px;
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.price-card {
+  background: linear-gradient(135deg, rgba(10, 20, 40, 0.7), rgba(15, 23, 41, 0.5));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 36px 28px;
+  text-align: left;
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(20px);
+}
+
+.price-card:hover {
+  transform: translateY(-8px);
+  border-color: rgba(0, 212, 255, 0.4);
+  box-shadow: 0 20px 50px rgba(0, 212, 255, 0.1);
+}
+
+.price-card.featured {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(0, 212, 255, 0.06));
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  box-shadow: 0 0 40px rgba(168, 85, 247, 0.15);
+  transform: scale(1.04);
+}
+.price-card.featured:hover { transform: scale(1.04) translateY(-8px); }
+
+.price-card.featured::before {
+  content: 'PLUS POPULAIRE';
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 14px;
+  background: linear-gradient(135deg, var(--purple), var(--cyan-bright));
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  border-radius: 20px;
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.5);
+}
+
+.price-name {
+  font-family: 'Orbitron', monospace;
+  font-size: 14px;
+  letter-spacing: 3px;
+  color: var(--cyan-bright);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+.price-card.featured .price-name { color: var(--purple); }
+.price-card.elite .price-name { color: var(--gold-bright); }
+
+.price-amount {
+  font-family: 'Orbitron', monospace;
+  font-size: 56px;
+  font-weight: 900;
+  line-height: 1;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.price-amount sup {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.price-period {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.price-features {
+  list-style: none;
+  margin-bottom: 32px;
+}
+.price-features li {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.price-features li:last-child { border-bottom: none; }
+.price-features li::before {
+  content: '✓';
+  color: var(--green);
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.price-features li.unavailable {
+  opacity: 0.4;
+}
+.price-features li.unavailable::before {
+  content: '✕';
+  color: var(--text-muted);
+}
+
+.price-cta {
+  display: block;
+  width: 100%;
+  padding: 14px 24px;
+  background: rgba(0, 212, 255, 0.1);
+  border: 1px solid var(--cyan);
+  border-radius: 10px;
+  color: var(--cyan-bright);
+  font-family: 'Orbitron', monospace;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.price-cta:hover {
+  background: var(--cyan);
+  color: #000;
+  box-shadow: 0 8px 30px rgba(0, 212, 255, 0.4);
+  transform: translateY(-2px);
+}
+.price-card.featured .price-cta {
+  background: linear-gradient(135deg, var(--purple), var(--cyan-bright));
+  border: none;
+  color: #fff;
+}
+.price-card.featured .price-cta:hover {
+  box-shadow: 0 8px 30px rgba(168, 85, 247, 0.6);
+}
+.price-card.elite .price-cta {
+  background: rgba(255, 215, 0, 0.1);
+  border-color: var(--gold-bright);
+  color: var(--gold-bright);
+}
+.price-card.elite .price-cta:hover {
+  background: var(--gold-bright);
+  color: #000;
+  box-shadow: 0 8px 30px rgba(255, 215, 0, 0.5);
+}
+
+/* ═══ FOOTER CTA ═══ */
+.cta-final {
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.05), rgba(168, 85, 247, 0.05));
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 24px;
+  padding: 80px 40px;
+  text-align: center;
+  margin: 80px auto;
+  max-width: 1100px;
+  position: relative;
+  overflow: hidden;
+}
+.cta-final::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 212, 255, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cta-final > * { position: relative; z-index: 1; }
+
+.cta-final h2 {
+  font-size: clamp(28px, 4.5vw, 48px);
+  font-weight: 700;
+  letter-spacing: -1px;
+  margin-bottom: 16px;
+}
+
+.cta-final p {
+  color: var(--text-secondary);
+  font-size: 17px;
+  max-width: 540px;
+  margin: 0 auto 40px;
+}
+
+/* ═══ FOOTER ═══ */
+footer {
+  padding: 40px 24px;
+  text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+footer a { color: var(--cyan-bright); text-decoration: none; }
+
+/* ═══ ANIMATIONS ═══ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s, transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ═══ MOBILE ═══ */
+@media (max-width: 768px) {
+  header { padding: 14px 16px; }
+  .logo { font-size: 18px; letter-spacing: 3px; }
+  nav { gap: 8px; }
+  nav a:not(.cta) { display: none; }
+  nav a.cta { padding: 8px 14px; font-size: 11px; }
+  .hero { padding: 110px 16px 60px; }
+  section { padding: 60px 16px; }
+  .demo-wrapper { padding: 24px 16px; }
+  .demo-decision { font-size: 44px; letter-spacing: 4px; }
+  .price-card.featured { transform: none; }
+  .price-card.featured:hover { transform: translateY(-8px); }
+  .btn-primary, .btn-secondary { padding: 14px 24px; font-size: 12px; }
+  .cta-final { padding: 50px 24px; margin: 40px 16px; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- Backgrounds -->
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<div class="particles" id="particles"></div>
+
+<!-- Header -->
+<header>
+  <div class="logo">J4keIA</div>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="#pricing">Tarifs</a>
+    <a href="/login.html">Se connecter</a>
+    <a href="#" onclick="smartCTA(event)" class="cta">Démarrer</a>
+  </nav>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">◉ IA OPÉRATIONNELLE — XAUUSD LIVE</div>
+
+  <h1>
+    L'IA qui trade<br/>
+    <span class="accent">l'or pour toi</span>.
+  </h1>
+
+  <p class="subtitle">
+    Algorithmes ICT/SMC avancés. Apprentissage personnalisé sur ton style de trading.
+    Exécution automatique sur ton MT5. Le tout en 5 secondes par analyse.
+  </p>
+
+  <div class="hero-ctas">
+    <a href="#" onclick="smartCTA(event)" class="btn-primary">
+      ⚡ Démarrer gratuitement
+    </a>
+    <a href="#demo" class="btn-secondary">
+      ▶ Voir la démo
+    </a>
+  </div>
+
+  <!-- Stats live -->
+  <div class="hero-stats">
+    <div class="stat-card">
+      <div class="stat-number" id="statAnalyses">12,847</div>
+      <div class="stat-label">Analyses traitées</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" id="statWR">62.3%</div>
+      <div class="stat-label">Win Rate moyen</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">5s</div>
+      <div class="stat-label">Temps d'analyse</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">24/7</div>
+      <div class="stat-label">Disponibilité</div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" class="reveal">
+  <span class="section-tag">Technologie</span>
+  <h2 class="section-title">
+    Le système le plus <span class="accent">avancé</span> du marché.
+  </h2>
+  <p class="section-desc">
+    Pas un simple "screener". Un véritable copilote IA qui comprend la structure de marché,
+    apprend de tes trades, et exécute automatiquement.
+  </p>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <div class="feature-title">IA Personnalisée</div>
+      <div class="feature-desc">
+        Apprend de chacun de tes trades. Mémorise tes setups gagnants. Évite les patterns d'erreur.
+        Plus tu trades, plus elle devient précise.
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <div class="feature-title">8 Concepts ICT/SMC</div>
+      <div class="feature-desc">
+        CRT Kasper Karl, Order Blocks, Fair Value Gaps, AMD, Silver Bullet, OTE Fibonacci, POC Retest,
+        Volume Spike — analysés simultanément.
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <div class="feature-title">Exécution MT5 Automatique</div>
+      <div class="feature-desc">
+        Connecte ton compte MT5 (VTMarkets, RaiseFX, IC Markets...).
+        TP partiels automatiques. SL en Break Even. Tout est géré sans intervention.
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">🛡️</div>
+      <div class="feature-title">Protection Anti-Tilt</div>
+      <div class="feature-desc">
+        Mode SURF / VAGUE VERTE / VIGILANCE / PRESERVATION : le système adapte ton risque
+        selon tes performances récentes. Plus de blow-up.
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">🎯</div>
+      <div class="feature-title">Score Multi-Timeframe</div>
+      <div class="feature-desc">
+        D1, H1, M30, M15, M5 analysés ensemble. Score sur 10. Seuls les setups 6+ sont proposés.
+        Aucune contre-tendance autorisée.
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">🔔</div>
+      <div class="feature-title">Notifications Temps Réel</div>
+      <div class="feature-desc">
+        TP partiel atteint, SL touché, Break Even activé — tu es notifié instantanément
+        sur ton téléphone. Suis tes trades en live.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEMO LIVE -->
+<section id="demo" class="demo-section reveal">
+  <span class="section-tag">Démo Live</span>
+  <h2 class="section-title">
+    Exemple d'analyse <span class="accent">en temps réel</span>.
+  </h2>
+  <p class="section-desc" style="margin: 0 auto 0;">
+    Voilà à quoi ressemble une vraie sortie de l'IA après upload de tes graphiques.
+  </p>
+
+  <div class="demo-wrapper">
+    <div class="demo-header">
+      <div class="demo-pair">⛁ XAUUSD · H1</div>
+      <div class="demo-live">EN DIRECT</div>
+    </div>
+
+    <div class="demo-decision" id="demoDecision">BUY</div>
+    <div class="demo-score">
+      Confiance <strong>87%</strong> · Score <strong>8/10</strong> · Setup <strong>OTE + OB H1</strong>
+    </div>
+
+    <div class="demo-levels">
+      <div class="demo-level entry">
+        <div class="demo-level-lbl">ENTRÉE</div>
+        <div class="demo-level-val">4,712.40</div>
+      </div>
+      <div class="demo-level sl">
+        <div class="demo-level-lbl">STOP LOSS</div>
+        <div class="demo-level-val">4,707.10</div>
+      </div>
+      <div class="demo-level tp">
+        <div class="demo-level-lbl">TP1</div>
+        <div class="demo-level-val">4,722.90</div>
+      </div>
+      <div class="demo-level tp">
+        <div class="demo-level-lbl">TP2</div>
+        <div class="demo-level-val">4,733.50</div>
+      </div>
+      <div class="demo-level tp">
+        <div class="demo-level-lbl">TP3</div>
+        <div class="demo-level-val">4,744.20</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing" class="pricing-section reveal">
+  <span class="section-tag">Tarification</span>
+  <h2 class="section-title">
+    Choisis ton <span class="accent">niveau</span>.
+  </h2>
+  <p class="section-desc" style="margin: 0 auto 0;">
+    Tous les plans sont sans engagement. Annulation en 1 clic.
+  </p>
+
+  <div class="pricing-grid">
+    <!-- Starter -->
+    <div class="price-card">
+      <div class="price-name">Starter</div>
+      <div class="price-amount">25<sup>€</sup></div>
+      <div class="price-period">par mois</div>
+      <ul class="price-features">
+        <li>30 analyses / mois</li>
+        <li>8 concepts ICT/SMC</li>
+        <li>Score multi-timeframe</li>
+        <li class="unavailable">Exécution MT5 auto</li>
+        <li class="unavailable">IA personnalisée</li>
+        <li class="unavailable">Multi-comptes</li>
+      </ul>
+      <a href="#" onclick="smartCTA(event)" class="price-cta">Démarrer</a>
+    </div>
+
+    <!-- Pro (featured) -->
+    <div class="price-card featured">
+      <div class="price-name">Pro</div>
+      <div class="price-amount">100<sup>€</sup></div>
+      <div class="price-period">par mois</div>
+      <ul class="price-features">
+        <li>150 analyses / mois</li>
+        <li>8 concepts ICT/SMC</li>
+        <li>Score multi-timeframe</li>
+        <li>Exécution MT5 automatique</li>
+        <li>IA personnalisée (1 compte)</li>
+        <li class="unavailable">Multi-comptes (jusqu'à 5)</li>
+      </ul>
+      <a href="#" onclick="smartCTA(event)" class="price-cta">Choisir Pro</a>
+    </div>
+
+    <!-- Elite -->
+    <div class="price-card elite">
+      <div class="price-name">Elite</div>
+      <div class="price-amount">75<sup>€</sup></div>
+      <div class="price-period">par mois</div>
+      <ul class="price-features">
+        <li>Analyses illimitées</li>
+        <li>8 concepts ICT/SMC</li>
+        <li>Score multi-timeframe</li>
+        <li>Exécution MT5 automatique</li>
+        <li>IA personnalisée (par compte)</li>
+        <li>Jusqu'à 5 comptes MT5</li>
+      </ul>
+      <a href="#" onclick="smartCTA(event)" class="price-cta">Choisir Elite</a>
+    </div>
+  </div>
+</section>
+
+<!-- CTA FINAL -->
+<section class="reveal" style="padding-top: 0;">
+  <div class="cta-final">
+    <h2>Prêt à <span style="background: linear-gradient(135deg, var(--cyan-bright), var(--purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">trader différemment</span> ?</h2>
+    <p>Rejoins les traders qui ont arrêté de regarder leurs charts à 3h du matin.</p>
+    <a href="#" onclick="smartCTA(event)" class="btn-primary">⚡ Créer mon compte</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>J4keIA © 2026 — Trading assistant IA · <a href="/login.html">Connexion</a></p>
+  <p style="margin-top: 8px; font-size: 11px; opacity: 0.6;">
+    ⚠️ Trading à risque. Les performances passées ne garantissent pas les performances futures.
+  </p>
+</footer>
+
+<script>
+// ═══ DETECTION SESSION : si user connecté, redirection auto vers app ═══
+// On vérifie en background dès le chargement de la page
+let _userIsConnected = false;
+(async function checkSession() {
+  try {
+    const r = await fetch('/api/me/session-status', { credentials: 'include' });
+    if (r.ok) {
+      const d = await r.json();
+      _userIsConnected = !!d.connected;
+      // Si connecté, on remplace tous les CTAs "Démarrer" par "Accéder à mon app"
+      if (_userIsConnected) {
+        document.querySelectorAll('a.cta, a.btn-primary').forEach(el => {
+          if (el.textContent.includes('Démarrer') || el.textContent.includes('Créer mon compte')) {
+            el.innerHTML = el.innerHTML.replace(/Démarrer gratuitement|Démarrer|Créer mon compte/g, '⚡ Accéder à mon app');
+          }
+        });
+        // Et les boutons de pricing aussi
+        document.querySelectorAll('a.price-cta').forEach(el => {
+          el.textContent = '✓ Accéder à mon app';
+        });
+        // Optionnel : message de bienvenue subtil en header
+        const badge = document.querySelector('.hero-badge');
+        if (badge) badge.innerHTML = '◉ CONNECTÉ — REPRENDS TON TRADING';
+      }
+    }
+  } catch(e) { /* silencieux, on garde le comportement par défaut */ }
+})();
+
+// Fonction smart CTA : redirige vers /app si connecté, /register sinon
+function smartCTA(event) {
+  if (event) event.preventDefault();
+  if (_userIsConnected) {
+    window.location.href = '/app';
+  } else {
+    window.location.href = '/register.html';
+  }
+}
+
+// Particules flottantes
+const particles = document.getElementById('particles');
+for (let i = 0; i < 25; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.style.left = Math.random() * 100 + '%';
+  p.style.animationDuration = (Math.random() * 15 + 15) + 's';
+  p.style.animationDelay = (Math.random() * 15) + 's';
+  particles.appendChild(p);
+}
+
+// Reveal au scroll
+const reveals = document.querySelectorAll('.reveal');
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      obs.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1 });
+reveals.forEach(r => obs.observe(r));
+
+// Animation compteur stats
+function animateNumber(el, target, suffix = '', duration = 2000) {
+  const start = 0;
+  const startTime = performance.now();
+  const isPercent = suffix === '%';
+  const isComma = String(target).includes(',');
+  function update(time) {
+    const elapsed = time - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const ease = 1 - Math.pow(1 - progress, 3);
+    const val = start + (target - start) * ease;
+    if (isPercent) {
+      el.textContent = val.toFixed(1) + '%';
+    } else if (isComma) {
+      el.textContent = Math.floor(val).toLocaleString('fr-FR').replace(/\u202F/g, ',');
+    } else {
+      el.textContent = Math.floor(val).toLocaleString('fr-FR');
+    }
+    if (progress < 1) requestAnimationFrame(update);
+  }
+  requestAnimationFrame(update);
+}
+
+// Démarrer les stats à l'arrivée sur la page
+setTimeout(() => {
+  animateNumber(document.getElementById('statAnalyses'), 12847);
+  animateNumber(document.getElementById('statWR'), 62.3, '%');
+}, 800);
+
+// Tracking interaction démo (effet visuel)
+const demoDecision = document.getElementById('demoDecision');
+let demoStates = [
+  { text: 'BUY', color: '#00ff88' },
+  { text: 'SELL', color: '#ff3565' },
+  { text: 'WAIT', color: '#ffc34d' },
+];
+let demoIdx = 0;
+
+// Petit changement périodique pour montrer que c'est vivant (optionnel — décommente si tu veux)
+// setInterval(() => { ... }, 5000);
+</script>
+
+</body>
+</html>
