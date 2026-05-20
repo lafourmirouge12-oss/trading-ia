@@ -1834,7 +1834,8 @@ function selectTP(num) {
 }
 
 fetch('/me').then(r=>r.json()).then(u=>{
-  if(u.error==='session_conflict'||u.error==='banned'){window.location.href='/login.html';return;}
+  if(u.error){window.location.href='/login.html';return;}
+  if(u.banned){window.location.href='/login.html';return;}
 
   // GATING UI : calculer isPremium depuis u.plan (hasPremium n'existe pas dans /me)
   window.userPlan = u.plan || 'free';
