@@ -4436,12 +4436,9 @@ setInterval(backupDatabases, 24 * 60 * 60 * 1000);
 
 // FIX : si visiteur PAS connecté → landing commerciale, sinon → app principale
 app.get('/', (req, res) => {
-  // Si user connecté → app trading direct
-  if (req.session && req.session.userId) {
-    console.log('[ROUTE-/] User connecté → app');
-    return res.sendFile(path.join(__dirname, 'public/index.html'));
-  }
-  // Visiteur non connecté → landing commerciale
+  // OPTION B : TOUT LE MONDE voit la landing en premier (même connectés)
+  // L'app est accessible via /app pour les connectés
+  console.log('[ROUTE-/] Serving landing à tous (option B)');
   const landingPath = path.join(__dirname, 'public/landing.html');
   console.log('[ROUTE-/] Visiteur non connecté → essai landing à ' + landingPath);
   console.log('[ROUTE-/] Fichier landing existe: ' + fs.existsSync(landingPath));
