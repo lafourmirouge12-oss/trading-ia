@@ -1,99 +1,580 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Inscription — IA Trading</title>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
-  <style>
-    :root { --cyan: #00f5ff; --green: #00ff88; --red: #ff3060; --dark: #020510; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: var(--dark); font-family: 'Rajdhani', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; cursor: crosshair; }
-    body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(0,245,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,245,255,0.03) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
-    .particles { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
-    .particle { position: absolute; width: 2px; height: 2px; border-radius: 50%; animation: float linear infinite; opacity: 0; }
-    @keyframes float { 0% { transform: translateY(100vh); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(-10vh) translateX(var(--drift)); opacity: 0; } }
-    .card { position: relative; z-index: 1; background: rgba(0,15,40,0.9); border: 1px solid rgba(0,245,255,0.25); border-radius: 4px; padding: 48px 40px; width: 100%; max-width: 420px; backdrop-filter: blur(20px); }
-    .corner { position: absolute; width: 16px; height: 16px; }
-    .corner::before, .corner::after { content: ''; position: absolute; background: var(--cyan); }
-    .corner::before { width: 100%; height: 2px; top: 0; left: 0; }
-    .corner::after { width: 2px; height: 100%; top: 0; left: 0; }
-    .corner.tr::before { left: auto; right: 0; } .corner.tr::after { left: auto; right: 0; }
-    .corner.bl::before { top: auto; bottom: 0; } .corner.bl::after { top: auto; bottom: 0; }
-    .corner.br::before { left: auto; right: 0; top: auto; bottom: 0; } .corner.br::after { left: auto; right: 0; top: auto; bottom: 0; }
-    .corner.tl { top: -1px; left: -1px; } .corner.tr { top: -1px; right: -1px; }
-    .corner.bl { bottom: -1px; left: -1px; } .corner.br { bottom: -1px; right: -1px; }
-    .logo { font-family: 'Orbitron', monospace; font-size: 11px; letter-spacing: 4px; color: var(--cyan); text-transform: uppercase; text-align: center; margin-bottom: 8px; opacity: 0.7; }
-    h1 { font-family: 'Orbitron', monospace; font-size: 24px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; text-align: center; background: linear-gradient(135deg, #fff, var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 16px; }
-    .free-badge { background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.2); border-radius: 2px; padding: 10px 16px; text-align: center; margin-bottom: 24px; font-size: 13px; color: var(--green); letter-spacing: 1px; }
-    .field { margin-bottom: 18px; }
-    label { display: block; font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; color: rgba(0,245,255,0.5); text-transform: uppercase; margin-bottom: 8px; }
-    input { width: 100%; background: rgba(0,245,255,0.04); border: 1px solid rgba(0,245,255,0.15); border-radius: 2px; padding: 14px 16px; color: #fff; font-family: 'Rajdhani', sans-serif; font-size: 16px; transition: all 0.3s; outline: none; }
-    input:focus { border-color: var(--cyan); box-shadow: 0 0 15px rgba(0,245,255,0.1); }
-    .btn { width: 100%; font-family: 'Orbitron', monospace; font-size: 12px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; color: #020510; background: var(--cyan); border: none; padding: 16px; cursor: pointer; margin-top: 8px; clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%); transition: all 0.3s; }
-    .btn:hover { box-shadow: 0 0 30px rgba(0,245,255,0.4); }
-    .link { text-align: center; margin-top: 20px; font-size: 14px; color: rgba(255,255,255,0.4); }
-    .link a { color: var(--cyan); text-decoration: none; }
-    .msg { padding: 12px 16px; border-radius: 2px; margin-bottom: 16px; font-size: 14px; display: none; }
-    .msg.error { background: rgba(255,48,96,0.1); border: 1px solid rgba(255,48,96,0.3); color: var(--red); }
-    .msg.success { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: var(--green); }
-  </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J4keIA — Créer mon compte</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --cyan: #00d4ff;
+  --cyan-bright: #00f5ff;
+  --green: #00ff88;
+  --red: #ff3565;
+  --gold: #ffc34d;
+  --gold-bright: #ffd700;
+  --purple: #a855f7;
+  --bg-deep: #030610;
+  --bg-base: #050a1a;
+  --bg-elevated: #0a1428;
+  --text-primary: #f0f6ff;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Space Grotesk', -apple-system, system-ui, sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Backgrounds animés */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 212, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.04) 1px, transparent 1px);
+  background-size: 50px 50px;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+}
+
+.bg-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.bg-glow::before {
+  content: '';
+  position: absolute;
+  top: 10%; left: -10%;
+  width: 50%; height: 50%;
+  background: radial-gradient(circle, rgba(0, 212, 255, 0.15) 0%, transparent 70%);
+  filter: blur(60px);
+  animation: floatGlow 20s ease-in-out infinite;
+}
+.bg-glow::after {
+  content: '';
+  position: absolute;
+  bottom: 10%; right: -10%;
+  width: 50%; height: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
+  filter: blur(60px);
+  animation: floatGlow 25s ease-in-out infinite reverse;
+}
+@keyframes floatGlow {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(50px, 30px) scale(1.1); }
+}
+
+.particles { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+.particle {
+  position: absolute;
+  width: 2px; height: 2px;
+  background: var(--cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--cyan);
+  animation: floatUp linear infinite;
+  opacity: 0.5;
+}
+@keyframes floatUp {
+  0% { transform: translateY(100vh); opacity: 0; }
+  10% { opacity: 0.5; }
+  90% { opacity: 0.5; }
+  100% { transform: translateY(-100vh); opacity: 0; }
+}
+
+/* Header sticky */
+.top-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  padding: 16px 24px;
+  background: rgba(3, 6, 16, 0.7);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  font-family: 'Orbitron', monospace;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  background: linear-gradient(135deg, var(--cyan-bright) 0%, var(--purple) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-decoration: none;
+}
+
+.top-bar nav a {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.top-bar nav a:hover { color: var(--cyan-bright); }
+
+/* CARTE PRINCIPALE */
+.register-card {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(135deg, rgba(10, 20, 40, 0.85), rgba(15, 23, 41, 0.75));
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 20px;
+  padding: 44px 40px;
+  max-width: 480px;
+  width: 100%;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 60px rgba(0, 212, 255, 0.08);
+  animation: cardAppear 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: 40px;
+}
+
+@keyframes cardAppear {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Badge pack choisi */
+.pack-badge {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(168, 85, 247, 0.08));
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  border-radius: 12px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pack-badge.active { display: flex; }
+
+.pack-badge::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.2), transparent);
+  animation: sweep 3s ease-in-out infinite;
+}
+@keyframes sweep {
+  0%, 100% { left: -100%; }
+  50% { left: 100%; }
+}
+
+.pack-badge-info { position: relative; z-index: 1; }
+.pack-badge-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.pack-badge-name {
+  font-family: 'Orbitron', monospace;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.pack-badge-name.starter { color: var(--cyan-bright); }
+.pack-badge-name.pro { color: var(--purple); }
+.pack-badge-name.elite { color: var(--gold-bright); }
+
+.pack-badge-price {
+  font-family: 'Orbitron', monospace;
+  font-size: 24px;
+  font-weight: 900;
+  position: relative;
+  z-index: 1;
+}
+.pack-badge-price.starter { color: var(--cyan-bright); }
+.pack-badge-price.pro { color: var(--purple); }
+.pack-badge-price.elite { color: var(--gold-bright); }
+
+/* Titre + sous-titre */
+.title-area { text-align: center; margin-bottom: 32px; }
+.title-tag {
+  display: inline-block;
+  padding: 6px 14px;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--purple);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.title-area h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+.title-area p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* Champs */
+.field {
+  margin-bottom: 18px;
+}
+
+.field label {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.field input {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(5, 10, 26, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 15px;
+  transition: all 0.2s ease;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.15);
+  background: rgba(5, 10, 26, 0.9);
+}
+
+.field input::placeholder {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.field-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Bouton submit */
+.btn-submit {
+  width: 100%;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--cyan-bright) 100%);
+  border: none;
+  border-radius: 10px;
+  color: #000;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 6px 32px rgba(0, 212, 255, 0.35);
+  position: relative;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.btn-submit::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.6s;
+}
+.btn-submit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(0, 212, 255, 0.5);
+}
+.btn-submit:hover::before { left: 100%; }
+.btn-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Message d'erreur / succès */
+.message {
+  display: none;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-top: 16px;
+  text-align: center;
+}
+.message.error {
+  display: block;
+  background: rgba(255, 53, 101, 0.1);
+  border: 1px solid rgba(255, 53, 101, 0.3);
+  color: var(--red);
+}
+.message.success {
+  display: block;
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  color: var(--green);
+}
+
+/* Lien login */
+.login-link {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.login-link a {
+  color: var(--cyan-bright);
+  text-decoration: none;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.login-link a:hover {
+  text-decoration: underline;
+}
+
+/* Bonus info */
+.bonus-box {
+  margin-top: 18px;
+  padding: 12px 14px;
+  background: rgba(0, 255, 136, 0.05);
+  border: 1px solid rgba(0, 255, 136, 0.2);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--green);
+  text-align: center;
+}
+.bonus-box::before {
+  content: '🎁 ';
+}
+
+/* Mobile */
+@media (max-width: 540px) {
+  body { padding: 16px 12px; }
+  .register-card { padding: 32px 24px; margin-top: 64px; }
+  .title-area h1 { font-size: 26px; }
+  .top-bar { padding: 12px 16px; }
+  .logo { font-size: 16px; letter-spacing: 3px; }
+}
+
+</style>
 </head>
+
 <body>
+
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
 <div class="particles" id="particles"></div>
-<div class="card">
-  <div class="corner tl"></div><div class="corner tr"></div>
-  <div class="corner bl"></div><div class="corner br"></div>
-  <div class="logo">◈ Créer un compte ◈</div>
-  <h1>Inscription</h1>
-  <div class="free-badge">🎁 2 analyses gratuites à l'inscription</div>
-  <div class="msg" id="msg"></div>
-  <div class="field"><label>Email</label><input type="email" id="email" placeholder="votre@email.com"/></div>
-  <div class="field"><label>Mot de passe</label><input type="password" id="password" placeholder="Min. 6 caractères"/></div>
-  <button class="btn" onclick="register()">Créer mon compte</button>
-  <div class="link">Déjà un compte ? <a href="/login.html">Se connecter</a></div>
+
+<!-- Header -->
+<div class="top-bar">
+  <a href="/" class="logo">J4keIA</a>
+  <nav>
+    <a href="/login.html">← Se connecter</a>
+  </nav>
 </div>
+
+<!-- Carte d'inscription -->
+<div class="register-card">
+
+  <!-- Badge pack choisi (visible si pack dans l'URL) -->
+  <div id="packBadge" class="pack-badge">
+    <div class="pack-badge-info">
+      <div class="pack-badge-label">◈ PACK CHOISI</div>
+      <div id="packBadgeName" class="pack-badge-name">—</div>
+    </div>
+    <div id="packBadgePrice" class="pack-badge-price">—</div>
+  </div>
+
+  <div class="title-area">
+    <div class="title-tag">◉ INSCRIPTION</div>
+    <h1>Créer mon compte</h1>
+    <p>Quelques secondes pour démarrer ton trading IA.</p>
+  </div>
+
+  <form id="registerForm" autocomplete="off">
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required placeholder="toi@email.com" />
+    </div>
+
+    <div class="field">
+      <label for="password">Mot de passe</label>
+      <input type="password" id="password" name="password" required placeholder="Au moins 6 caractères" minlength="6" />
+      <div class="field-hint">Min. 6 caractères. Choisis-en un que tu retiendras.</div>
+    </div>
+
+    <button type="submit" class="btn-submit" id="submitBtn">
+      ⚡ Créer mon compte
+    </button>
+
+    <div id="message" class="message"></div>
+
+    <div class="bonus-box">
+      2 analyses gratuites offertes à l'inscription
+    </div>
+  </form>
+
+  <div class="login-link">
+    Déjà un compte ?<a href="/login.html">Se connecter</a>
+  </div>
+
+</div>
+
 <script>
-  const pContainer = document.getElementById('particles');
-  for (let i = 0; i < 30; i++) {
-    const p = document.createElement('div');
-    p.className = 'particle';
-    p.style.cssText = `left:${Math.random()*100}%;animation-duration:${6+Math.random()*12}s;animation-delay:${Math.random()*10}s;--drift:${(Math.random()-0.5)*100}px;background:${Math.random()>0.5?'#00f5ff':'#8000ff'};box-shadow:0 0 4px currentColor;`;
-    pContainer.appendChild(p);
-  }
+// ═══ PARTICULES FLOTTANTES ═══
+const particles = document.getElementById('particles');
+for (let i = 0; i < 20; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.style.left = Math.random() * 100 + '%';
+  p.style.animationDuration = (Math.random() * 15 + 15) + 's';
+  p.style.animationDelay = (Math.random() * 15) + 's';
+  particles.appendChild(p);
+}
 
-  function showMsg(text, type) {
-    const el = document.getElementById('msg');
-    el.textContent = text; el.className = 'msg ' + type; el.style.display = 'block';
-  }
+// ═══ RÉCUPÉRER LE PACK CHOISI (depuis URL ou sessionStorage) ═══
+const urlParams = new URLSearchParams(window.location.search);
+let packDemande = urlParams.get('pack');
+if (!packDemande) {
+  try { packDemande = sessionStorage.getItem('packDemande'); } catch(e) {}
+}
+if (packDemande) packDemande = packDemande.toLowerCase();
+const PACKS_VALIDES = ['starter', 'pro', 'elite'];
+if (!PACKS_VALIDES.includes(packDemande)) packDemande = null;
 
-  async function register() {
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
-    if (!email || !password) return showMsg('Remplissez tous les champs', 'error');
-    if (password.length < 6) return showMsg('Mot de passe trop court (min. 6 caractères)', 'error');
+// ═══ AFFICHER LE BADGE PACK CHOISI ═══
+if (packDemande) {
+  (async function showPackBadge() {
+    const badge = document.getElementById('packBadge');
+    const nameEl = document.getElementById('packBadgeName');
+    const priceEl = document.getElementById('packBadgePrice');
+
+    nameEl.textContent = packDemande;
+    nameEl.className = 'pack-badge-name ' + packDemande;
+    priceEl.className = 'pack-badge-price ' + packDemande;
+    badge.classList.add('active');
+
+    // Récupérer le prix réel depuis l'API
     try {
-      const res = await fetch('/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      if (data.error) return showMsg(data.error, 'error');
-      if (data.success) showMsg('✅ ' + data.success, 'success');
-    } catch(e) { showMsg('Erreur serveur', 'error'); }
+      const r = await fetch('/api/prix-packs');
+      if (r.ok) {
+        const prix = await r.json();
+        if (prix[packDemande]) {
+          const devise = prix[packDemande].devise;
+          const symbol = devise === 'EUR' ? '\u20AC' : (devise === 'USD' ? '\u0024' : devise);
+          priceEl.textContent = prix[packDemande].prix + symbol;
+        }
+      }
+    } catch(e) {
+      // Fallback prix par défaut
+      const defaults = { starter: '25', pro: '100', elite: '75' };
+      priceEl.textContent = (defaults[packDemande] || '') + '\u20AC';
+    }
+  })();
+}
+
+// ═══ SOUMISSION DU FORMULAIRE ═══
+const form = document.getElementById('registerForm');
+const submitBtn = document.getElementById('submitBtn');
+const messageEl = document.getElementById('message');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+
+  if (!email || !password) {
+    showMessage('Email et mot de passe requis', 'error');
+    return;
   }
+  if (password.length < 6) {
+    showMessage('Mot de passe trop court (6 caractères min)', 'error');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = '◷ Création en cours...';
+  messageEl.style.display = 'none';
+
+  try {
+    const body = { email, password };
+    if (packDemande) body.packDemande = packDemande;
+
+    const r = await fetch('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+
+    if (d.error) {
+      showMessage(d.error, 'error');
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '\u26A1 Cr\u00E9er mon compte';
+      return;
+    }
+
+    // Succès
+    try { sessionStorage.removeItem('packDemande'); } catch(e) {}
+    if (packDemande) {
+      showMessage('\u2713 Compte cr\u00E9\u00E9 ! Ta demande pour le pack ' + packDemande.toUpperCase() + ' est en attente de validation par l\'admin.', 'success');
+    } else {
+      showMessage('\u2713 Compte cr\u00E9\u00E9 ! V\u00E9rifie ton email pour confirmer.', 'success');
+    }
+    submitBtn.innerHTML = '\u2713 Compte cr\u00E9\u00E9';
+    // Rediriger vers login après 2.5s
+    setTimeout(() => {
+      window.location.href = '/login.html?registered=1';
+    }, 2500);
+
+  } catch(err) {
+    showMessage('Erreur réseau, réessaie', 'error');
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '\u26A1 Cr\u00E9er mon compte';
+  }
+});
+
+function showMessage(text, type) {
+  messageEl.textContent = text;
+  messageEl.className = 'message ' + type;
+}
+
 </script>
+
 </body>
 </html>
-```
-
----
-
-## 📁 `.env` (avec tes nouvelles clés)
-```
-ANTHROPIC_API_KEY=ta-nouvelle-clé-anthropic
-RESEND_API_KEY=ta-nouvelle-clé-resend
-SESSION_SECRET=MonSecretTrading2024xyz
-BASE_URL=https://j4kes.onrender.com
-PORT=3000
