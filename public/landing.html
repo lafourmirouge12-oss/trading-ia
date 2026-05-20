@@ -1007,9 +1007,9 @@ footer a { color: var(--cyan-bright); text-decoration: none; }
 
   <div class="pricing-grid">
     <!-- Starter -->
-    <div class="price-card">
+    <div class="price-card" data-pack="starter">
       <div class="price-name">Starter</div>
-      <div class="price-amount">25<sup>€</sup></div>
+      <div class="price-amount" data-prix-pack="starter">25<sup>€</sup></div>
       <div class="price-period">par mois</div>
       <ul class="price-features">
         <li>30 analyses / mois</li>
@@ -1019,13 +1019,13 @@ footer a { color: var(--cyan-bright); text-decoration: none; }
         <li class="unavailable">IA personnalisée</li>
         <li class="unavailable">Multi-comptes</li>
       </ul>
-      <a href="#" onclick="smartCTA(event)" class="price-cta">Démarrer</a>
+      <a href="#" onclick="choisirPack(event, 'starter')" class="price-cta">Démarrer</a>
     </div>
 
     <!-- Pro (featured) -->
-    <div class="price-card featured">
+    <div class="price-card featured" data-pack="pro">
       <div class="price-name">Pro</div>
-      <div class="price-amount">100<sup>€</sup></div>
+      <div class="price-amount" data-prix-pack="pro">100<sup>€</sup></div>
       <div class="price-period">par mois</div>
       <ul class="price-features">
         <li>150 analyses / mois</li>
@@ -1035,13 +1035,13 @@ footer a { color: var(--cyan-bright); text-decoration: none; }
         <li>IA personnalisée (1 compte)</li>
         <li class="unavailable">Multi-comptes (jusqu'à 5)</li>
       </ul>
-      <a href="#" onclick="smartCTA(event)" class="price-cta">Choisir Pro</a>
+      <a href="#" onclick="choisirPack(event, 'pro')" class="price-cta">Choisir Pro</a>
     </div>
 
     <!-- Elite -->
-    <div class="price-card elite">
+    <div class="price-card elite" data-pack="elite">
       <div class="price-name">Elite</div>
-      <div class="price-amount">75<sup>€</sup></div>
+      <div class="price-amount" data-prix-pack="elite">75<sup>€</sup></div>
       <div class="price-period">par mois</div>
       <ul class="price-features">
         <li>Analyses illimitées</li>
@@ -1051,7 +1051,7 @@ footer a { color: var(--cyan-bright); text-decoration: none; }
         <li>IA personnalisée (par compte)</li>
         <li>Jusqu'à 5 comptes MT5</li>
       </ul>
-      <a href="#" onclick="smartCTA(event)" class="price-cta">Choisir Elite</a>
+      <a href="#" onclick="choisirPack(event, 'elite')" class="price-cta">Choisir Elite</a>
     </div>
   </div>
 </section>
@@ -1110,6 +1110,35 @@ function smartCTA(event) {
   } else {
     window.location.href = '/register.html';
   }
+}
+
+
+// PRIX DYNAMIQUES depuis API admin
+(async function loadPrixDynamique() {
+  try {
+    const r = await fetch('/api/prix-packs');
+    if (!r.ok) return;
+    const prix = await r.json();
+    document.querySelectorAll('[data-prix-pack]').forEach(el => {
+      const pack = el.getAttribute('data-prix-pack');
+      if (prix[pack] && prix[pack].prix) {
+        var devise = prix[pack].devise;
+        var symbol = devise === 'USD' ? '\u0024' : (devise === 'EUR' ? '\u20AC' : devise);
+        el.innerHTML = prix[pack].prix + '<sup>' + symbol + '</sup>';
+      }
+    });
+  } catch(e) {}
+})();
+
+// CHOISIR UN PACK (memorise pour inscription)
+function choisirPack(event, pack) {
+  if (event) event.preventDefault();
+  if (_userIsConnected) {
+    window.location.href = '/app';
+    return;
+  }
+  try { sessionStorage.setItem('packDemande', pack); } catch(e) {}
+  window.location.href = '/register.html?pack=' + pack;
 }
 
 // Particules flottantes

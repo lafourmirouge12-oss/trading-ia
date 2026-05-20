@@ -4528,7 +4528,7 @@ app.get('/verify-manual/:email', async (req, res) => {
 });
 
 app.post('/register', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, packDemande } = req.body;
   if (!email || !password) return res.json({ error: 'Champs manquants' });
   if (password.length < 6) return res.json({ error: 'Mot de passe trop court (6 min)' });
   try {
@@ -4536,12 +4536,17 @@ app.post('/register', async (req, res) => {
     if (existing) return res.json({ error: 'Email déjà utilisé' });
     const hash = await bcrypt.hash(password, 10);
     const token = uuidv4();
+    // FIX : si packDemande envoyé depuis landing, on l'enregistre en attente de validation admin
+    const packValide = ['starter', 'pro', 'elite'].includes((packDemande || '').toLowerCase());
     await db.insertAsync({
       email: email.toLowerCase(), password: hash,
       role: 'user', isVerified: false,
       verifyToken: token, analysisCount: 0,
       analysisMax: 2, subscribed: false,
-      banned: false, paymentStatus: 'pending',
+      banned: false,
+      paymentStatus: packValide ? 'pending_payment' : 'pending',
+      packDemande: packValide ? packDemande.toLowerCase() : null,
+      packDemandeAt: packValide ? new Date() : null,
       plan: 'free', createdAt: new Date()
     });
     const verifyUrl = BASE_URL + '/verify/' + token;
@@ -6119,6 +6124,45 @@ app.get('/api/trade/:id', checkAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// FIX : endpoint pour les paiements en attente (notif admin)
+app.get('/admin/pending-payments', checkAdmin, async (req, res) => {
+  try {
+    const users = await db.findAsync({ paymentStatus: 'pending_payment' });
+    const prix = chargerPrix();
+    const sorted = users.sort((a, b) => new Date(b.packDemandeAt || 0) - new Date(a.packDemandeAt || 0));
+    res.json({
+      count: sorted.length,
+      pending: sorted.map(u => ({
+        _id: u._id,
+        email: u.email,
+        packDemande: u.packDemande,
+        packPrix: prix[u.packDemande] || null,
+        packDemandeAt: u.packDemandeAt,
+        createdAt: u.createdAt
+      }))
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// FIX : endpoint pour le user de voir son statut pack
+app.get('/api/me/pack-status', async (req, res) => {
+  if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Non connecté' });
+  try {
+    const user = await db.findOneAsync({ _id: req.session.userId });
+    if (!user) return res.json({ status: 'unknown' });
+    const prix = chargerPrix();
+    res.json({
+      status: user.paymentStatus,
+      pack: user.packDemande,
+      packLabel: user.packDemande ? (prix[user.packDemande]?.label || user.packDemande) : null,
+      packPrix: user.packDemande ? prix[user.packDemande] : null,
+      subscribed: user.subscribed,
+      plan: user.plan,
+      analysesLeft: user.analysisMax - (user.analysisCount || 0)
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/users', checkAdmin, async (req, res) => {
   try {
     const users = await db.findAsync({ role: { $ne: 'admin' } });
@@ -6613,6 +6657,70 @@ app.post('/admin/alerte-email', checkAdmin, async (req, res) => {
       raisonCourte: raison || 'Test manuel admin' };
     await envoyerAlerteSetupAPlus(fakeParsed, 'ADMIN-' + Date.now());
     res.json({ success: true, message: 'Alerte envoyée à tous les clients abonnés' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// FIX : permettre à l'admin de valider DIRECTEMENT le pack demandé
+app.post('/admin/validate-pending/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Utilisateur introuvable' });
+    if (!user.packDemande) return res.json({ error: 'Pas de pack en attente' });
+
+    // Calculer maxAnalyses selon le pack
+    let analysisMax = 30;
+    if (user.packDemande === 'pro' || user.packDemande === 'premium') analysisMax = 150;
+    else if (user.packDemande === 'elite') analysisMax = 999999;
+
+    // 7 jours d'accès (modifie si tu veux 30 jours)
+    const paidUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await db.updateAsync({ _id: req.params.id }, { $set: {
+      subscribed: true,
+      paymentStatus: 'paid',
+      plan: user.packDemande,
+      analysisMax: analysisMax,
+      analysisCount: 0,
+      paidUntil: paidUntil,
+      validatedAt: new Date(),
+      packDemande: null // efface la demande
+    } });
+
+    console.log('[ADMIN-VALIDATE] ' + user.email + ' → pack ' + user.packDemande + ' validé');
+
+    // Notification au user
+    if (typeof creerNotification === 'function') {
+      try {
+        await creerNotification(req.params.id, 'pack_active',
+          '🎉 Ton pack ' + user.packDemande.toUpperCase() + ' est actif !',
+          'Tu peux maintenant profiter de toutes les fonctionnalités. Bon trading !',
+          { plan: user.packDemande });
+      } catch(e) {}
+    }
+
+    res.json({ success: true, plan: user.packDemande, analysisMax });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// FIX : permettre à l'admin de refuser/annuler un pack demandé
+app.post('/admin/reject-pending/:id', checkAdmin, async (req, res) => {
+  try {
+    const user = await db.findOneAsync({ _id: req.params.id });
+    if (!user) return res.json({ error: 'Utilisateur introuvable' });
+    await db.updateAsync({ _id: req.params.id }, { $set: {
+      paymentStatus: 'pending',
+      packDemande: null,
+      packRefusedAt: new Date()
+    } });
+    if (typeof creerNotification === 'function') {
+      try {
+        await creerNotification(req.params.id, 'pack_refused',
+          '❌ Demande de pack non validée',
+          'Ta demande de pack n\'a pas été validée. Contacte l\'admin si problème.',
+          {});
+      } catch(e) {}
+    }
+    res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
