@@ -4484,11 +4484,21 @@ app.get('/', (req, res) => {
   return res.redirect('/login.html');
 });
 app.get('/version', (req, res) => {
+  // FIX : on lit le VRAI max_tokens depuis le code source pour pas mentir
+  let realMaxTokens = 'inconnu';
+  try {
+    const selfCode = fs.readFileSync(__filename, 'utf8');
+    // Chercher le max_tokens de l'analyse principale (celui après le system prompt trading)
+    const m = selfCode.match(/max_tokens:\s*(\d+),\s*\r?\n\s*system:/);
+    if (m) realMaxTokens = parseInt(m[1]);
+  } catch(e) {}
   res.json({
-    version: '2026-05-21-fix-0-trades',
+    version: '2026-05-21-fix-0-trades-v2',
     deployed: 'OK',
-    maxTokens: 3000,
-    helperGetCandles: true,
+    maxTokensReel: realMaxTokens,
+    maxTokensAttendu: 3000,
+    correct: realMaxTokens === 3000,
+    helperGetCandles: typeof getCandles === 'function',
     serverTime: new Date().toISOString()
   });
 });
