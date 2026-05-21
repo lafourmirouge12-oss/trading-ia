@@ -2618,7 +2618,7 @@ const promptRules = { getReglesText };
 // TTL : 90s (suffit pour qu'une /analyze complète réutilise sans risque de staleness)
 
 const _marketDataCache = new Map(); // key → { data, time }
-const MARKET_CACHE_TTL_MS = 90 * 1000;
+const MARKET_CACHE_TTL_MS = 5 * 60 * 1000; // FIX ÉCO : 5 min (au lieu de 90s) — 3-4x moins de deploys MetaApi
 // Note: pool MT5 retiré (jamais branché aux fonctions existantes). Sera ajouté plus tard si besoin avec tests.
 
 async function fetchAllMarketData(userId, symbole) {
