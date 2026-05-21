@@ -278,7 +278,7 @@ function decryptStr(payload) {
 // Si le symbole de base ne marche pas, on essaie ces alternatives.
 const SYMBOL_ALIASES = {
   // FIX RaiseFX : utilise 'Gold' (avec G majuscule, sans suffixe) — on ajoute toutes les variantes possibles
-  'XAUUSD': ['XAUUSD', 'GOLD', 'Gold', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD', 'XAUUSD.r', 'XAUUSDx', 'GOLDx', 'XAU.cash'],
+  'XAUUSD': ['XAUUSD', 'GOLD', 'Gold', 'gold', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD', 'XAUUSD.r', 'XAUUSDx', 'GOLDx', 'XAU.cash', 'XAUUSD.raw', 'XAUUSD-raw', 'GOLD#', 'XAUUSD#', 'XAUUSD.RAW', 'GOLDUSD', 'Gold.spot', 'XAUUSD_SB', 'XAUUSDpro', 'XAUUSD.pro', 'XAUUSD.std', 'XAUUSD.vip', 'XAUUSDc'],
   'XAGUSD': ['XAGUSD', 'SILVER', 'XAG', 'SILVER.cash', 'XAGUSDm', 'XAG/USD'],
   'EURUSD': ['EURUSD', 'EUR/USD', 'EURUSDm'],
   'GBPUSD': ['GBPUSD', 'GBP/USD', 'GBPUSDm'],
@@ -324,6 +324,21 @@ function getSymbolCandidates(baseSymbol) {
   return [sym];
 }
 
+// FIX : getHistoricalCandles n'existe pas sur RPCConnection selon la version SDK
+// Ce helper essaie connection puis account, et retourne [] si rien ne marche
+async function getCandles(connection, account, symbol, timeframe, limit) {
+  // Méthode 1 : sur la connection (ancien SDK)
+  if (connection && typeof connection.getHistoricalCandles === 'function') {
+    try { return await connection.getHistoricalCandles(symbol, timeframe, undefined, limit) || []; } catch(e) {}
+  }
+  // Méthode 2 : sur le account (SDK récent)
+  if (account && typeof account.getHistoricalCandles === 'function') {
+    try { return await account.getHistoricalCandles(symbol, timeframe, undefined, limit) || []; } catch(e) {}
+  }
+  // Méthode 3 : via account.getHistoricalCandlesByTime / autre fallback
+  return [];
+}
+
 async function resolveSymbolForUser(connection, baseSymbol, serverName) {
   // FIX : on garde aussi la casse originale pour les brokers qui ont "Gold" (RaiseFX par ex)
   const symRaw = (baseSymbol || '').trim();
@@ -333,7 +348,7 @@ async function resolveSymbolForUser(connection, baseSymbol, serverName) {
   if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
   else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
   else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
+  else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash', '.raw', '#', 'c', 'm', '.r', 'pro', '.pro', '.std', '_SB', 'x'];
 
   // 1. Essayer le symbole demandé avec ses suffixes serveur
   for (const sfx of suffixes) {
@@ -2638,11 +2653,11 @@ async function fetchAllMarketData(userId, symbole) {
     // ─── Récupération PARALLÈLE de tous les TF (1 seul deploy, 6 appels en parallèle) ─
     // D1 ajouté : filtre de tendance journalière pour bloquer les trades contre tendance
     const [candlesD1, candlesH1, candlesM30, candlesM15, candlesM5, tickInfo] = await Promise.all([
-      connection.getHistoricalCandles(symbolResolu, '1d', undefined, 30).catch(() => []),
-      connection.getHistoricalCandles(symbolResolu, '1h', undefined, 60).catch(() => []),
-      connection.getHistoricalCandles(symbolResolu, '30m', undefined, 60).catch(() => []),
-      connection.getHistoricalCandles(symbolResolu, '15m', undefined, 60).catch(() => []),
-      connection.getHistoricalCandles(symbolResolu, '5m', undefined, 60).catch(() => []),
+      getCandles(connection, account, symbolResolu, '1d', 30),
+      getCandles(connection, account, symbolResolu, '1h', 60),
+      getCandles(connection, account, symbolResolu, '30m', 60),
+      getCandles(connection, account, symbolResolu, '15m', 60),
+      getCandles(connection, account, symbolResolu, '5m', 60),
       connection.getSymbolPrice(symbolResolu).catch(() => null)
     ]);
 
@@ -5342,15 +5357,15 @@ INTÉGRATION :
 ═══════════════════════════════════════════════════════════════
 ` : ''}
 
-Réponds UNIQUEMENT avec un JSON valide, sans texte avant ou après, sans backticks:
+Réponds UNIQUEMENT avec un JSON valide, COMPACT, sans texte avant ou après, sans backticks.
+IMPORTANT : sois CONCIS dans les champs texte (raisons en max 10 mots) pour que le JSON soit COMPLET et bien fermé.
 
 {
   "decision": "BUY" ou "SELL" ou "NE PAS TRADER",
   "conceptUtilise": "<CRT_KASPER | OTE_FIBO | AMD | SWEEP_REVERSAL | SILVER_BULLET | VOLUME_SPIKE | POC_RETEST | ORDER_BLOCK_H1 | NONE>",
   "conceptsTestes": [
-    {"nom":"<concept1>","score":<0-10>,"applicable":true,"raison":"<1 phrase>"},
-    {"nom":"<concept2>","score":<0-10>,"applicable":true,"raison":"<1 phrase>"},
-    {"nom":"<concept3>","score":<0-10>,"applicable":false,"raison":"<pourquoi pas applicable>"}
+    {"nom":"<concept1>","score":<0-10>,"raison":"<max 10 mots>"},
+    {"nom":"<concept2>","score":<0-10>,"raison":"<max 10 mots>"}
   ],
   "tp1Source": "<source: 'FVG opposée' / 'Swing M5' / 'Fibo 127.2%' / 'Equal Highs' etc.>",
   "tp2Source": "<source niveau structurel>",
@@ -5433,7 +5448,7 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     // FIX VITESSE : Haiku 4.5 = 3-4x plus rapide que Sonnet, parfait pour ICT/SMC
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
+      max_tokens: 3000,
       system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
       messages: [{ role: 'user', content }]
     });
