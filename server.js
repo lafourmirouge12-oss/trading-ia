@@ -326,16 +326,30 @@ function getSymbolCandidates(baseSymbol) {
 
 // FIX : getHistoricalCandles n'existe pas sur RPCConnection selon la version SDK
 // Ce helper essaie connection puis account, et retourne [] si rien ne marche
+function tfToMs(tf) {
+  const map = { '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
+  return map[tf] || 3600000;
+}
+
 async function getCandles(connection, account, symbol, timeframe, limit) {
-  // Méthode 1 : sur la connection (ancien SDK)
-  if (connection && typeof connection.getHistoricalCandles === 'function') {
-    try { return await connection.getHistoricalCandles(symbol, timeframe, undefined, limit) || []; } catch(e) {}
-  }
-  // Méthode 2 : sur le account (SDK récent)
+  // FIX : getHistoricalCandles est sur le ACCOUNT (SDK metaapi recent)
+  // Signature : account.getHistoricalCandles(symbol, timeframe, startTime, limit)
+  const startTime = new Date(Date.now() - (limit + 10) * tfToMs(timeframe));
+
+  // Methode 1 (prioritaire) : account.getHistoricalCandles
   if (account && typeof account.getHistoricalCandles === 'function') {
-    try { return await account.getHistoricalCandles(symbol, timeframe, undefined, limit) || []; } catch(e) {}
+    try {
+      const c = await account.getHistoricalCandles(symbol, timeframe, startTime, limit);
+      if (Array.isArray(c) && c.length > 0) return c;
+    } catch(e) { console.log('[getCandles] account: ' + e.message); }
   }
-  // Méthode 3 : via account.getHistoricalCandlesByTime / autre fallback
+  // Methode 2 (ancien SDK) : connection.getHistoricalCandles
+  if (connection && typeof connection.getHistoricalCandles === 'function') {
+    try {
+      const c = await connection.getHistoricalCandles(symbol, timeframe, startTime, limit);
+      if (Array.isArray(c) && c.length > 0) return c;
+    } catch(e) { console.log('[getCandles] connection: ' + e.message); }
+  }
   return [];
 }
 
@@ -5252,18 +5266,13 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
       }
     }
 
+    // FIX : on NE bloque PLUS automatiquement sur un conflit contextuel.
+    // Avant : NE PAS TRADER direct sans demander à l'IA (bloquait trop, surtout en range).
+    // Maintenant : on signale juste le conflit à l'IA dans le prompt, elle décide.
+    let conflitWarning = '';
     if (conflitDetecte) {
-      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — analyse Claude évitée');
-      const reponseConflit = {
-        decision: 'NE PAS TRADER',
-        score: 4,
-        commentaire: 'Contexte contradictoire détecté côté serveur : ' + raisonConflit,
-        instrument: req.body.instrument || 'XAUUSD',
-        contexteContradictoire: true,
-        conflitRaison: raisonConflit
-      };
-      try { await analysesDb.insertAsync({ ...reponseConflit, userId: req.session.userId, createdAt: new Date() }); } catch(e) {}
-      return res.json(reponseConflit);
+      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — signalé à l IA (pas de blocage auto)');
+      conflitWarning = '\n⚠️ NOTE SERVEUR : ' + raisonConflit + '. Sois prudent mais analyse quand même les images.';
     }
 
     content.push({
@@ -5315,7 +5324,7 @@ Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.
 
 ${blocLecons}${blocSetupsGagnants}${blocPatternErreurs}${blocOBFVG}${blocIndicateurs}
 
-CONTEXTE : ${sessionWarning}
+CONTEXTE : ${sessionWarning}${conflitWarning}
 SESSION : ${sessionActive}
 
 ═══════════════════════════════════════════════════════════════
