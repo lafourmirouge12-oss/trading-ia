@@ -2648,16 +2648,30 @@ async function fetchAllMarketData(userId, symbole) {
         await account.deploy();
         if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
         deployedHere = true;
-        await account.waitConnected();
+        // FIX VITESSE : timeout 25s sur waitConnected (sinon ça bloque 60s+)
+        await Promise.race([
+          account.waitConnected(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 25s')), 25000))
+        ]);
       } catch(deployErr) {
-        console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
+        console.log('[FETCH-MARKET] Deploy/connexion lent ou échoué pour ' + userId + ' : ' + deployErr.message);
+        if (deployedHere) { try { await account.undeploy(); } catch(e) {} }
         return null;
       }
     }
 
     const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized();
+    // FIX VITESSE : timeout 25s sur connect + sync
+    try {
+      await Promise.race([
+        (async () => { await connection.connect(); await connection.waitSynchronized(); })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout 25s')), 25000))
+      ]);
+    } catch(syncErr) {
+      console.log('[FETCH-MARKET] Sync lent pour ' + userId + ' : ' + syncErr.message);
+      if (deployedHere) { try { await account.undeploy(); } catch(e) {} }
+      return null;
+    }
 
     // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
     const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
@@ -5201,7 +5215,14 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     } catch(e) { /* silent : pas Pro/Elite ou pas assez de data */ }
 
     // 🔍 OB/FVG détectés algorithmiquement (data objective)
-    const blocOBFVG = await getBlocOBFVG(req.session.userId, req.body.instrument || 'XAUUSD');
+    // FIX VITESSE : timeout 25s. Si MetaApi traîne, on analyse les images sans bloquer.
+    let blocOBFVG = '';
+    try {
+      blocOBFVG = await Promise.race([
+        getBlocOBFVG(req.session.userId, req.body.instrument || 'XAUUSD'),
+        new Promise((resolve) => setTimeout(() => { console.log('[ANALYZE-PERF] getBlocOBFVG timeout 25s - analyse sur images seules'); resolve(''); }, 25000))
+      ]);
+    } catch(e) { console.log('[ANALYZE-PERF] getBlocOBFVG erreur: ' + e.message); blocOBFVG = ''; }
 
     // 📊 Indicateurs techniques (RSI + MAs sur H1/M15/M5)
     const blocIndicateurs = await getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD');
