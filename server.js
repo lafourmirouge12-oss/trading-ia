@@ -4483,6 +4483,16 @@ app.get('/', (req, res) => {
   // Fallback ultime : rediriger vers login
   return res.redirect('/login.html');
 });
+app.get('/version', (req, res) => {
+  res.json({
+    version: '2026-05-21-fix-0-trades',
+    deployed: 'OK',
+    maxTokens: 3000,
+    helperGetCandles: true,
+    serverTime: new Date().toISOString()
+  });
+});
+
 app.get('/app', checkAuth, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/landing.html', (req, res) => {
   // FIX : si user déjà connecté → direct app, pas la landing commerciale
