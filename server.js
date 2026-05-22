@@ -3273,10 +3273,16 @@ async function verifierProtectionsAvancees(parsed, userId) {
       console.log('[PROTECTIONS] ' + parsed.decision + ' ' + symbole + ' : ' + alertes.join(' | '));
 
       if (tradeAnnule) {
+        // GRAVE : danger réel (R:R<1, contre-tendance D1, bougie violente) → on annule
         parsed.decision = 'NE PAS TRADER';
         parsed.score = 3;
       } else if (scoreReduit) {
-        parsed.score = Math.min(parsed.score || 5, 5);
+        // MODÉRÉ : petit bémol (RSI 30-35, premium sans MSS...) → on retire 1 point
+        // par alerte modérée, SANS plafond brutal. Un bon setup 7 avec 1 bémol = 6 (passe).
+        const nbAlertesModerees = alertes.length;
+        const scoreBase = parsed.score || 6;
+        parsed.score = Math.max(scoreBase - nbAlertesModerees, 3);
+        console.log('[PROTECTIONS] Score modéré : ' + scoreBase + ' - ' + nbAlertesModerees + ' alerte(s) = ' + parsed.score);
       }
     }
     // Sécurité : si la décision finale n'est ni 'NE PAS TRADER' ni la décision initiale,
@@ -6220,6 +6226,101 @@ app.get('/api/me/pack-status', async (req, res) => {
       analysesLeft: user.analysisMax - (user.analysisCount || 0)
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══ DASHBOARD COMPTES CLIENTS (mode économe MetaApi) ═══
+// Cache 10 min pour éviter de re-déployer les comptes à chaque ouverture
+let _comptesClientsCache = { data: null, time: 0 };
+const COMPTES_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+app.get('/admin/clients-comptes', checkAdmin, async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+    const now = Date.now();
+
+    // MODE ÉCONOME : si cache valide et pas de refresh forcé → renvoie le cache
+    if (!forceRefresh && _comptesClientsCache.data && (now - _comptesClientsCache.time) < COMPTES_CACHE_TTL) {
+      return res.json({
+        fromCache: true,
+        cacheAgeMin: Math.round((now - _comptesClientsCache.time) / 60000),
+        comptes: _comptesClientsCache.data
+      });
+    }
+
+    // Récupérer tous les users avec un compte MT5 connecté
+    const users = await db.findAsync({ 'mt5.metaApiAccountId': { $exists: true } });
+    const comptes = [];
+
+    if (!metaApi) {
+      return res.json({ fromCache: false, error: 'MetaApi non configuré', comptes: [] });
+    }
+
+    // MODE ÉCONOME : lecture SÉQUENTIELLE (1 compte à la fois, pas 20 deploys d'un coup)
+    for (const user of users) {
+      const ligne = {
+        email: user.email,
+        plan: user.plan || 'starter',
+        login: user.mt5.login || '?',
+        balanceDepart: user.mt5.balanceInitiale || user.mt5.balance || null,
+        balance: null,
+        equity: null,
+        variation: null,
+        statut: 'inconnu'
+      };
+
+      try {
+        const account = await metaApi.metatraderAccountApi.getAccount(user.mt5.metaApiAccountId);
+        let deployedHere = false;
+
+        if (account.state !== 'DEPLOYED') {
+          await account.deploy();
+          if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
+          deployedHere = true;
+          // Timeout 20s : si le compte traîne, on passe au suivant
+          await Promise.race([
+            account.waitConnected(),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 20s')), 20000))
+          ]);
+        }
+
+        const connection = account.getRPCConnection();
+        await Promise.race([
+          (async () => { await connection.connect(); await connection.waitSynchronized(); })(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('sync timeout 20s')), 20000))
+        ]);
+
+        const info = await connection.getAccountInformation();
+        ligne.balance = info.balance;
+        ligne.equity = info.equity || info.balance;
+        ligne.devise = info.currency || 'USD';
+
+        // Calcul variation depuis le solde de départ
+        if (ligne.balanceDepart && ligne.equity != null) {
+          ligne.variation = +(ligne.equity - ligne.balanceDepart).toFixed(2);
+          ligne.variationPct = +((ligne.variation / ligne.balanceDepart) * 100).toFixed(1);
+        }
+        ligne.statut = (ligne.variation == null) ? 'ok' : (ligne.variation >= 0 ? 'profit' : 'perte');
+
+        // MODE ÉCONOME : undeploy immédiat après lecture
+        if (deployedHere) {
+          try { await account.undeploy(); } catch(e) {}
+        }
+      } catch(errCompte) {
+        ligne.statut = 'erreur';
+        ligne.erreur = errCompte.message;
+        console.log('[ADMIN-COMPTES] Erreur lecture ' + user.email + ' : ' + errCompte.message);
+      }
+
+      comptes.push(ligne);
+    }
+
+    // Mettre en cache
+    _comptesClientsCache = { data: comptes, time: Date.now() };
+
+    res.json({ fromCache: false, comptes });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/admin/users', checkAdmin, async (req, res) => {

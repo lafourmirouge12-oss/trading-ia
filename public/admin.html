@@ -140,6 +140,37 @@
     <div class="stat-card"><div class="stat-num cyan" id="dAnalyses30j">0</div><div class="stat-label">Analyses 30j</div></div>
   </div>
 
+  <!-- ═══ COMPTES CLIENTS — SOLDES MT5 ═══ -->
+  <div class="section-title">◈ 💰 Comptes clients — Soldes MT5</div>
+  <div style="background:rgba(0,15,40,0.7);border:1px solid rgba(0,245,255,0.15);border-radius:6px;padding:16px;margin-bottom:24px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+      <button onclick="chargerComptesClients(false)" style="background:rgba(0,245,255,0.12);border:1px solid var(--cyan);color:var(--cyan);padding:9px 20px;border-radius:3px;cursor:pointer;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;">📂 Afficher (cache)</button>
+      <button onclick="chargerComptesClients(true)" style="background:rgba(255,215,0,0.12);border:1px solid var(--gold);color:var(--gold);padding:9px 20px;border-radius:3px;cursor:pointer;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;text-transform:uppercase;">🔄 Rafraîchir (API)</button>
+      <div id="comptesStatus" style="font-size:11px;color:rgba(255,255,255,0.4);font-family:'Orbitron',monospace;"></div>
+    </div>
+    <div class="winrate-grid" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-num green" id="cProfit">0</div><div class="stat-label">🟢 En profit</div></div>
+      <div class="stat-card"><div class="stat-num red" id="cPerte">0</div><div class="stat-label">🔴 En perte</div></div>
+      <div class="stat-card"><div class="stat-num cyan" id="cTotal">0</div><div class="stat-label">Comptes suivis</div></div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="color:var(--cyan);font-family:'Orbitron',monospace;font-size:10px;letter-spacing:1px;text-transform:uppercase;">
+          <th style="text-align:left;padding:8px;">Client</th>
+          <th style="text-align:left;padding:8px;">Plan</th>
+          <th style="text-align:right;padding:8px;">Solde</th>
+          <th style="text-align:right;padding:8px;">Équité</th>
+          <th style="text-align:right;padding:8px;">Variation</th>
+          <th style="text-align:center;padding:8px;">Statut</th>
+        </tr></thead>
+        <tbody id="comptesTbody">
+          <tr><td colspan="6" style="padding:16px;text-align:center;color:rgba(255,255,255,0.3);">Clique "Afficher" pour charger les soldes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:10px;">⚡ Mode économe : cache 10 min. "Rafraîchir" interroge MetaApi (consomme l'API). Seuls les clients avec MT5 connecté apparaissent.</div>
+  </div>
+
   <!-- ═══ BANNIÈRE CONFIG PRIX DES PACKS ═══ -->
   <div class="section-title">◈ 💰 Configuration des prix des packs</div>
   <div style="background:linear-gradient(135deg,rgba(255,215,0,0.06),rgba(0,245,255,0.04));border:1px solid rgba(255,215,0,0.25);border-radius:6px;padding:20px;margin-bottom:24px;">
@@ -304,6 +335,65 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// COMPTES CLIENTS - SOLDES MT5
+async function chargerComptesClients(refresh) {
+  const tbody = document.getElementById('comptesTbody');
+  const status = document.getElementById('comptesStatus');
+  status.textContent = refresh ? 'Interrogation MetaApi (peut prendre 1 min)...' : 'Chargement...';
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:rgba(255,255,255,0.3);">Chargement...</td></tr>';
+  try {
+    const url = '/admin/clients-comptes' + (refresh ? '?refresh=1' : '');
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.error) {
+      status.textContent = 'Erreur: ' + data.error;
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:#ff5050;">' + data.error + '</td></tr>';
+      return;
+    }
+    const comptes = data.comptes || [];
+    if (data.fromCache) {
+      status.textContent = 'Cache (il y a ' + data.cacheAgeMin + ' min) - clique Rafraichir pour MAJ';
+    } else {
+      status.textContent = 'A jour (' + comptes.length + ' compte(s))';
+    }
+    if (comptes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:rgba(255,255,255,0.3);">Aucun client avec MT5 connecte</td></tr>';
+      document.getElementById('cProfit').textContent = '0';
+      document.getElementById('cPerte').textContent = '0';
+      document.getElementById('cTotal').textContent = '0';
+      return;
+    }
+    let nbProfit = 0, nbPerte = 0, rows = '';
+    for (const c of comptes) {
+      let varTxt = '-', varColor = 'rgba(255,255,255,0.4)';
+      if (c.variation != null) {
+        if (c.variation >= 0) { nbProfit++; varColor = '#00ff88'; varTxt = '+' + c.variation + ' (' + (c.variationPct||0) + '%)'; }
+        else { nbPerte++; varColor = '#ff5050'; varTxt = c.variation + ' (' + (c.variationPct||0) + '%)'; }
+      }
+      let statutBadge = '';
+      if (c.statut === 'profit') statutBadge = '<span style="color:#00ff88;">Profit</span>';
+      else if (c.statut === 'perte') statutBadge = '<span style="color:#ff5050;">Perte</span>';
+      else if (c.statut === 'erreur') statutBadge = '<span style="color:#ffa500;" title="' + (c.erreur||'') + '">Erreur</span>';
+      else statutBadge = '<span style="color:rgba(255,255,255,0.4);">-</span>';
+      const planColor = c.plan === 'elite' ? '#a050ff' : (c.plan === 'pro' || c.plan === 'premium') ? '#ffd700' : '#00f5ff';
+      rows += '<tr style="border-top:1px solid rgba(255,255,255,0.06);">' +
+        '<td style="padding:8px;">' + (c.email||'?') + '<br><span style="font-size:9px;color:rgba(255,255,255,0.3);">' + (c.login||'') + '</span></td>' +
+        '<td style="padding:8px;color:' + planColor + ';text-transform:uppercase;font-size:10px;">' + (c.plan||'starter') + '</td>' +
+        '<td style="padding:8px;text-align:right;">' + (c.balance != null ? c.balance + ' ' + (c.devise||'') : '-') + '</td>' +
+        '<td style="padding:8px;text-align:right;">' + (c.equity != null ? c.equity + ' ' + (c.devise||'') : '-') + '</td>' +
+        '<td style="padding:8px;text-align:right;color:' + varColor + ';">' + varTxt + '</td>' +
+        '<td style="padding:8px;text-align:center;">' + statutBadge + '</td>' +
+        '</tr>';
+    }
+    tbody.innerHTML = rows;
+    document.getElementById('cProfit').textContent = nbProfit;
+    document.getElementById('cPerte').textContent = nbPerte;
+    document.getElementById('cTotal').textContent = comptes.length;
+  } catch(e) {
+    status.textContent = 'Erreur: ' + e.message;
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:#ff5050;">Erreur de chargement</td></tr>';
+  }
+}
 let users=[],filter='all',pendingId=null,bulkMode='add';
 
 async function loadStats(){
