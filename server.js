@@ -2618,7 +2618,7 @@ const promptRules = { getReglesText };
 // TTL : 90s (suffit pour qu'une /analyze complète réutilise sans risque de staleness)
 
 const _marketDataCache = new Map(); // key → { data, time }
-const MARKET_CACHE_TTL_MS = 5 * 60 * 1000; // FIX ÉCO : 5 min (au lieu de 90s) — 3-4x moins de deploys MetaApi
+const MARKET_CACHE_TTL_MS = 90 * 1000;
 // Note: pool MT5 retiré (jamais branché aux fonctions existantes). Sera ajouté plus tard si besoin avec tests.
 
 async function fetchAllMarketData(userId, symbole) {
@@ -2648,30 +2648,16 @@ async function fetchAllMarketData(userId, symbole) {
         await account.deploy();
         if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
         deployedHere = true;
-        // FIX VITESSE : timeout 25s sur waitConnected (sinon ça bloque 60s+)
-        await Promise.race([
-          account.waitConnected(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 25s')), 25000))
-        ]);
+        await account.waitConnected();
       } catch(deployErr) {
-        console.log('[FETCH-MARKET] Deploy/connexion lent ou échoué pour ' + userId + ' : ' + deployErr.message);
-        if (deployedHere) { try { await account.undeploy(); } catch(e) {} }
+        console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
         return null;
       }
     }
 
     const connection = account.getRPCConnection();
-    // FIX VITESSE : timeout 25s sur connect + sync
-    try {
-      await Promise.race([
-        (async () => { await connection.connect(); await connection.waitSynchronized(); })(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout 25s')), 25000))
-      ]);
-    } catch(syncErr) {
-      console.log('[FETCH-MARKET] Sync lent pour ' + userId + ' : ' + syncErr.message);
-      if (deployedHere) { try { await account.undeploy(); } catch(e) {} }
-      return null;
-    }
+    await connection.connect();
+    await connection.waitSynchronized();
 
     // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
     const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
@@ -5215,14 +5201,14 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     } catch(e) { /* silent : pas Pro/Elite ou pas assez de data */ }
 
     // 🔍 OB/FVG détectés algorithmiquement (data objective)
-    // FIX VITESSE : timeout 25s. Si MetaApi traîne, on analyse les images sans bloquer.
+    // FIX VITESSE : timeout 25s sur getBlocOBFVG. Si MetaApi traîne, analyse sur images.
     let blocOBFVG = '';
     try {
       blocOBFVG = await Promise.race([
         getBlocOBFVG(req.session.userId, req.body.instrument || 'XAUUSD'),
-        new Promise((resolve) => setTimeout(() => { console.log('[ANALYZE-PERF] getBlocOBFVG timeout 25s - analyse sur images seules'); resolve(''); }, 25000))
+        new Promise((resolve) => setTimeout(() => { console.log('[ANALYZE-PERF] getBlocOBFVG timeout 25s - images seules'); resolve(''); }, 25000))
       ]);
-    } catch(e) { console.log('[ANALYZE-PERF] getBlocOBFVG erreur: ' + e.message); blocOBFVG = ''; }
+    } catch(e) { console.log('[ANALYZE-PERF] getBlocOBFVG err: ' + e.message); blocOBFVG = ''; }
 
     // 📊 Indicateurs techniques (RSI + MAs sur H1/M15/M5)
     const blocIndicateurs = await getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD');
@@ -5311,10 +5297,39 @@ CONCEPTS À ÉVALUER (donne un score 0-10 à chacun) :
  7. POC_RETEST — prix retest le Point of Control (meilleur en range)
  8. ORDER_BLOCK_H1 — OB qualité HIGH non mitigé (meilleur sur retracement)
 
-→ Choisis le concept au score le + élevé et fais TON trade dessus
-→ Si AUCUN concept n'a score >= 6 → "NE PAS TRADER" obligatoire (OPTION B : seuil 6 au lieu de 7)
+⚠️ DONNÉES MANQUANTES : si tu n'as pas le volume sur les images (VOLUME_SPIKE)
+ou pas de profil volumétrique (POC_RETEST), NE mets PAS un score bas par défaut.
+Marque ces concepts "non évaluable" et juge sur les 6 autres concepts visibles.
+Ne pénalise JAMAIS le score global juste parce qu'un concept est non évaluable.
+
+→ Choisis le concept au score le + élevé.
+
+═══ LOGIQUE DE CONFLUENCE (IMPORTANT) ═══
+Étape 1 : Si UN concept seul a score >= 6 → trade dessus directement.
+
+Étape 2 : Si AUCUN concept seul n'atteint 6, cherche une CONFLUENCE :
+- Identifie 2 ou 3 concepts COMPATIBLES qui ont chacun score >= 4
+- Ils doivent pointer dans le MÊME sens (tous BUY ou tous SELL)
+- Ils doivent viser le MÊME niveau de prix (zone proche, ex ±8$ sur XAUUSD)
+- Combinaisons VALIDES : OTE_FIBO+ORDER_BLOCK_H1 / SWEEP_REVERSAL+CRT_KASPER /
+  AMD+VOLUME_SPIKE / POC_RETEST+OTE_FIBO / ORDER_BLOCK_H1+SWEEP_REVERSAL
+- Combinaisons INTERDITES : SILVER_BULLET+CRT_KASPER (heures opposées),
+  ou tout concept en contradiction de direction.
+
+Calcul du score combiné en confluence :
+  score_combiné = score du meilleur concept + 1 par concept compatible aligné supplémentaire
+  Exemple : OTE_FIBO(5) + ORDER_BLOCK_H1(5) alignés même zone → 5 + 1 = 6 → TRADE VALIDE
+  Exemple : OTE_FIBO(5) + ORDER_BLOCK(4) + SWEEP(4) alignés → 5 + 2 = 7 → TRADE A
+
+Étape 3 : Si score_combiné >= 6 → TRADE (indique les concepts dans "conceptUtilise" séparés par +).
+Étape 4 : Si même en confluence le score reste < 6 → "NE PAS TRADER".
+
+RÈGLE D'OR : la confluence sert à détecter de VRAIS setups multi-concepts,
+PAS à forcer un trade. Si les concepts ne sont pas réellement alignés au même
+niveau et même sens, NE COMBINE PAS — dis "NE PAS TRADER".
+
 → Renseigne "conceptUtilise" et "conceptsTestes" dans le JSON
-→ Pour le scoring final tu utilises le score du concept gagnant
+→ Pour le scoring final tu utilises le score du concept gagnant OU le score combiné
 
 ═══ FORMAT PRIX OBLIGATOIRE PAR INSTRUMENT ═══
 - XAUUSD/Gold : 2 décimales (ex 4710.50)
