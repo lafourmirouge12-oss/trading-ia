@@ -256,7 +256,9 @@ function encryptStr(text) {
 function decryptStr(payload) {
   if (!payload || typeof payload !== 'string' || !payload.includes(':')) return null;
   try {
-    const [ivHex, encryptedHex] = payload.split(':');
+    const colonIdx = payload.indexOf(':');
+    const ivHex = payload.substring(0, colonIdx);
+    const encryptedHex = payload.substring(colonIdx + 1);
     const iv = Buffer.from(ivHex, 'hex');
     const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPT_KEY), iv);
     let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
@@ -2937,7 +2939,7 @@ async function verifierProtectionsAvancees(parsed, userId) {
         }
       }
 
-      if (plusGrosseRecente && plusGrosRatio >= 3.5) {
+      if (plusGrosseRecente && plusGrosRatio >= 5.0) {
         const corps = plusGrosseRecente.close - plusGrosseRecente.open;
         const haussiere = corps > 0;
         const baissiere = corps < 0;
@@ -2950,14 +2952,14 @@ async function verifierProtectionsAvancees(parsed, userId) {
         if (memeSens) {
           tradeAnnule = true;
           alertes.push(`Bougie M15 récente ${plusGrosRatio.toFixed(1)}× la moyenne dans le sens — tu chasses un mouvement déjà fait, trade annulé`);
-        } else if (contreSens && plusGrosRatio >= 4) {
+        } else if (contreSens && plusGrosRatio >= 6.5) {
           tradeAnnule = true;
           alertes.push(`Bougie M15 récente ${plusGrosRatio.toFixed(1)}× la moyenne contre direction — trop risqué, trade annulé`);
         } else if (contreSens) {
           scoreReduit = true;
           alertes.push(`Bougie M15 récente ${plusGrosRatio.toFixed(1)}× la moyenne contre direction — score réduit`);
         }
-      } else if (plusGrosseRecente && plusGrosRatio >= 2.5) {
+      } else if (plusGrosseRecente && plusGrosRatio >= 3.5) {
         // Mouvement modéré récent : on garde mais on flag
         const corps = plusGrosseRecente.close - plusGrosseRecente.open;
         const memeSens = (isBuy && corps > 0) || (!isBuy && corps < 0);
@@ -2968,19 +2970,20 @@ async function verifierProtectionsAvancees(parsed, userId) {
       }
     }
 
-    // ─── PROTECTION 3 : R:R RÉEL DEPUIS LE PRIX ACTUEL ────────────
-    // C'est le R:R réel après slippage / si le LIMIT s'exécute mal.
-    // Seuil : 1.3 minimum pour passer (équilibré : ni strict ni laxiste).
-    const distPrixVersTP = Math.abs(prixActuel - tp);
-    const distPrixVersSL = Math.abs(prixActuel - sl);
-    const rrReel = distPrixVersSL > 0 ? distPrixVersTP / distPrixVersSL : 0;
+    // ─── PROTECTION 3 : R:R RÉEL DEPUIS L'ENTRÉE (ou prix actuel si MARKET) ──────────────────
+    // Pour un ordre LIMIT, le R:R doit être calculé depuis l'entrée (c'est le vrai R:R du trade).
+    // Pour un ordre MARKET, on utilise le prix actuel.
+    const refPrix = (parsed.entreeType === 'MARKET') ? prixActuel : entree;
+    const distPrixVersTP = tp > 0 ? Math.abs(refPrix - tp) : 0;
+    const distPrixVersSL = sl > 0 ? Math.abs(refPrix - sl) : 0;
+    const rrReel = distPrixVersSL > 0 && distPrixVersTP > 0 ? distPrixVersTP / distPrixVersSL : 0;
 
-    if (rrReel < 1) {
+    if (rrReel > 0 && rrReel < 1) {
       tradeAnnule = true;
-      alertes.push(`R:R réel ${rrReel.toFixed(2)} < 1 — depuis prix ${prixActuel.toFixed(2)} : TP ${distPrixVersTP.toFixed(1)}p / SL ${distPrixVersSL.toFixed(1)}p — trade annulé`);
-    } else if (rrReel < 1.3) {
+      alertes.push(`R:R réel ${rrReel.toFixed(2)} < 1 — TP ${distPrixVersTP.toFixed(1)}$ / SL ${distPrixVersSL.toFixed(1)}$ depuis entrée — trade annulé`);
+    } else if (rrReel > 0 && rrReel < 1.2) {
       scoreReduit = true;
-      alertes.push(`R:R réel ${rrReel.toFixed(2)} faible — depuis prix ${prixActuel.toFixed(2)} : TP ${distPrixVersTP.toFixed(1)}p / SL ${distPrixVersSL.toFixed(1)}p — score réduit`);
+      alertes.push(`R:R réel ${rrReel.toFixed(2)} faible (< 1.2) — score réduit`);
     }
 
     // ─── PROTECTION 4 : DISTANCE ENTRÉE INSUFFISANTE ──────────────
@@ -3032,8 +3035,8 @@ async function verifierProtectionsAvancees(parsed, userId) {
         parsed.tendanceConfidenceH1 = tH1.confidence;
         parsed.tendanceConfidenceM30 = tM30.confidence;
 
-        // Cas 1 : H1 ET M30 contre → ANNULATION (sauf MSS aligné)
-        if (signalContreH1 && signalContreM30) {
+        // Cas 1 : H1 ET M30 contre avec confidence 4+/5 chacun → ANNULATION (sauf MSS aligné)
+        if (signalContreH1 && signalContreM30 && tH1.confidence >= 4 && tM30.confidence >= 4) {
           if (mssAlignedAvecSignal) {
             scoreReduit = true;
             alertes.push(`H1+M30 contre ${parsed.decision} (${tH1.trend}/${tM30.trend}) MAIS MSS ${structM15.event.type} aligné M15 → score réduit`);
@@ -3041,32 +3044,20 @@ async function verifierProtectionsAvancees(parsed, userId) {
             tradeAnnule = true;
             alertes.push(`🚫 CONTRE-TENDANCE ROBUSTE : H1=${tH1.trend} (${tH1.confidence}/5) + M30=${tM30.trend} (${tM30.confidence}/5) vs ${parsed.decision} → annulé`);
           }
+        } else if (signalContreH1 && signalContreM30) {
+          // Les deux TF contre mais confidence faible → score réduit seulement
+          scoreReduit = true;
+          alertes.push(`H1+M30 contre ${parsed.decision} (confidence faible ${tH1.confidence}/${tM30.confidence}) → score réduit`);
         }
-        // Cas 2 : un seul TF contre avec confidence forte (4+/5) → annulé
-        // FIX : aussi annulé si M6 vote contre (mouvement violent récent détecté)
-        const m6ContreH1 = tH1.votes && tH1.votes.m6 && (
-          (isBuy && tH1.votes.m6 === 'BEAR') || (!isBuy && tH1.votes.m6 === 'BULL')
-        );
-        const m6ContreM30 = tM30.votes && tM30.votes.m6 && (
-          (isBuy && tM30.votes.m6 === 'BEAR') || (!isBuy && tM30.votes.m6 === 'BULL')
-        );
-        if ((signalContreH1 && (tH1.confidence >= 4 || m6ContreH1)) || (signalContreM30 && (tM30.confidence >= 4 || m6ContreM30))) {
-          if (!mssAlignedAvecSignal) {
+        // Cas 2 : un seul TF contre avec confidence très forte (5/5) → annulé
+        if ((signalContreH1 && tH1.confidence >= 5) || (signalContreM30 && tM30.confidence >= 5)) {
+          if (!mssAlignedAvecSignal && !tradeAnnule) {
             tradeAnnule = true;
             const tf = signalContreH1 ? 'H1' : 'M30';
             const conf = signalContreH1 ? tH1.confidence : tM30.confidence;
             const tt = signalContreH1 ? tH1.trend : tM30.trend;
-            alertes.push(`🚫 ${tf}=${tt} confidence forte ${conf}/5 vs ${parsed.decision} → annulé`);
-          } else {
-            scoreReduit = true;
-            alertes.push(`Tendance forte contre mais MSS aligné → score réduit`);
+            alertes.push(`🚫 ${tf}=${tt} confidence maximale ${conf}/5 vs ${parsed.decision} → annulé`);
           }
-        }
-        // Cas 3 : un seul TF contre, confidence modérée (3/5) → score réduit
-        else if (signalContreH1 || signalContreM30) {
-          scoreReduit = true;
-          const tf = signalContreH1 ? 'H1' : 'M30';
-          alertes.push(`Tendance ${tf} contre signal ${parsed.decision} (${signalContreH1 ? tH1.confidence : tM30.confidence}/5) → score réduit`);
         }
       } else {
         console.log('[PROTECTION-CT] Pas assez de bougies (H1=' + candlesH1.length + ', M30=' + candlesM30.length + ')');
@@ -3076,29 +3067,25 @@ async function verifierProtectionsAvancees(parsed, userId) {
     }
 
     // ─── PROTECTION 6 : RSI M30/H1 EN FORTE TENDANCE ──────────────
-    // Seuils calibrés pour RSI Wilder (plus stable que la version simple) :
-    //   - Annulation seulement sous 25 / au-dessus de 75 (survente/surachat vrai)
-    //   - Score réduit entre 25-38 / 62-75 (momentum présent)
-    // NOTE : RSI 30-40 en M30 = normal sur un retracement ICT valide.
-    // Un BUY dans une survente M30 peut être exactement le bon timing (discount).
-    // On ne bloque que les extrêmes réels, pas les retracements normaux.
+    // Seuils calibrés : annuler seulement aux extrêmes absolus (18/82).
+    // Entre 18-35 / 65-82 = score réduit seulement. Zone 35-65 = libre.
     try {
       const candlesM30 = marketData.candlesM30 || [];
       if (candlesM30.length >= 15) {
         const rsiM30 = calculerRSI(candlesM30, 14);
         if (rsiM30 !== null) {
-          if (isBuy && rsiM30 < 25) {
+          if (isBuy && rsiM30 < 18) {
             tradeAnnule = true;
-            alertes.push(`🚫 RSI M30 ${rsiM30.toFixed(1)} < 25 → survente extrême M30, momentum baissier très fort, BUY annulé`);
-          } else if (!isBuy && rsiM30 > 75) {
+            alertes.push(`🚫 RSI M30 ${rsiM30.toFixed(1)} < 18 → survente extrême absolue, momentum baissier, BUY annulé`);
+          } else if (!isBuy && rsiM30 > 82) {
             tradeAnnule = true;
-            alertes.push(`🚫 RSI M30 ${rsiM30.toFixed(1)} > 75 → surachat extrême M30, momentum haussier très fort, SELL annulé`);
-          } else if (isBuy && rsiM30 < 38) {
+            alertes.push(`🚫 RSI M30 ${rsiM30.toFixed(1)} > 82 → surachat extrême absolu, momentum haussier, SELL annulé`);
+          } else if (isBuy && rsiM30 < 35) {
             scoreReduit = true;
-            alertes.push(`RSI M30 ${rsiM30.toFixed(1)} < 38 → momentum baissier modéré M30, score réduit`);
-          } else if (!isBuy && rsiM30 > 62) {
+            alertes.push(`RSI M30 ${rsiM30.toFixed(1)} < 35 → momentum baissier modéré M30, score réduit`);
+          } else if (!isBuy && rsiM30 > 65) {
             scoreReduit = true;
-            alertes.push(`RSI M30 ${rsiM30.toFixed(1)} > 62 → momentum haussier modéré M30, score réduit`);
+            alertes.push(`RSI M30 ${rsiM30.toFixed(1)} > 65 → momentum haussier modéré M30, score réduit`);
           }
         }
       }
@@ -3108,19 +3095,20 @@ async function verifierProtectionsAvancees(parsed, userId) {
 
     // ─── PROTECTION 7 : COHÉRENCE PREMIUM/DISCOUNT vs SENS ─────────
     // BUY en PREMIUM = achat au sommet du range → piège classique ICT.
-    // Exception : MSS_BULLISH ou BOS_BULLISH récent (cassure de structure
-    // confirmée qui justifie un entry en premium avec continuation).
-    if (parsed.premiumDiscount && parsed.structureEvent !== undefined) {
-      const pd = String(parsed.premiumDiscount).toUpperCase();
-      const ev = String(parsed.structureEvent || 'NONE').toUpperCase();
+    // Exception : MSS_BULLISH ou BOS_BULLISH récent (cassure confirmée).
+    // NOTE : on ne bloque QUE si premiumDiscount est fourni ET clair (pas undefined/null/EQUILIBRIUM).
+    if (parsed.premiumDiscount && parsed.premiumDiscount !== 'EQUILIBRIUM') {
+      const pd = String(parsed.premiumDiscount).toUpperCase().trim();
+      const ev = parsed.structureEvent ? String(parsed.structureEvent).toUpperCase().trim() : 'NONE';
       const structureHaussiere = ev === 'MSS_BULLISH' || ev === 'BOS_BULLISH';
       const structurebaissiere = ev === 'MSS_BEARISH' || ev === 'BOS_BEARISH';
       if (isBuy && pd === 'PREMIUM' && !structureHaussiere) {
-        tradeAnnule = true;
-        alertes.push(`🚫 BUY en zone PREMIUM sans MSS/BOS bullish → achat au sommet du range, violation ICT, annulé`);
+        // Warning seulement (score réduit) — pas d'annulation directe, l'IA peut avoir raison
+        scoreReduit = true;
+        alertes.push(`⚠️ BUY en zone PREMIUM sans MSS/BOS bullish → risque achat au sommet, score réduit`);
       } else if (!isBuy && pd === 'DISCOUNT' && !structurebaissiere) {
-        tradeAnnule = true;
-        alertes.push(`🚫 SELL en zone DISCOUNT sans MSS/BOS bearish → vente en bas du range, violation ICT, annulé`);
+        scoreReduit = true;
+        alertes.push(`⚠️ SELL en zone DISCOUNT sans MSS/BOS bearish → risque vente en bas du range, score réduit`);
       }
     }
 
@@ -3139,20 +3127,15 @@ async function verifierProtectionsAvancees(parsed, userId) {
     }
 
     // ─── PROTECTION 8b : R:R MINIMUM CÔTÉ SERVEUR ───────────────────
-    // Vérifie que le TP1 offre au moins un R:R de 1.2 par rapport au SL.
-    // L'IA peut proposer des setups mal calibrés (TP trop proche du SL).
-    // On ne laisse pas passer un trade avec un RR < 1.2 sur le TP1.
-    // RR calculé sur l'entrée (pas le prix actuel — déjà vérifié en protection 3).
+    // Vérification légère : la protection 3 a déjà calculé le vrai R:R.
+    // Ici on vérifie juste qu'il n'y a pas un bug grossier (TP < SL distance).
     if (entree > 0 && sl > 0 && tp > 0) {
       const distSLEntree = Math.abs(entree - sl);
       const distTPEntree = Math.abs(tp - entree);
       const rrEntree = distSLEntree > 0 ? distTPEntree / distSLEntree : 0;
-      if (rrEntree < 1.2) {
+      if (rrEntree < 1.0) {
         tradeAnnule = true;
-        alertes.push(`🚫 R:R insuffisant : TP1 à ${distTPEntree.toFixed(1)}$ vs SL à ${distSLEntree.toFixed(1)}$ → R:R ${rrEntree.toFixed(2)} < 1.2 minimum requis, trade annulé`);
-      } else if (rrEntree < 1.5) {
-        scoreReduit = true;
-        alertes.push(`R:R TP1 ${rrEntree.toFixed(2)} faible (< 1.5 idéal) → score réduit`);
+        alertes.push(`🚫 R:R TP1 ${rrEntree.toFixed(2)} < 1.0 → TP trop proche du SL, trade annulé`);
       }
     }
 
@@ -3412,10 +3395,27 @@ async function reajusterEntreeSiNecessaire(parsed, userId) {
   }
 
   if (candidats.length === 0) {
-    console.log('[REAJUST] Aucun niveau alternatif trouvé → trade annulé');
-    parsed.decision = 'NE PAS TRADER';
-    parsed.score = Math.min(parsed.score || 5, 4);
-    parsed.reajustAlerte = 'Entrée IA dépassée et aucun niveau alternatif identifiable. Trade annulé pour ne pas chasser le prix.';
+    // Plutôt que d'annuler, on réajuste l'entrée au prix actuel si la direction reste valide
+    console.log('[REAJUST] Aucun niveau alternatif dans le JSON IA → ajustement au prix actuel');
+    const nouvelleEntree = prixActuel;
+    const nouveauSL = isBuy ? nouvelleEntree - distSLOriginal : nouvelleEntree + distSLOriginal;
+    const rr1 = (parsed.score || 7) >= 8 ? 2.0 : 1.5;
+    const rr2 = (parsed.score || 7) >= 8 ? 3.5 : 2.5;
+    const rr3 = (parsed.score || 7) >= 8 ? 6.0 : 4.0;
+    const nouveauTP1 = isBuy ? nouvelleEntree + distSLOriginal * rr1 : nouvelleEntree - distSLOriginal * rr1;
+    const nouveauTP2 = isBuy ? nouvelleEntree + distSLOriginal * rr2 : nouvelleEntree - distSLOriginal * rr2;
+    const nouveauTP3 = isBuy ? nouvelleEntree + distSLOriginal * rr3 : nouvelleEntree - distSLOriginal * rr3;
+    const dec = symbole.includes('XAU') || symbole.includes('GOLD') ? 2 : (symbole.match(/JPY/) ? 3 : 5);
+    parsed.entreeOriginale = parsed.entree;
+    parsed.entree = +nouvelleEntree.toFixed(dec);
+    parsed.sl = +nouveauSL.toFixed(dec);
+    parsed.tp1 = +nouveauTP1.toFixed(dec);
+    parsed.tp2 = +nouveauTP2.toFixed(dec);
+    parsed.tp3 = +nouveauTP3.toFixed(dec);
+    parsed.entreeType = 'MARKET';
+    parsed.entreeStatut = 'IMMEDIATE';
+    parsed.reajustAlerte = 'Entrée réajustée au prix marché ' + prixActuel.toFixed(dec) + ' (ancienne entrée IA dépassée : ' + parsed.entreeOriginale + ')';
+    console.log('[REAJUST] Ajusté au prix marché : ' + parsed.entree);
     return parsed;
   }
 
@@ -5730,17 +5730,16 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
       }
     }
 
-    // ─── GARDE SCORE MINIMUM 7 (objectif WR 60%) ──────────────────
-    // OPTION B : Score min 6 (au lieu de 7) — sauf si contre tendance D1
-    // On accepte les setups corrects (6+) tant qu'ils ne vont pas contre D1
+    // ─── GARDE SCORE MINIMUM ──────────────────────────────────────
+    // Score min 6 en normal, 7 si contre tendance D1 claire
     const d1Pour = (parsed.tendanceD1 || '').toUpperCase();
-    const isBuyD1 = parsed.decision === 'BUY';
-    const contreD1 = (isBuyD1 && d1Pour === 'BEARISH') || (!isBuyD1 && d1Pour === 'BULLISH');
+    const isBuyD1Guard = parsed.decision === 'BUY';
+    const contreD1 = (isBuyD1Guard && d1Pour === 'BEARISH') || (!isBuyD1Guard && d1Pour === 'BULLISH');
     const scoreMinRequis = contreD1 ? 7 : 6;
     if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < scoreMinRequis) {
       console.log('[SCORE-GUARD] Score ' + parsed.score + ' < ' + scoreMinRequis + (contreD1 ? ' (contre D1)' : '') + ' → NE PAS TRADER');
       parsed.decision = 'NE PAS TRADER';
-      parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum requis : 7/10 pour viser WR 60%';
+      parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum ' + scoreMinRequis + ' requis' + (contreD1 ? ' (trade contre D1)' : '');
     }
 
     // ─── VALIDATION SL/TP = NOMBRES PURS ───────────────────────
@@ -5778,21 +5777,22 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
       const hardBlocks = [];
       const isBuy = parsed.decision === 'BUY';
 
-      // BLOCK 1 : BUY en PREMIUM sans MSS_BULLISH = piège classique
+      // BLOCK 1 : BUY en PREMIUM sans MSS_BULLISH = piège classique — WARNING seulement
+      // (on ne cancel plus sur ce seul critère car l'IA peut avoir une raison valide)
       if (isBuy && parsed.premiumDiscount === 'PREMIUM' &&
           parsed.structureEvent !== 'MSS_BULLISH' && parsed.structureEvent !== 'BOS_BULLISH') {
         hardBlocks.push('BUY en zone PREMIUM sans MSS bullish — achat au sommet du range');
       }
-      // BLOCK 2 : SELL en DISCOUNT sans MSS_BEARISH
+      // BLOCK 2 : SELL en DISCOUNT sans MSS_BEARISH — WARNING seulement
       if (!isBuy && parsed.premiumDiscount === 'DISCOUNT' &&
           parsed.structureEvent !== 'MSS_BEARISH' && parsed.structureEvent !== 'BOS_BEARISH') {
         hardBlocks.push('SELL en zone DISCOUNT sans MSS bearish — vente en bas du range');
       }
       // BLOCK 3 : RSI M15 extrême — lit le RSI RÉEL depuis le cache MetaAPI
-      // FIX : l'IA ne retourne jamais rsiM15 dans son JSON → le bloc était mort
       let rsiM15 = 0;
       try {
-        const cacheIct = global._ictCache && global._ictCache[req.session.userId];
+        const _uidHB = req.session.userId;
+        const cacheIct = global._ictCache && global._ictCache[_uidHB];
         if (cacheIct && cacheIct.rsiM15 != null) {
           rsiM15 = parseFloat(cacheIct.rsiM15);
         } else {
@@ -5800,60 +5800,42 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
         }
       } catch(_rsi) { rsiM15 = 0; }
       if (rsiM15 > 0) {
-        if (isBuy && rsiM15 > 78) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' > 78 (surachat extrême) avec BUY');
-        if (!isBuy && rsiM15 < 22) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 22 (survente extrême) avec SELL');
+        if (isBuy && rsiM15 > 80) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' > 80 (surachat extrême) avec BUY');
+        if (!isBuy && rsiM15 < 20) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 20 (survente extrême) avec SELL');
       }
 
-      // OPTION B : on annule SEULEMENT si 2+ hardBlocks (avant : 1 suffisait)
-      // 1 seul block = warning + score réduit (le trader décide)
-      if (hardBlocks.length >= 2) {
-        console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé (' + hardBlocks.length + ' blocks) : ' + hardBlocks.join(' | '));
+      // Annuler seulement si 2+ hardBlocks ET RSI extrême parmi eux
+      const hasRsiBlock = hardBlocks.some(b => b.includes('RSI'));
+      if (hardBlocks.length >= 2 && hasRsiBlock) {
+        console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé (' + hardBlocks.length + ' blocks dont RSI) : ' + hardBlocks.join(' | '));
         parsed.decision = 'NE PAS TRADER';
-        parsed.hardBlockAlerte = 'Trade annulé : ' + hardBlocks.length + ' blocks détectés (' + hardBlocks.join(' | ') + ')';
-      } else if (hardBlocks.length === 1) {
-        console.log('[HARD-BLOCK-WARN] ' + parsed.decision + ' : 1 warning (' + hardBlocks[0] + ') — score réduit');
+        parsed.hardBlockAlerte = 'Trade annulé : ' + hardBlocks.join(' | ');
+      } else if (hardBlocks.length >= 1) {
+        console.log('[HARD-BLOCK-WARN] ' + parsed.decision + ' : ' + hardBlocks.length + ' warning(s) — score réduit');
         parsed.score = Math.max((parsed.score || 7) - 1, 6);
-        parsed.hardBlockAlerte = '⚠️ Attention : ' + hardBlocks[0] + ' (score réduit à ' + parsed.score + ')';
+        parsed.hardBlockAlerte = '⚠️ ' + hardBlocks.join(' | ') + ' (score réduit à ' + parsed.score + ')';
       }
     }
 
     // ─── COHÉRENCE TENDANCE D1 IA vs DÉCISION ────────────────────
-    // L'IA retourne tendanceD1 dans son JSON — on vérifie qu'elle ne
-    // propose pas un trade contraire à ce qu'elle a elle-même identifié.
-    // Ex : tendanceD1=BEARISH mais decision=BUY → score réduit ou annulation.
+    // L'IA retourne tendanceD1 dans son JSON — on vérifie cohérence.
+    // OPTION SOUPLE : on réduit le score mais on n'annule JAMAIS directement
+    // sur la seule base du D1. Le score guard en aval fera le filtrage si besoin.
     if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
       const d1IA = (parsed.tendanceD1 || '').toUpperCase();
       const isBuyD1 = parsed.decision === 'BUY';
       const d1ContreSignal = (isBuyD1 && d1IA === 'BEARISH') || (!isBuyD1 && d1IA === 'BULLISH');
       if (d1ContreSignal) {
-        // Vérifier si MSS D1 récent dans les champs IA (override possible)
         const structEvt = (parsed.structureEvent || '').toUpperCase();
         const mssD1Aligne = (isBuyD1 && structEvt === 'MSS_BULLISH') || (!isBuyD1 && structEvt === 'MSS_BEARISH');
         if (!mssD1Aligne) {
           const scoreActuel = parseFloat(parsed.score) || 0;
-          if (scoreActuel >= 9) {
-            // Score très élevé = setup fort, juste réduire
-            parsed.score = Math.min(parsed.score, 7);
-            parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
-              '⚠️ Trade contre tendance D1 ' + d1IA + ' (IA le confirme elle-même) — score réduit à ' + parsed.score;
-          } else {
-            // OPTION B : score moyen contre D1 → score réduit MAIS pas annulé direct
-            // L'IA peut quand même proposer si score reste >= 6 après réduction
-            const oldScore = parsed.score || 6;
-            const newScore = Math.max(oldScore - 1, 5);
-            parsed.score = newScore;
-            if (newScore >= 6) {
-              // Score acceptable : on garde le trade mais avec warning
-              parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
-                '⚠️ Trade contre D1 ' + d1IA + ' (score réduit ' + oldScore + ' → ' + newScore + ') — sois prudent';
-            } else {
-              // Score trop bas : annulation
-              parsed.decision = 'NE PAS TRADER';
-              parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
-                '🚫 ' + (isBuyD1 ? 'BUY' : 'SELL') + ' contre D1 ' + d1IA + ', score trop bas après réduction (' + newScore + ')';
-            }
-          }
-          console.log('[D1-COHERENCE] ' + (isBuyD1 ? 'BUY' : 'SELL') + ' vs D1=' + d1IA + ' score=' + scoreActuel + ' → ' + parsed.decision);
+          const reduction = scoreActuel >= 9 ? 2 : 1;
+          const newScore = Math.max(scoreActuel - reduction, 5);
+          parsed.score = newScore;
+          parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
+            `⚠️ Trade contre D1 ${d1IA} (score réduit ${scoreActuel} → ${newScore})`;
+          console.log('[D1-COHERENCE] ' + (isBuyD1 ? 'BUY' : 'SELL') + ' vs D1=' + d1IA + ' score=' + scoreActuel + ' → ' + newScore);
         }
       }
     }
