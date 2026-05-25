@@ -2520,17 +2520,17 @@ Calcule le score en additionnant ces points (max théorique ~14, on cap à 10) :
 
 CONTEXTE (obligatoire pour score > 6) :
 + 2 pts : Cible DOL (Draw on Liquidity) clairement identifiée
-+ 2 pts : Prix en zone Premium ou Discount alignée avec le signal
-+ 2 pts : MSS ou BOS récent aligné avec direction du trade
++ 2.5 pts : Prix en zone Premium ou Discount alignée avec le signal
++ 2.5 pts : MSS ou BOS récent aligné avec direction du trade
 + 1.5 pt: Tendance D1 alignée avec le signal (flux journalier dans ton sens)
 + 1 pt  : Tendance H1 alignée
 - 2 pts : Tendance D1 CONTRE ton signal sans MSS D1 (contexte macro adverse)
 
 PATTERN PRINCIPAL :
-+ 2 pts : CRT Kasper STRICT confirmé sur M15
-+ 1.5 pt: OB de haute qualité (avec displacement, non mitigé)
++ 2.5 pts : CRT Kasper STRICT confirmé sur M15
++ 2 pts : OB de haute qualité (avec displacement, non mitigé)
 + 1 pt  : FVG en confluence avec entrée
-+ 1.5 pt: Sweep de liquidité récent dans le sens du retournement
++ 2 pts : Sweep de liquidité récent dans le sens du retournement
 
 CONTEXTE TEMPOREL :
 + 2 pts : Silver Bullet (16h-17h Paris)
@@ -2543,8 +2543,8 @@ CONTEXTE TEMPOREL :
 ${consecutiveLosses >= 2 ? `- 1 pt  : ${consecutiveLosses} pertes consécutives aujourd'hui (en cours)` : '- 1 pt  : Si 2+ pertes consécutives'}
 
 DÉCISION FINALE :
-- Score ≥ 7 → TRADE (avec distribution selon score, voir TP/SL ci-dessous)
-- Score 5-6.9 → BORDERLINE (NE PAS TRADER en règle générale, sauf règles laxistes 1, 2, 3 ou 5)
+- Score ≥ 6 → TRADE (avec distribution selon score, voir TP/SL ci-dessous)
+- Score 5-5.9 → BORDERLINE (tradable si confluence claire, sinon prudence)
 - Score < 5 → NE PAS TRADER
 
 ═══════════════════════════════════════════════════════════════
