@@ -796,10 +796,9 @@ function verifierPiegeRangeAsiatique(parsed) {
   const piegeSell = parsed.decision === 'SELL' && entree <= bas + zone && entree >= bas;
 
   if (piegeBuy || piegeSell) {
-    console.log('[ANTI-PIEGE] Entree ' + entree + ' dans zone piege range [' + bas + '-' + haut + ']');
-    parsed.decision = 'NE PAS TRADER';
-    parsed.score = 3;
-    parsed.piegeRangeAlerte = 'Entree dans zone de chasse de stops du range asiatique';
+    console.log('[ANTI-PIEGE] Entree ' + entree + ' dans zone piege range [' + bas + '-' + haut + '] — score réduit (pas annulé)');
+    parsed.score = Math.max((parsed.score || 6) - 1, 6);
+    parsed.piegeRangeAlerte = '⚠️ Entrée proche de la zone de chasse de stops du range asiatique — sois vigilant';
   }
 
   return parsed;
@@ -3199,17 +3198,7 @@ async function verifierProtectionsAvancees(parsed, userId) {
       console.log('[PROTECTION-NEWS] Erreur:', newsErr.message);
     }
 
-    // ─── PROTECTION 9 : RSI EXTRÊME M15 (HARD BLOCK, pas juste textuel) ─
-    // Override serveur dur si RSI dans zone extrême opposée au sens
-    if (rsi !== null) {
-      if (isBuy && rsi >= 78) {
-        tradeAnnule = true;
-        alertes.push(`🚫 BUY avec RSI M15 ${rsi} >= 78 (surachat extrême) → annulé hard`);
-      } else if (!isBuy && rsi <= 22) {
-        tradeAnnule = true;
-        alertes.push(`🚫 SELL avec RSI M15 ${rsi} <= 22 (survente extrême) → annulé hard`);
-      }
-    }
+    // Protection 9 supprimée (doublon de Protection 1 RSI M15, seuils plus agressifs 78/22 vs 80/20)
 
     // ─── PROTECTION 10 : FILTRE TENDANCE DAILY D1 ─────────────────────
     // Dernier rempart : la tendance journalière est le contexte macro qui
@@ -3246,13 +3235,14 @@ async function verifierProtectionsAvancees(parsed, userId) {
           if (mssD1Aligne) {
             scoreReduit = true;
             alertes.push(`⚠️ Tendance D1 contre ${parsed.decision} (${tD1.trend} ${tD1.confidence}/5) MAIS MSS_${isBuy ? 'BULLISH' : 'BEARISH'} D1 détecté → retournement possible, score réduit`);
-          } else if (tD1.confidence >= 4) {
-            // 4/5 ou 5/5 = annulation (équilibré pour WR 60%)
+          } else if (tD1.confidence >= 5) {
+            // 5/5 uniquement = annulation (tendance D1 ultra confirmée par les 6 méthodes)
             tradeAnnule = true;
-            alertes.push(`🚫 CONTRE-TENDANCE D1 FORTE : D1=${tD1.trend} (${tD1.confidence}/5) vs ${parsed.decision} — annulé`);
-          } else if (tD1.confidence === 3) {
+            alertes.push(`🚫 CONTRE-TENDANCE D1 MAXIMALE : D1=${tD1.trend} (${tD1.confidence}/5) vs ${parsed.decision} — annulé`);
+          } else if (tD1.confidence >= 3) {
+            // 3/5 ou 4/5 = score réduit seulement, le setup reste valide
             scoreReduit = true;
-            alertes.push(`⚠️ Tendance D1 ${tD1.trend} (3/5) contre ${parsed.decision} — score réduit`);
+            alertes.push(`⚠️ Tendance D1 ${tD1.trend} (${tD1.confidence}/5) contre ${parsed.decision} — score réduit`);
           }
           // confidence <= 2 → silencieux (D1 trop incertain)
         }
@@ -3273,15 +3263,16 @@ async function verifierProtectionsAvancees(parsed, userId) {
       console.log('[PROTECTIONS] ' + parsed.decision + ' ' + symbole + ' : ' + alertes.join(' | '));
 
       if (tradeAnnule) {
-        // GRAVE : danger réel (R:R<1, contre-tendance D1, bougie violente) → on annule
+        // GRAVE : danger réel (R:R<1, D1 max confidence, bougie violente extreme) → annulé
         parsed.decision = 'NE PAS TRADER';
         parsed.score = 3;
       } else if (scoreReduit) {
-        // MODÉRÉ : petit bémol (RSI 30-35, premium sans MSS...) → on retire 1 point
-        // par alerte modérée, SANS plafond brutal. Un bon setup 7 avec 1 bémol = 6 (passe).
+        // MODÉRÉ : bémol(s) → -1 point par alerte, plancher à 6 (score guard min = 6)
+        // Ex: score 7 + 1 alerte = 6 ✅ | score 7 + 3 alertes = 6 ✅ | score 8 + 2 alertes = 6 ✅
+        // On ne descend JAMAIS sous 6 via les warnings — seul tradeAnnule peut tuer le trade
         const nbAlertesModerees = alertes.length;
         const scoreBase = parsed.score || 6;
-        parsed.score = Math.max(scoreBase - nbAlertesModerees, 3);
+        parsed.score = Math.max(scoreBase - nbAlertesModerees, 6);
         console.log('[PROTECTIONS] Score modéré : ' + scoreBase + ' - ' + nbAlertesModerees + ' alerte(s) = ' + parsed.score);
       }
     }
@@ -5837,7 +5828,7 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
         if (!mssD1Aligne) {
           const scoreActuel = parseFloat(parsed.score) || 0;
           const reduction = scoreActuel >= 9 ? 2 : 1;
-          const newScore = Math.max(scoreActuel - reduction, 5);
+          const newScore = Math.max(scoreActuel - reduction, 6); // plancher 6 = score guard min
           parsed.score = newScore;
           parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
             `⚠️ Trade contre D1 ${d1IA} (score réduit ${scoreActuel} → ${newScore})`;
