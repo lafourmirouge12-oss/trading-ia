@@ -2453,10 +2453,11 @@ CONFLUENCE (relatif si pattern principal très propre).
 🔒 FILTRES STRICTS — NE PAS TRADER si UN seul de ces points coche
 ═══════════════════════════════════════════════════════════════
 
-0. **Tendance D1 (journalière) clairement CONTRE ton signal (confidence ≥ 3/5)**
+0. **Tendance D1 (journalière) clairement CONTRE ton signal (confidence ≥ 4/5)**
    → La tendance journalière représente le flux institutionnel de fond.
-   → Trader contre elle = nager contre le courant. NE PAS TRADER.
-   → Exception UNIQUE : MSS D1 récent et net qui confirme un retournement.
+   → Trader contre elle = nager contre le courant. NE PAS TRADER si confidence 4/5 ou 5/5.
+   → Si confidence 2-3/5 → réduis le score de 1.5 pts mais tu peux trader si setup fort.
+   → Exception UNIQUE : MSS D1 récent et net qui confirme un retournement (quel que soit confidence).
    → Si D1 = RANGE → pas de filtre D1, les deux sens sont possibles.
 
 1. **Tendance H1 ET M30 désalignées** avec ton signal
@@ -2527,8 +2528,9 @@ CONTEXTE (obligatoire pour score > 6) :
 + 2.5 pts : MSS ou BOS récent aligné avec direction du trade
 + 1.5 pt: Tendance D1 alignée avec le signal (flux journalier dans ton sens)
 + 1 pt  : Tendance H1 alignée
-- 2 pts : Tendance D1 CONTRE ton signal sans MSS D1 (contexte macro adverse)
+- 1.5 pts : Tendance D1 CONTRE ton signal sans MSS D1 (réduit de 2 à 1.5 — le pattern prime)
 ⚠️ IMPORTANT : si le D1 est "non disponible" ou non fourni, NE retire AUCUN point et NE mets AUCUN malus D1. Le D1 manquant est NEUTRE. Score basé sur H1/M30/M15/M5 disponibles.
+⚠️ PLANCHER MALUS : les malus combinés (D1 + temporel + pertes) ne peuvent JAMAIS faire descendre le score sous 4. Un pattern ICT parfait avec mauvais contexte reste un 4 minimum.
 
 PATTERN PRINCIPAL :
 + 2.5 pts : CRT Kasper STRICT confirmé sur M15
@@ -2539,8 +2541,8 @@ PATTERN PRINCIPAL :
 CONTEXTE TEMPOREL :
 + 2 pts : Silver Bullet (16h-17h Paris)
 + 1 pt  : London Open ou NY AM kill zone
-- 1 pt  : Hors kill zone (OFF_HOURS)
-- 2 pts : Session asiatique sans cassure de range
+- 0.5 pt : Hors kill zone (OFF_HOURS) — réduit de 1 à 0.5 (pénalité légère, pas bloquante)
+- 1.5 pts : Session asiatique sans cassure de range — réduit de 2 à 1.5
 
 ÉTAT DE COMPTE :
 + 0.5 pt: Pas de news rouge dans 30 min
@@ -2550,6 +2552,8 @@ DÉCISION FINALE :
 - Score ≥ 6 → TRADE (avec distribution selon score, voir TP/SL ci-dessous)
 - Score 5-5.9 → BORDERLINE (tradable si confluence claire, sinon prudence)
 - Score < 5 → NE PAS TRADER
+${killZoneName === 'OFF_HOURS' ? '- ⚠️ HORS KILL ZONE : score minimum 7 requis (au lieu de 6) — contexte moins favorable' : ''}
+${consecutiveLosses >= 2 ? '- ⚠️ ANTI-TILT : score minimum 7.5 requis (au lieu de 6) — tu as déjà perdu aujourd\'hui' : ''}
 
 ═══════════════════════════════════════════════════════════════
 💼 TP/SL — DISTRIBUTION SELON SCORE
@@ -2577,14 +2581,15 @@ TP3 (runner — extension) :
 
 DISTRIBUTION (le bot s'en charge automatiquement) :
 - Score ≥ 9 (A+) : 40% TP1, 30% TP2, 30% runner avec trailing
-- Score 7-8 (A)  : 50% TP1, 30% TP2, 20% runner avec trailing
+- Score 7-8 (A)  : 50% TP1, 50% TP2, pas de runner (sécurité maximale)
 - Score 6   (B)  : 70% TP1, 30% TP2, pas de runner (gestion défensive)
 
 ═══════════════════════════════════════════════════════════════
 ⛔ RÈGLES ABSOLUES (override tout le reste)
 ═══════════════════════════════════════════════════════════════
 
-- Si tendance H1 ET M30 contre ton signal → NE PAS TRADER, peu importe le reste
+- Si tendance H1 ET M30 contre ton signal AVEC confidence ≥ 4/5 chacun → NE PAS TRADER
+- Si tendance H1 ET M30 contre ton signal avec confidence 2-3/5 → score réduit seulement
 - Si une leçon précédente dit "ne pas faire X" et le setup actuel = X → respecte-la
 - Si Silver Bullet active mais aucun DOL → NE PAS TRADER (timing seul ne suffit pas)
 - Si tu hésites entre BUY et SELL → NE PAS TRADER (l'incertitude = perte)
@@ -3272,10 +3277,11 @@ async function verifierProtectionsAvancees(parsed, userId) {
         parsed.score = 3;
       } else if (scoreReduit) {
         // MODÉRÉ : bémol(s) → -1 point par alerte, plancher à 6 (score guard min = 6)
-        // Ex: score 7 + 1 alerte = 6 ✅ | score 7 + 3 alertes = 6 ✅ | score 8 + 2 alertes = 6 ✅
         // On ne descend JAMAIS sous 6 via les warnings — seul tradeAnnule peut tuer le trade
         const nbAlertesModerees = alertes.length;
         const scoreBase = parsed.score || 6;
+        // Plancher absolu 4 : un pattern ICT parfait avec mauvais contexte reste tradable à 4+
+        // (le score guard fera ensuite le filtrage selon le contexte kill zone / D1 / tilt)
         parsed.score = Math.max(scoreBase - nbAlertesModerees, 6);
         console.log('[PROTECTIONS] Score modéré : ' + scoreBase + ' - ' + nbAlertesModerees + ' alerte(s) = ' + parsed.score);
       }
@@ -5786,17 +5792,35 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     parsed = await verifierProtectionsAvancees(parsed, req.session.userId);
 
     // ─── GARDE SCORE MINIMUM — après toutes les protections ───────
-    // FIX Bug 5 : le score guard est maintenant APRÈS verifierProtectionsAvancees
-    // qui peut remonter le score au plancher 6. Avant il était avant et tuait des trades valides.
+    // Règles :
+    //  • Normal          → min 6
+    //  • Contre D1       → min 7
+    //  • OFF_HOURS       → min 7  (hors kill zone = contexte moins favorable)
+    //  • Anti-tilt (2+ pertes aujourd'hui) → min 7.5
     {
       const d1PourGuard = (parsed.tendanceD1 || '').toUpperCase();
       const isBuyGuard = parsed.decision === 'BUY';
       const contreD1Guard = (isBuyGuard && d1PourGuard === 'BEARISH') || (!isBuyGuard && d1PourGuard === 'BULLISH');
-      const scoreMinRequisGuard = contreD1Guard ? 7 : 6;
+      const isOffHours = killZone.name === 'OFF_HOURS';
+      const isTiltMode = consecutiveLosses >= 2;
+
+      let scoreMinRequisGuard = 6;
+      let raison = '';
+      if (isTiltMode) {
+        scoreMinRequisGuard = 7.5;
+        raison = 'anti-tilt (' + consecutiveLosses + ' pertes aujourd\'hui)';
+      } else if (contreD1Guard) {
+        scoreMinRequisGuard = 7;
+        raison = 'trade contre D1';
+      } else if (isOffHours) {
+        scoreMinRequisGuard = 7;
+        raison = 'hors kill zone (OFF_HOURS)';
+      }
+
       if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < scoreMinRequisGuard) {
-        console.log('[SCORE-GUARD] Score ' + parsed.score + ' < ' + scoreMinRequisGuard + (contreD1Guard ? ' (contre D1)' : '') + ' → NE PAS TRADER');
+        console.log('[SCORE-GUARD] Score ' + parsed.score + ' < ' + scoreMinRequisGuard + ' (' + raison + ') → NE PAS TRADER');
         parsed.decision = 'NE PAS TRADER';
-        parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum ' + scoreMinRequisGuard + ' requis' + (contreD1Guard ? ' (trade contre D1)' : '');
+        parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum ' + scoreMinRequisGuard + ' requis (' + raison + ')';
       }
     }
 
