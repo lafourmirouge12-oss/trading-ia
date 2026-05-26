@@ -2650,16 +2650,35 @@ async function fetchAllMarketData(userId, symbole) {
         await account.deploy();
         if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
         deployedHere = true;
-        await account.waitConnected();
+        // FIX : timeout 20s sur waitConnected (avant : aucun timeout → hang infini si MetaAPI 503)
+        await Promise.race([
+          account.waitConnected(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 20s')), 20000))
+        ]);
       } catch(deployErr) {
         console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
+        // Undeploy proprement si on a deployé avant l'échec
+        if (deployedHere) {
+          try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+        }
         return null;
       }
     }
 
     const connection = account.getRPCConnection();
-    await connection.connect();
-    await connection.waitSynchronized();
+    // FIX : timeout 20s sur connect + waitSynchronized (avant : aucun timeout → bouton tourne à l'infini si MetaAPI 503)
+    try {
+      await Promise.race([
+        (async () => { await connection.connect(); await connection.waitSynchronized(); })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout 20s')), 20000))
+      ]);
+    } catch(syncErr) {
+      console.log('[FETCH-MARKET] Sync timeout pour ' + userId + ' : ' + syncErr.message);
+      if (deployedHere) {
+        try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
+      }
+      return null;
+    }
 
     // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
     const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
@@ -5045,8 +5064,11 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
     });
   }
   global._analysesEnCours.add(req.session.userId);
-  // Auto-cleanup après 60s au cas où la requête se bloque
-  const cleanupTimer = setTimeout(() => global._analysesEnCours.delete(req.session.userId), 60000);
+  // Auto-cleanup après 90s au cas où la requête se bloque (MetaAPI timeout = 20s + IA = 35s + marge)
+  const cleanupTimer = setTimeout(() => {
+    global._analysesEnCours.delete(req.session.userId);
+    console.log('[ANALYZE-LOCK] Cleanup auto du lock pour ' + req.session.userId);
+  }, 90000);
 
   try {
     // ─── FIX problème 11 : éviter analyses simultanées du même user ─────
@@ -5067,9 +5089,13 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
     // Libérer automatiquement le lock à la fin de la requête (succès ou erreur)
     res.on('finish', () => {
       if (_userId) _analysisLocks.delete(_userId);
+      global._analysesEnCours.delete(_userId);
+      clearTimeout(cleanupTimer);
     });
     res.on('close', () => {
       if (_userId) _analysisLocks.delete(_userId);
+      global._analysesEnCours.delete(_userId);
+      clearTimeout(cleanupTimer);
     });
 
     const user = await db.findOneAsync({ _id: req.session.userId });
@@ -5209,7 +5235,14 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     } catch(e) { console.log('[ANALYZE-PERF] getBlocOBFVG err: ' + e.message); blocOBFVG = ''; }
 
     // 📊 Indicateurs techniques (RSI + MAs sur H1/M15/M5)
-    const blocIndicateurs = await getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD');
+    // FIX : timeout 15s — si MetaAPI est down, on continue sans indicateurs
+    let blocIndicateurs = '';
+    try {
+      blocIndicateurs = await Promise.race([
+        getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD'),
+        new Promise((resolve) => setTimeout(() => { console.log('[ANALYZE-PERF] getBlocIndicateurs timeout 15s - skip'); resolve(''); }, 15000))
+      ]);
+    } catch(e) { console.log('[ANALYZE-PERF] getBlocIndicateurs err: ' + e.message); blocIndicateurs = ''; }
 
     // ─── Anti-tilt : compter pertes consécutives du jour ──────────
     const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0);
