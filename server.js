@@ -2525,6 +2525,7 @@ CONTEXTE (obligatoire pour score > 6) :
 + 1.5 pt: Tendance D1 alignée avec le signal (flux journalier dans ton sens)
 + 1 pt  : Tendance H1 alignée
 - 2 pts : Tendance D1 CONTRE ton signal sans MSS D1 (contexte macro adverse)
+⚠️ IMPORTANT : si le D1 est "non disponible" ou non fourni, NE retire AUCUN point et NE mets AUCUN malus D1. Le D1 manquant est NEUTRE. Score basé sur H1/M30/M15/M5 disponibles.
 
 PATTERN PRINCIPAL :
 + 2.5 pts : CRT Kasper STRICT confirmé sur M15
