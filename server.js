@@ -280,7 +280,7 @@ function decryptStr(payload) {
 // Si le symbole de base ne marche pas, on essaie ces alternatives.
 const SYMBOL_ALIASES = {
   // FIX RaiseFX : utilise 'Gold' (avec G majuscule, sans suffixe) — on ajoute toutes les variantes possibles
-  'XAUUSD': ['XAUUSD', 'GOLD', 'Gold', 'gold', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD', 'XAUUSD.r', 'XAUUSDx', 'GOLDx', 'XAU.cash', 'XAUUSD.raw', 'XAUUSD-raw', 'GOLD#', 'XAUUSD#', 'XAUUSD.RAW', 'GOLDUSD', 'Gold.spot', 'XAUUSD_SB', 'XAUUSDpro', 'XAUUSD.pro', 'XAUUSD.std', 'XAUUSD.vip', 'XAUUSDc'],
+  'XAUUSD': ['XAUUSD', 'GOLD', 'Gold', 'gold', 'XAU', 'GOLD.cash', 'XAUUSDm', 'XAU/USD', 'XAUUSD.r', 'XAUUSDx', 'GOLDx', 'XAU.cash', 'XAUUSD.raw', 'XAUUSD-raw', 'GOLD#', 'XAUUSD#', 'XAUUSD.RAW', 'GOLDUSD', 'Gold.spot', 'XAUUSD_SB', 'XAUUSDpro', 'XAUUSD.pro', 'XAUUSD.std', 'XAUUSD.vip', 'XAUUSDc', 'XAUUSD-VIP', 'XAUUSD-STD', 'XAUUSD-ECN', 'XAUUSD-PRO'],
   'XAGUSD': ['XAGUSD', 'SILVER', 'XAG', 'SILVER.cash', 'XAGUSDm', 'XAG/USD'],
   'EURUSD': ['EURUSD', 'EUR/USD', 'EURUSDm'],
   'GBPUSD': ['GBPUSD', 'GBP/USD', 'GBPUSDm'],
@@ -523,7 +523,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 const upload = multer({ dest: 'uploads/' });
 const uploadMulti = multer({ dest: 'uploads/' });
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 50000 }); // FIX: pas de retry en boucle
 const BASE_URL = process.env.BASE_URL || 'http://localhost:' + port;
 
 const transporter = nodemailer.createTransport({
@@ -5501,13 +5501,34 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     const _tStart = Date.now();
     console.log('[ANALYZE-PERF] Appel Claude début... (images: ' + allFiles.length + ', prompt size: ' + JSON.stringify(content).length + ' chars)');
 
-    // FIX VITESSE : Haiku 4.5 = 3-4x plus rapide que Sonnet, parfait pour ICT/SMC
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
-      system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
-      messages: [{ role: 'user', content }]
-    });
+    // FIX VITESSE + BOUTON QUI TOURNE : timeout 45s + erreur claire
+    let response;
+    try {
+      response = await Promise.race([
+        client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 3000,
+          system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
+          messages: [{ role: 'user', content }]
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT_CLAUDE_45S')), 45000))
+      ]);
+    } catch(errClaude) {
+      allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e){} });
+      let msgClair = 'L analyse a echoue. ';
+      const emsg = (errClaude.message || '').toLowerCase();
+      if (errClaude.message === 'TIMEOUT_CLAUDE_45S') {
+        msgClair += 'Le serveur d analyse met trop de temps a repondre. Reessaie dans 1 minute.';
+      } else if (errClaude.status === 400 && emsg.includes('credit')) {
+        msgClair += 'Credits API insuffisants cote serveur. Contacte @bigtazz pour recharger.';
+      } else if (errClaude.status === 429) {
+        msgClair += 'Trop de demandes. Attends 1 minute et reessaie.';
+      } else {
+        msgClair += 'Erreur technique. Reessaie, sinon contacte @bigtazz.';
+      }
+      console.log('[ANALYZE-ERREUR] ' + (errClaude.message || errClaude));
+      return res.status(503).json({ error: msgClair, technique: (errClaude.message || '').substring(0, 200) });
+    }
 
     const _tEnd = Date.now();
     const _tDur = ((_tEnd - _tStart) / 1000).toFixed(1);
