@@ -356,40 +356,43 @@ async function getCandles(connection, account, symbol, timeframe, limit) {
 }
 
 async function resolveSymbolForUser(connection, baseSymbol, serverName) {
-  // FIX : on garde aussi la casse originale pour les brokers qui ont "Gold" (RaiseFX par ex)
   const symRaw = (baseSymbol || '').trim();
   const sym = symRaw.toUpperCase();
   const sn = (serverName || '').toUpperCase();
   let suffixes;
-  if (sn.includes('STD')) suffixes = ['-STD', '-VIP', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else if (sn.includes('VIP')) suffixes = ['-VIP', '-STD', '', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash'];
-  else suffixes = ['', '-VIP', '-STD', '-ECN', '-PRO', '-Raw', '.a', '_m', '-micro', '.cash', '.raw', '#', 'c', 'm', '.r', 'pro', '.pro', '.std', '_SB', 'x'];
+  if (sn.includes('STD')) suffixes = ['-STD', '', '-VIP', '-ECN', '-PRO'];
+  else if (sn.includes('VIP')) suffixes = ['-VIP', '', '-STD', '-ECN', '-PRO'];
+  else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO'];
+  else suffixes = ['', '-STD', '-VIP', '-ECN', '.cash', 'm', '#', '.raw'];
 
-  // 1. Essayer le symbole demandé avec ses suffixes serveur
-  for (const sfx of suffixes) {
+  // Helper : getSymbolPrice avec timeout 3s (évite le blocage sur MetaAPI lent)
+  const tryPrice = async (candidate) => {
     try {
-      const candidate = sym + sfx;
-      const tick = await connection.getSymbolPrice(candidate);
-      if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
-        return { symbol: candidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
-      }
+      const tick = await Promise.race([
+        connection.getSymbolPrice(candidate),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))
+      ]);
+      if (tick && tick.bid > 0 && tick.ask > 0) return tick;
     } catch(e) {}
+    return null;
+  };
+
+  // 1. Essayer le symbole demandé avec suffixes (max 8 tentatives)
+  for (const sfx of suffixes) {
+    const tick = await tryPrice(sym + sfx);
+    if (tick) return { symbol: sym + sfx, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
   }
 
-  // 2. Si rien trouvé, essayer les alias multi-broker (ex: GOLD au lieu de XAUUSD)
-  const candidates = getSymbolCandidates(sym);
+  // 2. Essayer les alias principaux seulement (top 5, pas tous les 30)
+  const candidates = getSymbolCandidates(sym).slice(0, 5);
   for (const cand of candidates) {
-    if (cand === sym) continue; // déjà testé
-    for (const sfx of suffixes) {
-      try {
-        const fullCandidate = cand + sfx;
-        const tick = await connection.getSymbolPrice(fullCandidate);
-        if (tick && tick.bid && tick.bid > 0 && tick.ask && tick.ask > 0) {
-          console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + fullCandidate);
-          return { symbol: fullCandidate, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
-        }
-      } catch(e) {}
+    if (cand.toUpperCase() === sym) continue;
+    for (const sfx of ['', suffixes[0]].filter(Boolean)) {
+      const tick = await tryPrice(cand + sfx);
+      if (tick) {
+        console.log('[SYMBOL-RESOLVE] Alias trouvé : ' + sym + ' → ' + cand + sfx);
+        return { symbol: cand + sfx, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
+      }
     }
   }
 
@@ -1985,10 +1988,10 @@ async function gererTpPartiels3Tier({
             await account.deploy();
             if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
             deployedHere = true;
-            // FIX TIMEOUT : waitConnected avec limite 30s pour éviter les hangs
+            // FIX : timeout 20s sur waitConnected (avant : aucun timeout → hang si MetaAPI 503)
             await Promise.race([
               account.waitConnected(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 30s')), 30000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 20s')), 20000))
             ]);
           } catch(deployErr) {
             console.log('[TP-WRAPPER] Deploy auto échoué pour ' + user._id + ': ' + deployErr.message);
@@ -2650,35 +2653,16 @@ async function fetchAllMarketData(userId, symbole) {
         await account.deploy();
         if (typeof trackDeploy === 'function') trackDeploy(account.id, user.mt5.login);
         deployedHere = true;
-        // FIX : timeout 20s sur waitConnected (avant : aucun timeout → hang infini si MetaAPI 503)
-        await Promise.race([
-          account.waitConnected(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('waitConnected timeout 20s')), 20000))
-        ]);
+        await account.waitConnected();
       } catch(deployErr) {
         console.log('[FETCH-MARKET] Deploy auto échoué pour ' + userId + ' : ' + deployErr.message);
-        // Undeploy proprement si on a deployé avant l'échec
-        if (deployedHere) {
-          try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
-        }
         return null;
       }
     }
 
     const connection = account.getRPCConnection();
-    // FIX : timeout 20s sur connect + waitSynchronized (avant : aucun timeout → bouton tourne à l'infini si MetaAPI 503)
-    try {
-      await Promise.race([
-        (async () => { await connection.connect(); await connection.waitSynchronized(); })(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('sync timeout 20s')), 20000))
-      ]);
-    } catch(syncErr) {
-      console.log('[FETCH-MARKET] Sync timeout pour ' + userId + ' : ' + syncErr.message);
-      if (deployedHere) {
-        try { await account.undeploy(); if (typeof trackUndeploy === 'function') trackUndeploy(account.id); } catch(e) {}
-      }
-      return null;
-    }
+    await connection.connect();
+    await connection.waitSynchronized();
 
     // Résolution unifiée selon serveur broker (prioritaire pour comptes STD)
     const resolved = await resolveSymbolForUser(connection, symbole || 'XAUUSD', user.mt5.server);
@@ -3775,7 +3759,11 @@ async function genererPostMortemAuto(analyse, userId) {
         if (account.state === 'DEPLOYED') {
           const connection = account.getRPCConnection();
           await connection.connect();
-          await connection.waitSynchronized();
+          // FIX : timeout 15s sur waitSynchronized pour éviter blocage infini en background
+          await Promise.race([
+            connection.waitSynchronized(),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('sync timeout 15s')), 15000))
+          ]);
           const debut = new Date(tempsCloture.getTime() - 30 * 5 * 60 * 1000);
           const resolvedPM = await resolveSymbolForUser(connection, symbole, user.mt5.server);
           if (resolvedPM) {
@@ -5053,50 +5041,29 @@ app.post('/analyze', checkAuth, rateLimitAnalyze, uploadMulti.fields([
   const files = req.files || {};
   const allFiles = [files.imageH1?.[0], files.imageM30?.[0], files.imageM15?.[0], files.imageM5?.[0], files.imageM1?.[0]].filter(Boolean);
 
-  // ✅ FIX BUG 11 : déduplication analyses simultanées
-  // Empêche le double-clic / appels parallèles du même user
-  if (!global._analysesEnCours) global._analysesEnCours = new Set();
-  if (global._analysesEnCours.has(req.session.userId)) {
-    allFiles.forEach(f => { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); });
-    return res.status(429).json({
-      error: 'analysis_in_progress',
-      message: '⏳ Une analyse est déjà en cours. Patiente quelques secondes avant de relancer.'
-    });
+  // Déduplication analyses simultanées — _analysisLocks (Map) est le seul mécanisme
+  // FIX Bug 4 : suppression du double lock global._analysesEnCours (redondant + désync possible)
+  // ─── Lock unique : _analysisLocks ──────────────────────────────────
+  const _userId = req.session.userId;
+  if (_userId && _analysisLocks.has(_userId)) {
+    const lockTime = _analysisLocks.get(_userId);
+    // Lock valide pendant 90s max (MetaAPI 20s + IA 35s + marge)
+    if (Date.now() - lockTime < 90 * 1000) {
+      console.log('[ANALYZE-LOCK] Analyse déjà en cours pour ' + _userId);
+      allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e) {} });
+      return res.status(429).json({
+        error: 'analysis_in_progress',
+        message: '⏳ Une analyse est déjà en cours. Patiente quelques secondes avant de relancer.',
+        retryAfter: 90 - Math.round((Date.now() - lockTime) / 1000)
+      });
+    }
   }
-  global._analysesEnCours.add(req.session.userId);
-  // Auto-cleanup après 90s au cas où la requête se bloque (MetaAPI timeout = 20s + IA = 35s + marge)
-  const cleanupTimer = setTimeout(() => {
-    global._analysesEnCours.delete(req.session.userId);
-    console.log('[ANALYZE-LOCK] Cleanup auto du lock pour ' + req.session.userId);
-  }, 90000);
+  if (_userId) _analysisLocks.set(_userId, Date.now());
+  // Libérer le lock à la fin de la requête (succès ou erreur)
+  res.on('finish', () => { if (_userId) _analysisLocks.delete(_userId); });
+  res.on('close',  () => { if (_userId) _analysisLocks.delete(_userId); });
 
   try {
-    // ─── FIX problème 11 : éviter analyses simultanées du même user ─────
-    const _userId = req.session.userId;
-    if (_userId && _analysisLocks.has(_userId)) {
-      const lockTime = _analysisLocks.get(_userId);
-      // Lock valide pendant 60s max (au-delà, on considère que l'analyse précédente a planté)
-      if (Date.now() - lockTime < 60 * 1000) {
-        console.log('[ANALYZE-LOCK] Analyse déjà en cours pour ' + _userId);
-        return res.status(429).json({
-          error: 'Analyse déjà en cours, attendez la fin avant de relancer',
-          retryAfter: 60 - Math.round((Date.now() - lockTime) / 1000)
-        });
-      }
-    }
-    if (_userId) _analysisLocks.set(_userId, Date.now());
-
-    // Libérer automatiquement le lock à la fin de la requête (succès ou erreur)
-    res.on('finish', () => {
-      if (_userId) _analysisLocks.delete(_userId);
-      global._analysesEnCours.delete(_userId);
-      clearTimeout(cleanupTimer);
-    });
-    res.on('close', () => {
-      if (_userId) _analysisLocks.delete(_userId);
-      global._analysesEnCours.delete(_userId);
-      clearTimeout(cleanupTimer);
-    });
 
     const user = await db.findOneAsync({ _id: req.session.userId });
     if (!user) return res.status(401).json({ error: 'Non connecté' });
@@ -5235,14 +5202,7 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     } catch(e) { console.log('[ANALYZE-PERF] getBlocOBFVG err: ' + e.message); blocOBFVG = ''; }
 
     // 📊 Indicateurs techniques (RSI + MAs sur H1/M15/M5)
-    // FIX : timeout 15s — si MetaAPI est down, on continue sans indicateurs
-    let blocIndicateurs = '';
-    try {
-      blocIndicateurs = await Promise.race([
-        getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD'),
-        new Promise((resolve) => setTimeout(() => { console.log('[ANALYZE-PERF] getBlocIndicateurs timeout 15s - skip'); resolve(''); }, 15000))
-      ]);
-    } catch(e) { console.log('[ANALYZE-PERF] getBlocIndicateurs err: ' + e.message); blocIndicateurs = ''; }
+    const blocIndicateurs = await getBlocIndicateursTechniques(req.session.userId, req.body.instrument || 'XAUUSD');
 
     // ─── Anti-tilt : compter pertes consécutives du jour ──────────
     const aujourdhui = new Date(); aujourdhui.setHours(0, 0, 0, 0);
@@ -5761,17 +5721,7 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
       }
     }
 
-    // ─── GARDE SCORE MINIMUM ──────────────────────────────────────
-    // Score min 6 en normal, 7 si contre tendance D1 claire
-    const d1Pour = (parsed.tendanceD1 || '').toUpperCase();
-    const isBuyD1Guard = parsed.decision === 'BUY';
-    const contreD1 = (isBuyD1Guard && d1Pour === 'BEARISH') || (!isBuyD1Guard && d1Pour === 'BULLISH');
-    const scoreMinRequis = contreD1 ? 7 : 6;
-    if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < scoreMinRequis) {
-      console.log('[SCORE-GUARD] Score ' + parsed.score + ' < ' + scoreMinRequis + (contreD1 ? ' (contre D1)' : '') + ' → NE PAS TRADER');
-      parsed.decision = 'NE PAS TRADER';
-      parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum ' + scoreMinRequis + ' requis' + (contreD1 ? ' (trade contre D1)' : '');
-    }
+    // (score guard déplacé après verifierProtectionsAvancees — voir plus bas)
 
     // ─── VALIDATION SL/TP = NOMBRES PURS ───────────────────────
     // Même protection que pour entree : SL/TP doivent être des nombres
@@ -5799,86 +5749,35 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     }
 
     // ═════════════════════════════════════════════════════════════
-    // 🛡️ HARD-BLOCKS POST-IA (problèmes 1 + 4 du document)
-    // Ces validations vérifient la cohérence entre la décision Claude
-    // et les champs ICT qu'il a lui-même retournés. Si Claude se contredit
-    // (ex: BUY en PREMIUM sans MSS), on annule.
+    // Hard-blocks, D1 cohérence et score guard sont maintenant dans
+    // verifierProtectionsAvancees (appelée juste après). Voir ci-dessous.
     // ═════════════════════════════════════════════════════════════
-    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
-      const hardBlocks = [];
-      const isBuy = parsed.decision === 'BUY';
 
-      // BLOCK 1 : BUY en PREMIUM sans MSS_BULLISH = piège classique — WARNING seulement
-      // (on ne cancel plus sur ce seul critère car l'IA peut avoir une raison valide)
-      if (isBuy && parsed.premiumDiscount === 'PREMIUM' &&
-          parsed.structureEvent !== 'MSS_BULLISH' && parsed.structureEvent !== 'BOS_BULLISH') {
-        hardBlocks.push('BUY en zone PREMIUM sans MSS bullish — achat au sommet du range');
-      }
-      // BLOCK 2 : SELL en DISCOUNT sans MSS_BEARISH — WARNING seulement
-      if (!isBuy && parsed.premiumDiscount === 'DISCOUNT' &&
-          parsed.structureEvent !== 'MSS_BEARISH' && parsed.structureEvent !== 'BOS_BEARISH') {
-        hardBlocks.push('SELL en zone DISCOUNT sans MSS bearish — vente en bas du range');
-      }
-      // BLOCK 3 : RSI M15 extrême — lit le RSI RÉEL depuis le cache MetaAPI
-      let rsiM15 = 0;
-      try {
-        const _uidHB = req.session.userId;
-        const cacheIct = global._ictCache && global._ictCache[_uidHB];
-        if (cacheIct && cacheIct.rsiM15 != null) {
-          rsiM15 = parseFloat(cacheIct.rsiM15);
-        } else {
-          rsiM15 = parseFloat(parsed.rsi || parsed.rsiM15 || 0);
-        }
-      } catch(_rsi) { rsiM15 = 0; }
-      if (rsiM15 > 0) {
-        if (isBuy && rsiM15 > 80) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' > 80 (surachat extrême) avec BUY');
-        if (!isBuy && rsiM15 < 20) hardBlocks.push('RSI M15 ' + rsiM15.toFixed(1) + ' < 20 (survente extrême) avec SELL');
-      }
-
-      // Annuler seulement si 2+ hardBlocks ET RSI extrême parmi eux
-      const hasRsiBlock = hardBlocks.some(b => b.includes('RSI'));
-      if (hardBlocks.length >= 2 && hasRsiBlock) {
-        console.log('[HARD-BLOCK] ' + parsed.decision + ' annulé (' + hardBlocks.length + ' blocks dont RSI) : ' + hardBlocks.join(' | '));
-        parsed.decision = 'NE PAS TRADER';
-        parsed.hardBlockAlerte = 'Trade annulé : ' + hardBlocks.join(' | ');
-      } else if (hardBlocks.length >= 1) {
-        console.log('[HARD-BLOCK-WARN] ' + parsed.decision + ' : ' + hardBlocks.length + ' warning(s) — score réduit');
-        parsed.score = Math.max((parsed.score || 7) - 1, 6);
-        parsed.hardBlockAlerte = '⚠️ ' + hardBlocks.join(' | ') + ' (score réduit à ' + parsed.score + ')';
-      }
-    }
-
-    // ─── COHÉRENCE TENDANCE D1 IA vs DÉCISION ────────────────────
-    // L'IA retourne tendanceD1 dans son JSON — on vérifie cohérence.
-    // OPTION SOUPLE : on réduit le score mais on n'annule JAMAIS directement
-    // sur la seule base du D1. Le score guard en aval fera le filtrage si besoin.
-    if (parsed.decision === 'BUY' || parsed.decision === 'SELL') {
-      const d1IA = (parsed.tendanceD1 || '').toUpperCase();
-      const isBuyD1 = parsed.decision === 'BUY';
-      const d1ContreSignal = (isBuyD1 && d1IA === 'BEARISH') || (!isBuyD1 && d1IA === 'BULLISH');
-      if (d1ContreSignal) {
-        const structEvt = (parsed.structureEvent || '').toUpperCase();
-        const mssD1Aligne = (isBuyD1 && structEvt === 'MSS_BULLISH') || (!isBuyD1 && structEvt === 'MSS_BEARISH');
-        if (!mssD1Aligne) {
-          const scoreActuel = parseFloat(parsed.score) || 0;
-          const reduction = scoreActuel >= 9 ? 2 : 1;
-          const newScore = Math.max(scoreActuel - reduction, 6); // plancher 6 = score guard min
-          parsed.score = newScore;
-          parsed.protectionsAlertes = (parsed.protectionsAlertes ? parsed.protectionsAlertes + ' | ' : '') +
-            `⚠️ Trade contre D1 ${d1IA} (score réduit ${scoreActuel} → ${newScore})`;
-          console.log('[D1-COHERENCE] ' + (isBuyD1 ? 'BUY' : 'SELL') + ' vs D1=' + d1IA + ' score=' + scoreActuel + ' → ' + newScore);
-        }
-      }
-    }
-
-    // ─── ANTI-PIÈGE RANGE ASIATIQUE (vérification post-IA) ────
+    // ─── ANTI-PIÈGE RANGE ASIATIQUE — AVANT réajustement entrée ──
+    // FIX Bug 6 : doit être vérifié sur l'entrée IA originale, pas sur l'entrée réajustée
     parsed = verifierPiegeRangeAsiatique(parsed);
 
     // ─── RÉAJUSTEMENT AUTO DE L'ENTRÉE (vs prix actuel MetaAPI) ───
     parsed = await reajusterEntreeSiNecessaire(parsed, req.session.userId);
 
     // ─── PROTECTIONS AVANCÉES (RSI extrême + mouvement épuisé + R:R réel) ───
+    // FIX Bug 5 : protections appliquées AVANT le score guard (elles peuvent modifier le score)
     parsed = await verifierProtectionsAvancees(parsed, req.session.userId);
+
+    // ─── GARDE SCORE MINIMUM — après toutes les protections ───────
+    // FIX Bug 5 : le score guard est maintenant APRÈS verifierProtectionsAvancees
+    // qui peut remonter le score au plancher 6. Avant il était avant et tuait des trades valides.
+    {
+      const d1PourGuard = (parsed.tendanceD1 || '').toUpperCase();
+      const isBuyGuard = parsed.decision === 'BUY';
+      const contreD1Guard = (isBuyGuard && d1PourGuard === 'BEARISH') || (!isBuyGuard && d1PourGuard === 'BULLISH');
+      const scoreMinRequisGuard = contreD1Guard ? 7 : 6;
+      if (parsed.decision !== 'NE PAS TRADER' && (parsed.score || 0) < scoreMinRequisGuard) {
+        console.log('[SCORE-GUARD] Score ' + parsed.score + ' < ' + scoreMinRequisGuard + (contreD1Guard ? ' (contre D1)' : '') + ' → NE PAS TRADER');
+        parsed.decision = 'NE PAS TRADER';
+        parsed.scoreGuardAlerte = 'Score trop faible (' + parsed.score + '/10) — minimum ' + scoreMinRequisGuard + ' requis' + (contreD1Guard ? ' (trade contre D1)' : '');
+      }
+    }
 
     // ─── CALCUL LOTS CÔTÉ SERVEUR (avec modes profit) ──────────
     if (capital && parsed.slPips && parsed.decision !== 'NE PAS TRADER') {
@@ -6166,9 +6065,8 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     allFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch(e){} });
     res.status(500).json({ error: 'Erreur: ' + err.message });
   } finally {
-    // ✅ FIX BUG 11 : libérer le slot d'analyse en cours
-    clearTimeout(cleanupTimer);
-    if (global._analysesEnCours) global._analysesEnCours.delete(req.session.userId);
+    // Lock libéré via res.on('finish'/'close') — pas besoin de cleanup ici
+    // (le lock _analysisLocks est nettoyé automatiquement à la fin de la réponse)
   }
 });
 
