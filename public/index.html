@@ -1595,6 +1595,13 @@
       <span class="score-val" id="scoreTxt">—/10</span>
     </div>
 
+    <!-- CONCEPT DÉTECTÉ (fusion ou seul) -->
+    <div id="conceptBox" style="display:none;margin:8px 0;padding:10px 14px;border:1px solid rgba(0,245,255,0.2);border-radius:4px;background:rgba(0,245,255,0.04);">
+      <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:rgba(0,245,255,0.6);margin-bottom:6px;">◈ CONCEPT DÉTECTÉ</div>
+      <div id="conceptNom" style="font-size:13px;font-weight:600;color:#00f5ff;margin-bottom:4px;">—</div>
+      <div id="conceptDetail" style="font-size:11px;color:rgba(255,255,255,0.6);">—</div>
+    </div>
+
     <!-- MODE RISQUE -->
     <div id="modeBox" class="mode-box" style="display:none;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -2534,6 +2541,35 @@ async function analyze(){
     const scEl=document.getElementById('scoreTxt');
     scEl.textContent=sc+'/10';
     scEl.className='score-val '+(sc>=8?'high':sc>=6?'mid':'low');
+
+    // ─── AFFICHAGE CONCEPT DÉTECTÉ ────────────────────────────────
+    const conceptBox = document.getElementById('conceptBox');
+    const conceptNom = document.getElementById('conceptNom');
+    const conceptDetail = document.getElementById('conceptDetail');
+    const concept = d.conceptUtilise || '';
+    if (concept && concept !== 'NONE' && (d.decision === 'BUY' || d.decision === 'SELL')) {
+      const isFusion = concept.includes('+');
+      const labels = concept.split('+').map(c => c.trim());
+      conceptNom.textContent = isFusion
+        ? '🔀 Fusion : ' + labels.join(' + ')
+        : '✅ ' + labels[0];
+      // Récupérer les raisons des concepts utilisés
+      const raisons = (d.conceptsTestes || [])
+        .filter(c => labels.includes(c.nom))
+        .map(c => c.raison)
+        .filter(Boolean)
+        .join(' · ');
+      conceptDetail.textContent = raisons || (isFusion ? 'Confluence multi-concept validée' : 'Concept confirmé');
+      conceptBox.style.display = 'block';
+    } else if (d.decision === 'NE PAS TRADER' && d.conceptsTestes && d.conceptsTestes.length > 0) {
+      // Montrer pourquoi aucun concept n'a passé
+      const meilleur = d.conceptsTestes.sort((a,b) => (b.score||0) - (a.score||0))[0];
+      conceptNom.textContent = '❌ Aucun setup — meilleur : ' + (meilleur.nom || '—') + ' (' + (meilleur.score||0) + '/10)';
+      conceptDetail.textContent = meilleur.raison || 'Pas de confluence suffisante';
+      conceptBox.style.display = 'block';
+    } else {
+      conceptBox.style.display = 'none';
+    }
 
     document.getElementById('tendanceM30').textContent=d.tendance||'—';
     if(document.getElementById('tendanceH1')) document.getElementById('tendanceH1').textContent=d.tendanceH1||'Non fourni';

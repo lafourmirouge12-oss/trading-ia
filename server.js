@@ -5282,51 +5282,67 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     content.push({
       type: 'text',
       text: `═══ MÉTHODE OBLIGATOIRE — SÉLECTION INTELLIGENTE DU MEILLEUR SETUP ═══
-Tu testes MENTALEMENT plusieurs concepts ICT/SMC et tu retournes UNIQUEMENT LE MEILLEUR (score le + élevé).
 
-CONCEPTS À ÉVALUER (donne un score 0-10 à chacun) :
- 1. CRT_KASPER — range asiat + faux breakout + close opposé (meilleur début Londres)
- 2. OTE_FIBO — prix dans 61.8-78.6% retracement + tendance alignée (meilleur en tendance)
- 3. AMD — Accumulation→Manipulation→Distribution (meilleur Londres/NY)
- 4. SWEEP_REVERSAL — sweep liquidité récent + bougie réversal
- 5. SILVER_BULLET — 10h-11h NY uniquement (fenêtre stricte)
- 6. VOLUME_SPIKE — volume 2x+ moyenne sur cassure (confirme breakouts)
- 7. POC_RETEST — prix retest le Point of Control (meilleur en range)
- 8. ORDER_BLOCK_H1 — OB qualité HIGH non mitigé (meilleur sur retracement)
+Tu travailles en 3 phases dans ta tête avant de répondre.
 
-⚠️ DONNÉES MANQUANTES : si tu n'as pas le volume sur les images (VOLUME_SPIKE)
-ou pas de profil volumétrique (POC_RETEST), NE mets PAS un score bas par défaut.
-Marque ces concepts "non évaluable" et juge sur les 6 autres concepts visibles.
-Ne pénalise JAMAIS le score global juste parce qu'un concept est non évaluable.
+━━━ PHASE 1 : TEST INDIVIDUEL ━━━
+Donne un score 0-10 à chaque concept :
+ 1. CRT_KASPER      — range asiatique + faux breakout + close opposé (idéal début Londres)
+ 2. OTE_FIBO        — prix dans 61.8-78.6% retracement + tendance alignée (idéal en tendance)
+ 3. AMD             — Accumulation→Manipulation→Distribution (idéal Londres/NY)
+ 4. SWEEP_REVERSAL  — sweep liquidité récent + bougie réversal + structure alignée
+ 5. SILVER_BULLET   — fenêtre 10h-11h NY UNIQUEMENT (stricte)
+ 6. VOLUME_SPIKE    — volume 2× moyenne sur cassure (si volume visible sinon "non évaluable")
+ 7. POC_RETEST      — retest du Point of Control (si profil visible sinon "non évaluable")
+ 8. ORDER_BLOCK_H1  — OB haute qualité non mitigé + displacement (idéal retracement)
 
-→ Choisis le concept au score le + élevé.
+⚠️ Si volume/POC non visibles sur les images → "non évaluable", pas de score bas par défaut.
 
-═══ LOGIQUE DE CONFLUENCE (IMPORTANT) ═══
-Étape 1 : Si UN concept seul a score >= 6 → trade dessus directement.
+→ Si UN concept seul a score >= 6 : utilise-le directement, passe en Phase 3.
+→ Si AUCUN concept n'atteint 6 seul : PHASE 2 obligatoire.
 
-Étape 2 : Si AUCUN concept seul n'atteint 6, cherche une CONFLUENCE :
-- Identifie 2 ou 3 concepts COMPATIBLES qui ont chacun score >= 4
-- Ils doivent pointer dans le MÊME sens (tous BUY ou tous SELL)
-- Ils doivent viser le MÊME niveau de prix (zone proche, ex ±8$ sur XAUUSD)
-- Combinaisons VALIDES : OTE_FIBO+ORDER_BLOCK_H1 / SWEEP_REVERSAL+CRT_KASPER /
-  AMD+VOLUME_SPIKE / POC_RETEST+OTE_FIBO / ORDER_BLOCK_H1+SWEEP_REVERSAL
-- Combinaisons INTERDITES : SILVER_BULLET+CRT_KASPER (heures opposées),
-  ou tout concept en contradiction de direction.
+━━━ PHASE 2 : FUSION INTELLIGENTE (si aucun concept seul >= 6) ━━━
+Objectif : trouver si une combinaison de signaux faibles forme un setup RÉEL.
 
-Calcul du score combiné en confluence :
-  score_combiné = score du meilleur concept + 1 par concept compatible aligné supplémentaire
-  Exemple : OTE_FIBO(5) + ORDER_BLOCK_H1(5) alignés même zone → 5 + 1 = 6 → TRADE VALIDE
-  Exemple : OTE_FIBO(5) + ORDER_BLOCK(4) + SWEEP(4) alignés → 5 + 2 = 7 → TRADE A
+Règle de fusion — les concepts DOIVENT tous :
+  ✓ Pointer dans le MÊME sens (tous BUY ou tous SELL)
+  ✓ Viser la MÊME zone de prix (±10$ sur XAUUSD, ±15 pips sur forex)
+  ✓ Avoir un score individuel >= 3 (signal faible mais existant)
+  ✓ Être logiquement compatibles (ex: OB + FVG dans la même zone = cohérent)
 
-Étape 3 : Si score_combiné >= 6 → TRADE (indique les concepts dans "conceptUtilise" séparés par +).
-Étape 4 : Si même en confluence le score reste < 6 → "NE PAS TRADER".
+Combinaisons qui ont du sens (logique ICT réelle) :
+  • ORDER_BLOCK + FVG/OTE_FIBO     → OB avec retracement en zone = confluence forte
+  • SWEEP_REVERSAL + ORDER_BLOCK   → sweep + réaction sur OB = setup classique
+  • CRT_KASPER + SWEEP_REVERSAL    → range + sweep en même direction = valide
+  • OTE_FIBO + POC_RETEST          → retracement Fibo + POC au même endroit = fort
+  • AMD + VOLUME_SPIKE             → distribution/accumulation confirmée par volume
+  • ORDER_BLOCK + SWEEP + FVG      → triple confluence ICT = setup premium
 
-RÈGLE D'OR : la confluence sert à détecter de VRAIS setups multi-concepts,
-PAS à forcer un trade. Si les concepts ne sont pas réellement alignés au même
-niveau et même sens, NE COMBINE PAS — dis "NE PAS TRADER".
+Combinaisons INTERDITES (logique contradictoire) :
+  ✗ SILVER_BULLET + CRT_KASPER (fenêtres horaires opposées)
+  ✗ Deux concepts dans des sens opposés (un BUY + un SELL)
+  ✗ Concepts sur des zones distantes > 15$ (pas la même zone)
 
-→ Renseigne "conceptUtilise" et "conceptsTestes" dans le JSON
-→ Pour le scoring final tu utilises le score du concept gagnant OU le score combiné
+Calcul du score fusionné :
+  score_fusion = score_meilleur + (1.5 × nombre_de_concepts_compatibles_supplémentaires)
+  Exemples :
+    OTE_FIBO(5) + ORDER_BLOCK(5) même zone → 5 + 1.5 = 6.5 → TRADE ✅
+    SWEEP(4) + ORDER_BLOCK(4) + FVG(3) même zone → 4 + 1.5 + 1.5 = 7 → TRADE A ✅
+    OTE_FIBO(3) + ORDER_BLOCK(3) → 3 + 1.5 = 4.5 → pas assez, NE PAS TRADER ❌
+    SWEEP(5) + CRT(4) directions opposées → INTERDIT ❌
+
+━━━ PHASE 3 : DÉCISION FINALE ━━━
+  • score >= 6 (concept seul ou fusionné) → TRADE
+  • score 5-5.9 → BORDERLINE (tradable si confluence très claire)
+  • score < 5 même en fusion → NE PAS TRADER
+
+RÈGLE D'OR : la fusion détecte de VRAIS setups multi-signaux, pas une excuse pour forcer un trade.
+Si les concepts ne convergent pas réellement vers la MÊME zone au MÊME moment → NE PAS TRADER.
+Quand tu doutes entre deux directions → NE PAS TRADER.
+
+→ Renseigne "conceptUtilise" avec les concepts séparés par + (ex: "ORDER_BLOCK_H1+OTE_FIBO")
+→ Renseigne "conceptsTestes" avec le score de chaque concept évalué
+→ Pour le scoring final utilise le score du concept gagnant OU le score fusionné
 
 ═══ FORMAT PRIX OBLIGATOIRE PAR INSTRUMENT ═══
 - XAUUSD/Gold : 2 décimales (ex 4710.50)
