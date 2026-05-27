@@ -1779,11 +1779,8 @@ function formatPourPrompt(analyse) {
       conflits.push(`Zone PREMIUM (favorise SELL) MAIS structure M15 = UP sans MSS_BEARISH récent`);
     }
   }
-  if (conflits.length > 0) {
-    txt += `\n⚠️ CONFLIT CONTEXTUEL DÉTECTÉ :\n`;
-    conflits.forEach(c => txt += `  - ${c}\n`);
-    txt += `  → Si tu veux quand même trader, exige un setup A+ avec confluence très forte. Sinon NE PAS TRADER.\n`;
-  }
+  // Conflit zone/structure : on ne le transmet plus à l'IA — elle juge depuis les images seules
+  // (avant ce texte faisait baisser tous les scores quand zone DISCOUNT + structure DOWN)
 
   // ═══ FIBONACCI sur le swing en cours (M15) ═══
   if (analyse.fibonacci) {
@@ -5270,14 +5267,13 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
       }
     }
 
-    // FIX : on NE bloque PLUS automatiquement sur un conflit contextuel.
-    // Avant : NE PAS TRADER direct sans demander à l'IA (bloquait trop, surtout en range).
-    // Maintenant : on signale juste le conflit à l'IA dans le prompt, elle décide.
-    let conflitWarning = '';
+    // CONFLIT CONTEXTUEL : on log pour le debug mais on N'INJECTE PLUS dans le prompt.
+    // L'IA voyait "Zone DISCOUNT mais structure DOWN" et baissait tous ses scores.
+    // Elle doit juger uniquement depuis les images — le conflit zone/structure c'est son boulot.
     if (conflitDetecte) {
-      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — signalé à l IA (pas de blocage auto)');
-      conflitWarning = '\n⚠️ NOTE SERVEUR : ' + raisonConflit + '. Sois prudent mais analyse quand même les images.';
+      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — info seulement, non transmis à l\'IA');
     }
+    const conflitWarning = ''; // toujours vide — on ne biaise plus l'IA avec ça
 
     content.push({
       type: 'text',
@@ -5373,7 +5369,7 @@ Tu es un trader ICT/Smart Money expérimenté qui aide un trader sur ${req.body.
 
 ${blocLecons}${blocSetupsGagnants}${blocPatternErreurs}${blocOBFVG}${blocIndicateurs}
 
-CONTEXTE : ${sessionWarning}${conflitWarning}
+CONTEXTE : ${sessionWarning}
 SESSION : ${sessionActive}
 
 ═══════════════════════════════════════════════════════════════
