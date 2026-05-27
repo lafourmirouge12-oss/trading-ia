@@ -7992,7 +7992,7 @@ app.use((err, req, res, next) => {
   console.error(err.stack);
   if (res.headersSent) return next(err);
   res.status(500).json({
-    error: 'Erreur serveur',
+    error: 'Erreur serveurs',
     message: process.env.NODE_ENV === 'production' ? 'Quelque chose a foiré, réessaie' : err.message
   });
 });
