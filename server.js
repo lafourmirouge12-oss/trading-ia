@@ -3277,8 +3277,8 @@ async function verifierProtectionsAvancees(parsed, userId) {
         // On ne descend JAMAIS sous 6 via les warnings — seul tradeAnnule peut tuer le trade
         const nbAlertesModerees = alertes.length;
         const scoreBase = parsed.score || 6;
-        // Plancher absolu 4 : un pattern ICT parfait avec mauvais contexte reste tradable à 4+
-        // (le score guard fera ensuite le filtrage selon le contexte kill zone / D1 / tilt)
+        // Stocker le score avant réduction pour que le score guard sache qu'on a déjà pénalisé
+        parsed.scoreAvantProtections = scoreBase;
         parsed.score = Math.max(scoreBase - nbAlertesModerees, 6);
         console.log('[PROTECTIONS] Score modéré : ' + scoreBase + ' - ' + nbAlertesModerees + ' alerte(s) = ' + parsed.score);
       }
@@ -3827,7 +3827,7 @@ Réponds UNIQUEMENT en JSON valide :
 }`;
 
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 600,
       messages: [{ role: 'user', content: promptText }]
     });
@@ -4857,7 +4857,7 @@ Réponds UNIQUEMENT en JSON :
 }`;
 
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 600,
       messages: [{
         role: 'user',
@@ -5271,7 +5271,7 @@ Volume décroissant, éviter les entrées tardives. Score minimum 7 requis.`;
     // L'IA voyait "Zone DISCOUNT mais structure DOWN" et baissait tous ses scores.
     // Elle doit juger uniquement depuis les images — le conflit zone/structure c'est son boulot.
     if (conflitDetecte) {
-      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — info seulement, non transmis à l\'IA');
+      console.log('[CONFLIT-CONTEXTUEL] ' + raisonConflit + ' — signalé à l IA (pas de blocage auto)');
     }
     const conflitWarning = ''; // toujours vide — on ne biaise plus l'IA avec ça
 
@@ -5524,7 +5524,7 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
     try {
       response = await Promise.race([
         client.messages.create({
-          model: 'claude-haiku-4-5-20251001',
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 3000,
           system: 'Tu es un assistant trading expert ICT/SMC. Tu utilises systematiquement les concepts: Draw on Liquidity, Premium/Discount, Market Structure Shift, kill zones, Order Block validation. Tu reponds UNIQUEMENT avec du JSON valide, sans aucun texte avant ou apres, sans backticks, sans markdown. Juste le JSON brut commencant par { et finissant par }.',
           messages: [{ role: 'user', content }]
@@ -5818,13 +5818,17 @@ Les autres champs (raisonsPour, raisonsContre, scénarios, validiteMinutes) sont
 
       let scoreMinRequisGuard = 6;
       let raison = '';
+      // FIX : si le score a été réduit par les protections (scoreAvantProtections présent),
+      // on abaisse le seuil OFF_HOURS et contre-D1 à 6 (le score a déjà été pénalisé).
+      // Seul le mode anti-tilt reste strict à 7.5 (sécurité comportementale absolue).
+      const scoreRéduitParProtections = !!(parsed.scoreAvantProtections && parsed.scoreAvantProtections > parsed.score);
       if (isTiltMode) {
         scoreMinRequisGuard = 7.5;
         raison = 'anti-tilt (' + consecutiveLosses + ' pertes aujourd\'hui)';
-      } else if (contreD1Guard) {
+      } else if (contreD1Guard && !scoreRéduitParProtections) {
         scoreMinRequisGuard = 7;
         raison = 'trade contre D1';
-      } else if (isOffHours) {
+      } else if (isOffHours && !scoreRéduitParProtections) {
         scoreMinRequisGuard = 7;
         raison = 'hors kill zone (OFF_HOURS)';
       }
