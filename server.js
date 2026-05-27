@@ -365,17 +365,29 @@ async function resolveSymbolForUser(connection, baseSymbol, serverName) {
   else if (sn.includes('ECN')) suffixes = ['-ECN', '', '-STD', '-VIP', '-PRO'];
   else suffixes = ['', '-STD', '-VIP', '-ECN', '.cash', 'm', '#', '.raw'];
 
-  // Helper : getSymbolPrice avec timeout 3s (évite le blocage sur MetaAPI lent)
+  // Helper : timeout 5s par appel
   const tryPrice = async (candidate) => {
     try {
       const tick = await Promise.race([
         connection.getSymbolPrice(candidate),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
       ]);
       if (tick && tick.bid > 0 && tick.ask > 0) return tick;
     } catch(e) {}
     return null;
   };
+
+  // ─── PRIORITÉ BROKER SPÉCIFIQUE ────────────────────────────────
+  // RaiseGlobal / RaiseFX : le Gold s'appelle 'Gold' (pas XAUUSD)
+  if (sn.includes('RAISE')) {
+    for (const v of ['Gold', 'GOLD', 'gold', 'XAUUSDm', 'XAUUSD.r', 'XAUUSD']) {
+      const tick = await tryPrice(v);
+      if (tick) {
+        console.log('[SYMBOL-RESOLVE] RaiseGlobal : ' + sym + ' → ' + v);
+        return { symbol: v, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
+      }
+    }
+  }
 
   // 1. Essayer le symbole demandé avec suffixes (max 8 tentatives)
   for (const sfx of suffixes) {
@@ -383,8 +395,8 @@ async function resolveSymbolForUser(connection, baseSymbol, serverName) {
     if (tick) return { symbol: sym + sfx, bid: tick.bid, ask: tick.ask, mid: (tick.bid + tick.ask) / 2 };
   }
 
-  // 2. Essayer les alias principaux seulement (top 5, pas tous les 30)
-  const candidates = getSymbolCandidates(sym).slice(0, 5);
+  // 2. Essayer les alias (top 8 pour couvrir Gold, GOLD, XAU...)
+  const candidates = getSymbolCandidates(sym).slice(0, 8);
   for (const cand of candidates) {
     if (cand.toUpperCase() === sym) continue;
     for (const sfx of ['', suffixes[0]].filter(Boolean)) {
