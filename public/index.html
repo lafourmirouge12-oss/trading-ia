@@ -2368,7 +2368,16 @@ async function loadHist(){
   }catch(e){}
 }
 
+let _analyzeRunning = false; // anti double-clic / double-tap mobile
+
 async function analyze(){
+  // Bloquer immédiatement avant tout — même avant la validation des champs
+  if (_analyzeRunning) {
+    console.log('[J4keIA] Analyse déjà en cours — double-clic ignoré');
+    return;
+  }
+  _analyzeRunning = true;
+
   const cap=document.getElementById('capInput').value;
   const fileM30=document.getElementById('fileM30').files[0];
   const fileM15=document.getElementById('fileM15').files[0];
@@ -2380,9 +2389,14 @@ async function analyze(){
     inp.classList.add('err');
     setTimeout(()=>inp.classList.remove('err'),3000);
     alert('Entre ton capital MetaTrader pour calculer le bon lot.');
+    _analyzeRunning = false;
     return;
   }
-  if(!fileM30){alert('Le graphique M30 est obligatoire !');return;}
+  if(!fileM30){
+    alert('Le graphique M30 est obligatoire !');
+    _analyzeRunning = false;
+    return;
+  }
 
   const btn=document.getElementById('analyzeBtn');
   btn.disabled=true;btn.textContent='ANALYSE...';
@@ -2442,6 +2456,7 @@ async function analyze(){
       btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
       document.getElementById('loadBar').classList.remove('on');
       document.getElementById('loadTxt').classList.remove('on');
+      _analyzeRunning = false;
       return;
     }
     if(d.error==='paiement_en_retard'){
@@ -2451,6 +2466,7 @@ async function analyze(){
       btn.textContent='⚠ Impayé';
       document.getElementById('loadBar').classList.remove('on');
       document.getElementById('loadTxt').classList.remove('on');
+      _analyzeRunning = false;
       return;
     }
     if(d.limitReached){window.location.href=d.redirect||'/abonnement.html';return;}
@@ -2460,6 +2476,7 @@ async function analyze(){
       btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
       document.getElementById('loadBar').classList.remove('on');
       document.getElementById('loadTxt').classList.remove('on');
+      _analyzeRunning = false;
       return;
     }
 
@@ -2677,6 +2694,8 @@ async function analyze(){
     btn.disabled=false;btn.textContent='◈ Lancer l\'analyse';
     document.getElementById('loadBar').classList.remove('on');
     document.getElementById('loadTxt').classList.remove('on');
+  } finally {
+    _analyzeRunning = false;
   }
   document.getElementById('loadBar').classList.remove('on');
   document.getElementById('loadTxt').classList.remove('on');
